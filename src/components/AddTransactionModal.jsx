@@ -1,0 +1,591 @@
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useData } from '../context/DataContext';
+import { X, Calendar, DollarSign, Tag, User, AlignLeft, ArrowRight, ArrowRightLeft, Plus, Wallet } from 'lucide-react';
+import UnifiedDropdown from './UnifiedDropdown';
+import UnifiedCalendar from './UnifiedCalendar';
+import ModalWrapper from './ModalWrapper';
+import { formatAmountInput, formatCurrency, getCurrencySymbol } from '../utils/format';
+import { generateId } from '../store/db';
+import './AddTransactionModal.css';
+
+const slideVariants = {
+  enter: (direction) => ({
+    x: direction > 0 ? '100%' : '-100%',
+    opacity: 0,
+    position: 'relative'
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+    position: 'relative'
+  },
+  exit: (direction) => ({
+    x: direction > 0 ? '-100%' : '100%',
+    opacity: 0,
+    position: 'absolute',
+    top: 0, left: 0, right: 0
+  })
+};
+
+function evalMath(input) {
+  try {
+    const clean = String(input).replace(/,/g, '');
+    if (!/^[0-9+\-*/. ()]+$/.test(clean)) return null;
+    // eslint-disable-next-line no-new-func
+    const result = new Function(`return ${clean}`)();
+    return isNaN(result) || !isFinite(result) ? null : result;
+  } catch (e) {
+    return null;
+  }
+}
+
+function formatPreview(num) {
+  if (num === null) return '';
+  return formatCurrency(num);
+}
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 767);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 767);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  return isMobile;
+}
+
+export default function AddTransactionModal({ isOpen, onClose, initialData = null }) {
+  const { addTransaction, updateTransaction, accounts, categories, payees, saveCategory, savePayee } = useData();
+  const isMobile = useIsMobile();
+  
+  const [type, setType] = useState(initialData?.type ?? 0); // 0: expense, 1: income, 2: transfer
+  const [direction, setDirection] = useState(0);
+
+  const handleTypeChange = (newType) => {
+    setDirection(newType > type ? 1 : -1);
+    setType(newType);
+  };
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [payee, setPayee] = useState('');
+  const [note, setNote] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().substring(0,10));
+  
+  const [selectedAccount, setSelectedAccount] = useState(accounts.length > 0 ? accounts[0].name : '');
+  const [selectedTransferTo, setSelectedTransferTo] = useState(accounts.length > 1 ? accounts[1].name : (accounts.length > 0 ? accounts[0].name : ''));
+  const [receivedAmount, setReceivedAmount] = useState('');
+
+  const sourceAccount = accounts.find(a => a.name === selectedAccount) || accounts[0] || {};
+  const destAccount = accounts.find(a => a.name === selectedTransferTo) || accounts[0] || {};
+  const sourceCurrency = sourceAccount.currency || 'PKR';
+  const destCurrency = destAccount.currency || 'PKR';
+  const isCrossCurrency = type === 2 && sourceCurrency !== destCurrency;
+
+  const [activeField, setActiveField] = useState(null); // 'amount', 'category', 'payee', 'note', 'account', 'transferTo'
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+
+  const reset = () => {
+    setType(0);
+    setAmount('');
+    setCategory('');
+    setPayee('');
+    setNote('');
+    setDate(new Date().toISOString().substring(0,10));
+    setSelectedAccount(accounts.length > 0 ? accounts[0].name : '');
+    setSelectedTransferTo(accounts.length > 1 ? accounts[1].name : (accounts.length > 0 ? accounts[0].name : ''));
+    setReceivedAmount('');
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialData) {
+        const isTransfer = initialData.type === 'transfer' || initialData.type === 2;
+        const isIncome = initialData.type === 'income' || initialData.type === 1;
+        const isExpense = initialData.type === 'expense' || initialData.type === 0;
+        
+        setType(isExpense ? 0 : isIncome ? 1 : 2);
+        setAmount(initialData.amount ? Math.abs(initialData.amount).toString() : '0');
+        setCategory(isTransfer ? '' : (initialData.category || ''));
+        setPayee(isTransfer ? '' : (initialData.payee || ''));
+        setNote(initialData.note || '');
+        setDate(initialData.date ? String(initialData.date).substring(0,10) : new Date().toISOString().substring(0,10));
+        setSelectedAccount(initialData.account || (accounts.length > 0 ? accounts[0].name : ''));
+        if (isTransfer) {
+           setSelectedTransferTo(initialData.transferTo || initialData.transferAccount || (accounts.length > 1 ? accounts[1].name : ''));
+           setReceivedAmount(initialData.receivedAmount ? Math.abs(initialData.receivedAmount).toString() : '');
+        } else {
+           setReceivedAmount('');
+        }
+      } else {
+        reset();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialData, accounts]);
+
+  const evalResult = evalMath(amount);
+  const showPreview = amount.match(/[+\-*/]/) && evalResult !== null;
+
+  console.log("[DEBUG] AddTransactionModal Rendering. isOpen:", isOpen, "initialData:", initialData);
+
+  if (!isOpen) {
+    console.log("[DEBUG] AddTransactionModal is not open. Returning null.");
+    return null;
+  }
+
+  console.log("[DEBUG] AddTransactionModal returning JSX! type:", type, "amount:", amount, "category:", category);
+
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    const finalAmount = evalMath(amount);
+    if (finalAmount == null) {
+      alert("Please enter a valid amount.");
+      return;
+    }
+    
+    let dbAmt = Math.abs(finalAmount);
+    let finalCat = category || 'Unspecified';
+    let finalPayee = payee || 'Unspecified';
+    let transferAccount = null;
+
+    if (type === 0) {
+      dbAmt = -dbAmt;
+    } else if (type === 1) {
+      // Income is positive
+    } else {
+      dbAmt = -dbAmt;
+      finalCat = "Transfer";
+      finalPayee = "Transfer to " + selectedTransferTo;
+      transferAccount = selectedTransferTo;
+    }
+
+    const tx = {
+      id: initialData ? initialData.id : generateId(),
+      type: type, // 0 = Expense, 1 = Income, 2 = Transfer
+      amount: dbAmt,
+      category: finalCat,
+      payee: finalPayee,
+      note: note,
+      date: new Date(date).toISOString(),
+      account: selectedAccount,
+      transferTo: transferAccount,
+      currency: sourceCurrency,
+      receivedAmount: isCrossCurrency && receivedAmount ? Math.abs(evalMath(receivedAmount)) : null,
+      updatedAt: new Date().toISOString(),
+      pendingSync: true
+    };
+
+    if (initialData) {
+      await updateTransaction(tx);
+    } else {
+      await addTransaction(tx);
+    }
+    reset();
+    onClose();
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const formatPreview = (val) => {
+    if (val === Math.trunc(val)) return val.toString();
+    return val.toFixed(2);
+  };
+
+  const formatDateShort = (isoString) => {
+    if (!isoString) return '';
+    const parts = isoString.split('-');
+    if (parts.length !== 3) return isoString;
+    const yy = parts[0].slice(2);
+    const mm = parts[1];
+    const dd = parts[2];
+    return `${dd}/${mm}/${yy}`;
+  };
+
+  // Render Mobile Tap Target
+  const CurrencyIcon = ({ size, className, style }) => (
+    <span className={className} style={{ ...style, fontSize: size, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {getCurrencySymbol(sourceCurrency)}
+    </span>
+  );
+  const DestCurrencyIcon = ({ size, className, style }) => (
+    <span className={className} style={{ ...style, fontSize: size, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {getCurrencySymbol(destCurrency)}
+    </span>
+  );
+
+  const renderTapField = (label, value, Icon, fieldName, compact = false) => {
+    const hasValue = value && value.trim().length > 0;
+    const isStacked = compact && label;
+    return (
+      <div className="tap-field" onClick={() => setActiveField(fieldName)} style={compact ? { padding: '12px 10px', gap: '8px' } : {}}>
+        <Icon size={compact ? 16 : 20} className="tap-icon" style={{ flexShrink: 0 }} />
+        <div className="tap-content" style={{ flexDirection: isStacked ? 'column' : 'row', alignItems: isStacked ? 'flex-start' : 'center', gap: isStacked ? '2px' : '8px', overflow: 'hidden' }}>
+          {label && (
+            <span className="tap-label" style={{ fontSize: compact ? '12px' : '15px', margin: 0, fontWeight: 500, whiteSpace: 'nowrap' }}>{label}:</span>
+          )}
+          <span className="tap-value" style={{ fontSize: compact ? '14px' : '15px', margin: 0, fontWeight: hasValue ? 600 : 400, color: hasValue ? 'var(--text-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+            {hasValue ? value : 'Select...'}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <ModalWrapper onClose={handleClose}>
+      <div className="modal-content tx-form-modal glass-panel" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>New Transaction</h2>
+          <button className="close-btn" onClick={handleClose} type="button"><X size={24} /></button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="tx-form">
+          <div className="tx-type-selector" data-type={type}>
+            <button type="button" className={`type-btn ${type === 0 ? 'expense-active' : ''}`} onClick={() => handleTypeChange(0)}>Expense</button>
+            <button type="button" className={`type-btn ${type === 1 ? 'income-active' : ''}`} onClick={() => handleTypeChange(1)}>Income</button>
+            <button type="button" className={`type-btn ${type === 2 ? 'transfer-active' : ''}`} onClick={() => handleTypeChange(2)}>Transfer</button>
+          </div>
+
+          <div className="form-row split-row">
+            <div className="form-group flex-2 relative">
+              <label>Amount ({sourceCurrency})</label>
+              {isMobile ? (
+                <div onClick={() => setActiveField('amount')} style={{ cursor: 'pointer' }}>
+                  <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
+                    <CurrencyIcon size={18} className="input-icon" />
+                    <input type="text" placeholder="e.g. 50+20" value={amount} readOnly />
+                  </div>
+                  {showPreview && <div className="math-preview">= {formatPreview(evalResult)}</div>}
+                </div>
+              ) : (
+                <>
+                  <div className="input-with-icon">
+                    <CurrencyIcon size={18} className="input-icon" />
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 50+20" 
+                      value={amount}
+                      onChange={(e) => setAmount(formatAmountInput(e.target.value))}
+                      required
+                      autoFocus={!isMobile}
+                    />
+                  </div>
+                  {showPreview && <div className="math-preview">= {formatPreview(evalResult)}</div>}
+                </>
+              )}
+            </div>
+
+            <div className="form-group flex-1">
+              <label>Date</label>
+              <div className="input-with-icon" onClick={() => setIsCalendarOpen(true)} style={{ cursor: 'pointer' }}>
+                <Calendar size={18} className="input-icon" />
+                <input type="text" value={formatDateShort(date)} readOnly style={{ cursor: 'pointer', paddingLeft: '34px' }} />
+              </div>
+            </div>
+          </div>
+
+          <AnimatePresence>
+            {isCalendarOpen && (
+              <UnifiedCalendar value={date} onChange={setDate} onClose={() => setIsCalendarOpen(false)} />
+            )}
+          </AnimatePresence>
+
+          {/* Account Selection */}
+          {isMobile ? (
+            type === 2 ? (
+              <div className="form-row split-row" style={{ alignItems: 'flex-end', gap: '8px' }}>
+                <div className="form-group flex-1" style={{ minWidth: 0 }}>
+                  <label>From Account</label>
+                  {renderTapField('', selectedAccount, Wallet, 'account', true)}
+                </div>
+                <div style={{ paddingBottom: '16px', display: 'flex', alignItems: 'center' }}>
+                  <ArrowRight size={16} style={{ color: 'var(--text-secondary)' }} />
+                </div>
+                <div className="form-group flex-1" style={{ minWidth: 0 }}>
+                  <label>Transfer To</label>
+                  {renderTapField('', selectedTransferTo, ArrowRightLeft, 'transferTo', true)}
+                </div>
+              </div>
+            ) : (
+              renderTapField('Account', selectedAccount, Wallet, 'account')
+            )
+          ) : (
+            type === 2 ? (
+              <div className="form-row split-row" style={{ alignItems: 'flex-end', gap: '12px' }}>
+                <div className="form-group flex-1">
+                  <label>From Account</label>
+                  <UnifiedDropdown 
+                    value={selectedAccount}
+                    options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                    onChange={setSelectedAccount}
+                  />
+                </div>
+                <div style={{ paddingBottom: '14px', display: 'flex', alignItems: 'center' }}>
+                  <ArrowRight size={20} style={{ color: 'var(--text-secondary)' }} />
+                </div>
+                <div className="form-group flex-1">
+                  <label>Transfer To</label>
+                  <UnifiedDropdown 
+                    value={selectedTransferTo}
+                    options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                    onChange={setSelectedTransferTo}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="form-group">
+                <label>Account</label>
+                <UnifiedDropdown 
+                  value={selectedAccount}
+                  options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                  onChange={setSelectedAccount}
+                />
+              </div>
+            )
+          )}
+
+          <div 
+            className="dynamic-fields-wrapper"
+            style={{ 
+              height: isMobile ? 
+                      (type === 2 ? (isCrossCurrency ? '100px' : '0px') : '140px') : 
+                      (type === 2 ? (isCrossCurrency ? '80px' : '0px') : '160px'),
+              transition: 'height 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+              position: 'relative'
+            }}
+          >
+            <AnimatePresence initial={false} custom={direction} mode="popLayout">
+              {type === 2 ? (
+                <motion.div
+                  key="transfer"
+                  custom={direction}
+                  variants={slideVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ type: "tween", ease: "easeInOut", duration: 0.25 }}
+                  className="dynamic-fields-content"
+                  style={{ width: '100%' }}
+                >
+                  {isCrossCurrency && (
+                    <div className="form-group" style={{ marginTop: isMobile ? '16px' : '0' }}>
+                      <label>Received Amount ({destCurrency})</label>
+                      {isMobile ? (
+                        renderTapField('Received', receivedAmount, DestCurrencyIcon, 'receivedAmount')
+                      ) : (
+                        <div className="input-with-icon">
+                          <span className="input-icon" style={{ fontSize: '18px', fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>{getCurrencySymbol(destCurrency)}</span>
+                          <input 
+                            type="text" 
+                            placeholder={`e.g. converted to ${destCurrency}`}
+                            value={receivedAmount}
+                            onChange={(e) => setReceivedAmount(formatAmountInput(e.target.value))}
+                            required
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="regular"
+                  custom={direction}
+                  variants={slideVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ type: "tween", ease: "easeInOut", duration: 0.25 }}
+                  className="dynamic-fields-content"
+                  style={{ width: '100%' }}
+                >
+                  {isMobile ? (
+                    <>
+                      {renderTapField("Category", category, Tag, 'category')}
+                      {renderTapField("Payee", payee, User, 'payee')}
+                    </>
+                  ) : (
+                    <>
+                      <div className="form-group">
+                        <label>Category</label>
+                        <div className="input-with-icon" onClick={() => setActiveField('category')}>
+                          <Tag size={18} className="input-icon" />
+                          <input type="text" placeholder="e.g. Groceries" value={category} readOnly style={{ cursor: 'pointer' }} />
+                        </div>
+                      </div>
+                      <div className="form-group">
+                        <label>Payee</label>
+                        <div className="input-with-icon" onClick={() => setActiveField('payee')}>
+                          <User size={18} className="input-icon" />
+                          <input type="text" placeholder="e.g. Whole Foods" value={payee} readOnly style={{ cursor: 'pointer' }} />
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <div className="form-group">
+            <label>Note (Optional)</label>
+            {isMobile ? (
+              <div onClick={() => setActiveField('note')} style={{ cursor: 'pointer' }}>
+                <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
+                  <AlignLeft size={18} className="input-icon" />
+                  <input type="text" placeholder="Details about this transaction..." value={note} readOnly />
+                </div>
+              </div>
+            ) : (
+              <div className="input-with-icon">
+                <AlignLeft size={18} className="input-icon" />
+                <input type="text" placeholder="Details about this transaction..." value={note} onChange={(e) => setNote(e.target.value)} />
+              </div>
+            )}
+          </div>
+
+          <div className="modal-actions">
+            <button type="button" className="cancel-btn" onClick={handleClose}>Cancel</button>
+            <button type="submit" className="submit-btn" style={{ background: 'var(--accent-color)', color: '#fff', border: 'none' }}>
+              Save Transaction
+            </button>
+          </div>
+        </form>
+
+        {activeField && (
+          <PoppedFieldOverlay 
+            field={activeField}
+            onClose={() => setActiveField(null)}
+            items={
+              activeField === 'category' ? categories : 
+              activeField === 'payee' ? payees : 
+              (activeField === 'account' || activeField === 'transferTo') ? accounts : []
+            }
+            initialValue={
+              activeField === 'amount' ? amount :
+              activeField === 'note' ? note :
+              activeField === 'category' ? category :
+              activeField === 'payee' ? payee :
+              activeField === 'account' ? selectedAccount :
+              activeField === 'transferTo' ? selectedTransferTo : ''
+            }
+            onSelect={(val) => {
+              if (activeField === 'category') setCategory(val);
+              if (activeField === 'payee') setPayee(val);
+              if (activeField === 'account') setSelectedAccount(val);
+              if (activeField === 'transferTo') setSelectedTransferTo(val);
+              setActiveField(null);
+            }}
+            onSaveValue={(val) => {
+              if (activeField === 'amount') setAmount(val);
+              if (activeField === 'note') setNote(val);
+              if (activeField === 'category') setCategory(val);
+              if (activeField === 'payee') setPayee(val);
+              if (activeField === 'account') setSelectedAccount(val);
+              if (activeField === 'transferTo') setSelectedTransferTo(val);
+            }}
+            onAdd={async (val) => {
+              if (activeField === 'category') {
+                await saveCategory({ name: val, color: '#6366f1' });
+                setCategory(val);
+              } else if (activeField === 'payee') {
+                await savePayee({ name: val, color: '#10b981' });
+                setPayee(val);
+              }
+              setActiveField(null);
+            }}
+          />
+        )}
+      </div>
+    </ModalWrapper>
+  );
+}
+
+function PoppedFieldOverlay({ field, onClose, items = [], onSelect, onAdd, initialValue, onSaveValue }) {
+  const isAutocomplete = field === 'category' || field === 'payee' || field === 'account' || field === 'transferTo';
+  
+  // Autocomplete starts empty to show all options. Text fields start with initialValue.
+  const [query, setQuery] = useState(isAutocomplete ? '' : (initialValue || ''));
+
+  const filtered = isAutocomplete ? items.filter(item => item.name.toLowerCase().includes(query.toLowerCase())) : [];
+  const exactMatch = isAutocomplete ? items.find(item => item.name.toLowerCase() === query.trim().toLowerCase()) : null;
+
+  // Handle click outside
+  const executeApply = () => {
+    if (!isAutocomplete) {
+      onSaveValue(query);
+      onClose();
+    } else {
+      if (exactMatch) {
+        onSelect(exactMatch.name);
+      } else if (query.trim()) {
+        onSelect(query.trim());
+      } else {
+        onClose(); // Empty query cancels
+      }
+    }
+  };
+
+  const handleBackdropClick = () => {
+    executeApply();
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      executeApply();
+    }
+  };
+
+  return (
+    <div className="popped-overlay" onClick={handleBackdropClick}>
+      <div className="popped-container glass-panel" onClick={e => e.stopPropagation()}>
+        <div className="popped-header">
+          {field === 'account' || field === 'transferTo' ? (
+            <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', padding: '8px', flex: 1 }}>
+              Select Account
+            </div>
+          ) : (
+            <input 
+              className="popped-input"
+              placeholder={
+                field === 'amount' ? 'Enter amount (e.g. 50+20)...' : 
+                field === 'note' ? 'Enter note...' : 
+                `Search or add ${field}...`
+              }
+              value={query}
+              onChange={e => setQuery(field === 'amount' ? formatAmountInput(e.target.value) : e.target.value)}
+              onKeyDown={handleKeyDown}
+              type="text"
+              inputMode={field === 'amount' ? 'decimal' : 'text'}
+              autoFocus
+            />
+          )}
+        </div>
+        
+        {isAutocomplete && (
+          <div className="popped-list">
+            {query.trim() && !exactMatch && (
+              <button className="popped-item add-new-row" onClick={() => onAdd(query.trim())}>
+                <div className="popped-icon-wrap add-icon"><Plus size={18} /></div>
+                <span>Add "{query.trim()}"</span>
+              </button>
+            )}
+            {filtered.map(item => (
+              <button key={item.id} className="popped-item" onClick={() => onSelect(item.name)} type="button">
+                <span>{item.name}</span>
+              </button>
+            ))}
+            {filtered.length === 0 && !query.trim() && (
+              <div className="popped-item" style={{ color: 'var(--text-secondary)' }}>No items found</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

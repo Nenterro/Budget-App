@@ -1,0 +1,327 @@
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin-top: 24px;
+  padding-bottom: 80px;
+}
+
+.total-balance-pill {
+  padding: 32px;
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface-elevated);
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.total-balance-pill .balance-label {
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.total-balance-pill .balance-amount {
+  font-size: 48px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #fff, #a5b4fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
+}
+
+.accounts-scroller {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+}
+.accounts-scroller::-webkit-scrollbar { 
+  display: none;  /* Safari and Chrome */
+}
+
+.account-card {
+  min-width: 200px;
+  flex: 0 0 auto;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--bg-surface-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-card .account-name {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.account-card .account-balance {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dashboard-widgets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.widget-card-wrapper {
+  position: relative;
+  background: var(--bg-surface-elevated);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.widget-card-wrapper > :last-child {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.widget-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.widget-remove-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s, color 0.2s;
+}
+
+.widget-card-wrapper:hover .widget-remove-btn {
+  opacity: 1;
+}
+
+.widget-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.add-widget-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 2px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
+  gap: 16px;
+}
+
+.add-widget-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.add-icon-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.add-widget-card:hover .add-icon-circle {
+  transform: scale(1.1);
+}
+
+@media (min-width: 1024px) {
+  .dashboard-widgets-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .accounts-scroller {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    padding-bottom: 16px;
+  }
+  .accounts-scroller::-webkit-scrollbar {
+    display: block;
+    height: 8px;
+  }
+  .accounts-scroller::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .accounts-scroller::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+  }
+  .accounts-scroller::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4);
+  }
+}
+
+/* Specific Widget Styles */
+.rt-list {
+  display: flex;
+  flex-direction: column;
+}
+.rt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.rt-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.rt-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rt-payee {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+.rt-date {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.rt-amount {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.cf-bar-container {
+  width: 100%;
+  height: 20px;
+  background: rgba(239, 68, 68, 0.2); /* Red base for expense */
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 20px 0;
+}
+.cf-bar-fill {
+  height: 100%;
+  background: #10b981; /* Green fill for income */
+}
+.cf-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.cf-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  letter-spacing: 0.5px;
+}
+.cf-pill-in {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+.cf-pill-out {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.qs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  flex: 1;
+}
+.qs-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 12px 8px;
+  text-align: center;
+  width: 100%;
+}
+.qs-item-wrapper .qs-remove-btn {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+.qs-item-wrapper:hover .qs-remove-btn,
+.qs-item-wrapper:focus-within .qs-remove-btn,
+.qs-item-wrapper:active .qs-remove-btn {
+  opacity: 1;
+}
+.qs-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.qs-value {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.tc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tc-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tc-bar-bg {
+  flex: 1;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  margin: 0 12px;
+  overflow: hidden;
+}
+.tc-bar-fill {
+  height: 100%;
+  background: var(--accent-color);
+  border-radius: 3px;
+}

@@ -1,0 +1,337 @@
+.graphs-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  margin-top: 24px;
+  padding-bottom: 80px;
+}
+
+@media (max-width: 1024px) {
+  .graphs-dashboard {
+    grid-template-columns: 1fr;
+  }
+}
+
+.add-graph-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 2px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  min-height: 350px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
+}
+
+.add-graph-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--accent-color);
+  color: var(--text-primary);
+  transform: translateY(-2px);
+}
+
+.add-graph-icon {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 16px;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.add-graph-card:hover .add-graph-icon {
+  background: rgba(168, 85, 247, 0.2);
+  color: var(--accent-color);
+}
+
+.chart-card {
+  background: rgba(30, 30, 40, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  padding: 24px;
+  min-height: 350px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.chart-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.chart-card-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.chart-card-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.chart-card-remove:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.chart-container {
+  flex: 1;
+  width: 100%;
+  min-height: 250px;
+  position: relative;
+}
+
+/* Add Graph Modal Styles */
+.graph-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.graph-type-list::-webkit-scrollbar {
+  width: 6px;
+}
+.graph-type-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.graph-type-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+@media (max-width: 768px) {
+  .chart-card {
+    min-height: unset;
+  }
+  .custom-pie-container {
+    position: relative;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .custom-pie-chart-area {
+    flex: none;
+    height: 220px;
+    overflow: hidden;
+  }
+  .custom-pie-legend {
+    flex: none;
+    height: auto;
+    max-height: 180px;
+    padding-right: 0;
+  }
+}
+
+.graph-type-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  color: white;
+}
+
+.graph-type-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateX(4px);
+}
+
+.graph-type-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.graph-type-details h4 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.graph-type-details p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Recharts Custom Tooltip */
+.custom-tooltip {
+  background: rgba(20, 20, 30, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.custom-tooltip .label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.custom-tooltip .intro {
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* Custom Pie Chart */
+.custom-pie-container {
+  display: flex;
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  gap: 16px;
+  align-items: center;
+}
+
+.custom-pie-chart-area {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  min-width: 0;
+}
+
+.custom-pie-legend {
+  flex: 1.2;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding-right: 8px;
+}
+
+.custom-pie-legend::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-pie-legend::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-pie-legend::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.pie-legend-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  margin-bottom: 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 36px;
+}
+
+.pie-legend-item.active {
+  /* Dynamic background applied inline, this adds baseline styles */
+}
+
+.pie-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 12px;
+  flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pie-legend-name {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 12px;
+  transition: color 0.2s;
+}
+.pie-legend-item.active .pie-legend-name {
+  color: white;
+  font-weight: 600;
+}
+
+/* Pie Chart SVG Animation Classes */
+@keyframes springExpand {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.08); }
+}
+
+.active-shape-spring {
+  animation: springExpand 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.pie-legend-percent {
+  width: 48px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  margin-right: 12px;
+  transition: color 0.2s;
+}
+.pie-legend-item.active .pie-legend-percent {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.pie-legend-amount {
+  width: 80px;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: font-size 0.2s, color 0.2s;
+}
+
+@media (max-width: 600px) {
+  .custom-pie-container {
+    flex-direction: column;
+    position: relative;
+    height: 400px;
+  }
+  .custom-pie-chart-area {
+    width: 100%;
+    flex: none;
+    height: 200px;
+  }
+  .custom-pie-legend {
+    width: 100%;
+    flex: none;
+    max-height: 180px;
+    padding-right: 0;
+  }
+}

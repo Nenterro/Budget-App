@@ -1,0 +1,102 @@
+.appearance-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.appearance-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 24px;
+}
+
+.appearance-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.appearance-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-subtitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 8px;
+}
+
+.section-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 16px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 16px;
+  transition: all 0.2s;
+}
+
+.theme-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.theme-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.theme-card.active .theme-preview {
+  box-shadow: 0 4px 16px var(--accent-glow);
+  transform: scale(1.05);
+}
+
+.theme-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+}
+
+.theme-card.active .theme-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.custom-card {
+  position: relative;
+  align-items: center;
+  justify-content: center;
+}
+
+.custom-card .theme-preview {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}

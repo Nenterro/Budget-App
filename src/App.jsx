@@ -1,122 +1,74 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import Graphs from './pages/Graphs';
+import Stats from './pages/Stats';
+import Transactions from './pages/Transactions';
+import Settings from './pages/Settings';
+import ManageData from './pages/ManageData';
+import SyncSettings from './pages/SyncSettings';
+import AppearanceSettings, { applyTheme } from './pages/AppearanceSettings';
+import CurrencySettings from './pages/CurrencySettings';
+import Login from './pages/Login';
+import ProtectedRoute from './components/ProtectedRoute';
 
-function App() {
-  const [count, setCount] = useState(0)
+import { SettingsProvider, useAppearanceSettings } from './context/SettingsContext';
+import { AuthProvider } from './context/AuthContext';
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+import { fetchExchangeRates } from './utils/exchange';
+import { useData } from './context/DataContext';
 
-      <div className="ticks"></div>
+function ThemeInit({ children }) {
+  const { activeTheme, customHex, baseCurrency } = useAppearanceSettings();
+  const { setExchangeRates } = useData();
+  
+  useEffect(() => {
+    if (activeTheme) {
+      applyTheme(activeTheme, customHex);
+    }
+  }, [activeTheme, customHex]);
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+  useEffect(() => {
+    async function loadRates() {
+      const rates = await fetchExchangeRates(baseCurrency);
+      if (setExchangeRates) {
+        setExchangeRates(rates);
+      }
+    }
+    loadRates();
+  }, [baseCurrency, setExchangeRates]);
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+  return children;
 }
 
-export default App
+export default function App() {
+  return (
+    <AuthProvider>
+      <SettingsProvider>
+        <ThemeInit>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/" element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route index element={<Dashboard />} />
+                <Route path="graphs" element={<Graphs />} />
+                <Route path="stats" element={<Stats />} />
+                <Route path="transactions" element={<Transactions />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="settings/:type" element={<ManageData />} />
+                <Route path="settings/sync" element={<SyncSettings />} />
+                <Route path="settings/appearance" element={<AppearanceSettings />} />
+                <Route path="settings/currency" element={<CurrencySettings />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </ThemeInit>
+      </SettingsProvider>
+    </AuthProvider>
+  );
+}
