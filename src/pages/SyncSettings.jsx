@@ -25,12 +25,22 @@ export default function SyncSettings() {
     }
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     const formattedUrl = url.trim().replace(/\/$/, '');
     localStorage.setItem('PB_URL', formattedUrl);
     pb.baseUrl = formattedUrl;
-    checkConnection(formattedUrl);
+    setStatus('Detecting...');
+    try {
+      const res = await fetch(`${formattedUrl}/api/health`, { method: 'GET' });
+      if (res.ok) {
+        setStatus('Connected');
+      } else {
+        setStatus('Offline');
+      }
+    } catch(err) {
+      setStatus('Offline');
+    }
   };
 
   const handleManualSync = async () => {

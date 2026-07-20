@@ -12,7 +12,7 @@ export const pb = new PocketBase();
 async function checkUrl(url) {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(`${url}/api/health`, { method: 'GET', signal: controller.signal });
     clearTimeout(timeoutId);
     return res.ok;
