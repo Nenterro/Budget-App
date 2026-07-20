@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Cloud, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { pb, syncAll, connectPocketBase } from '../store/sync';
+import { useData } from '../context/DataContext';
 import './ManageData.css';
 
 export default function SyncSettings() {
@@ -43,11 +44,14 @@ export default function SyncSettings() {
     }
   };
 
+  const { loadData } = useData();
+
   const handleManualSync = async () => {
     if (status !== 'Connected') return;
     setIsSyncing(true);
     try {
       await syncAll();
+      if (loadData) await loadData();
     } catch (err) {
       console.error(err);
     } finally {
