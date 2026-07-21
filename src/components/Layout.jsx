@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal, Wallet } from 'lucide-react';
 import AddTransactionModal from './AddTransactionModal';
 import MoreMenuModal from './MoreMenuModal';
 import './Layout.css';
 
 const NAV_ITEMS = [
   { path: '/', label: 'Home Page', icon: Home },
+  { path: '/budgets', label: 'Budgets', icon: Wallet },
   { path: '/graphs', label: 'Graphs', icon: LineChart },
   { path: '/stats', label: 'Stats', icon: Calculator },
   { path: '/transactions', label: 'Transactions', icon: List },
@@ -65,8 +66,8 @@ function BottomNav({ onOpenAdd, onOpenMore }) {
       <NavLink to="/graphs" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Graphs">
         <LineChart size={24} />
       </NavLink>
-      <NavLink to="/stats" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Stats">
-        <Calculator size={24} />
+      <NavLink to="/budgets" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Budgets">
+        <Wallet size={24} />
       </NavLink>
       
       <div className="fab-container">

@@ -26,6 +26,11 @@ export const settingsStore = localforage.createInstance({
   storeName: 'settings'
 });
 
+export const budgetsStore = localforage.createInstance({
+  name: 'BudgetApp',
+  storeName: 'budgets'
+});
+
 // --- Transactions API ---
 
 export async function getTransactions() {
@@ -103,11 +108,12 @@ export async function deleteItem(store, id) {
 
 // --- Import / Export ---
 export async function exportData() {
-  const data = { transactions: [], categories: [], accounts: [], payees: [] };
+  const data = { transactions: [], categories: [], accounts: [], payees: [], budgets: [] };
   await transactionsStore.iterate(val => { data.transactions.push(val); });
   await categoriesStore.iterate(val => { data.categories.push(val); });
   await accountsStore.iterate(val => { data.accounts.push(val); });
   await payeesStore.iterate(val => { data.payees.push(val); });
+  await budgetsStore.iterate(val => { data.budgets.push(val); });
   return JSON.stringify(data, null, 2);
 }
 
@@ -155,6 +161,7 @@ export async function importData(jsonData) {
     await processItems(categoriesStore, data.categories, 'categories');
     await processItems(accountsStore, data.accounts, 'accounts');
     await processItems(payeesStore, data.payees, 'payees');
+    await processItems(budgetsStore, data.budgets, 'budgets');
 
     if (data.transactions) {
       for (const tx of data.transactions) {

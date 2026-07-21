@@ -120,19 +120,21 @@ export async function syncAll() {
     syncStore(db.accountsStore, 'accounts'),
     syncStore(db.categoriesStore, 'categories'),
     syncStore(db.payeesStore, 'payees'),
-    syncStore(db.settingsStore, 'settings')
+    syncStore(db.settingsStore, 'settings'),
+    syncStore(db.budgetsStore, 'budgets')
   ]);
 }
 
 // Subscribe to real-time events
 export function setupRealtimeSync(onUpdate) {
-  const collections = ['transactions', 'accounts', 'categories', 'payees', 'settings'];
+  const collections = ['transactions', 'accounts', 'categories', 'payees', 'settings', 'budgets'];
   const stores = {
     transactions: db.transactionsStore,
     accounts: db.accountsStore,
     categories: db.categoriesStore,
     payees: db.payeesStore,
-    settings: db.settingsStore
+    settings: db.settingsStore,
+    budgets: db.budgetsStore
   };
 
   collections.forEach(coll => {

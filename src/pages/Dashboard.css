@@ -16,6 +16,7 @@
   background: var(--bg-surface-elevated);
   text-align: center;
   box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  container-type: inline-size;
 }
 
 .total-balance-pill .balance-label {
@@ -28,12 +29,15 @@
 }
 
 .total-balance-pill .balance-amount {
-  font-size: 48px;
+  font-size: clamp(16px, 9vw, 48px); /* Fallback */
+  font-size: clamp(16px, 10cqi, 48px);
+  line-height: 1.1;
   font-weight: 800;
-  background: linear-gradient(135deg, #fff, #a5b4fc);
+  background: linear-gradient(135deg, #fff, var(--accent-color));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   margin: 0;
+  white-space: nowrap;
 }
 
 .accounts-scroller {
@@ -157,7 +161,7 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--accent-glow);
   display: flex;
   align-items: center;
   justify-content: center;

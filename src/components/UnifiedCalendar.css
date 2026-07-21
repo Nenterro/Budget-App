@@ -94,7 +94,7 @@
 .cal-day.today {
   color: var(--accent-color);
   font-weight: 700;
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--accent-glow);
 }
 
 .cal-day.selected {

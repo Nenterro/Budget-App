@@ -18,7 +18,7 @@ import '../pages/Transactions.css'; // For top header styles
 const PERIODS = ['All Time', 'This Month', 'Last Month', 'Last 3 Months', 'This Year', 'Custom Range'];
 
 export default function Dashboard() {
-  const { transactions, accounts, saveAccount, deleteAccount } = useData();
+  const { transactions, accounts, saveAccount, deleteAccount, categories, budgets } = useData();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
 

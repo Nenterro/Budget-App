@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Graphs from './pages/Graphs';
 import Stats from './pages/Stats';
 import Transactions from './pages/Transactions';
+import Budgets from './pages/Budgets';
 import Settings from './pages/Settings';
 import ManageData from './pages/ManageData';
 import SyncSettings from './pages/SyncSettings';
@@ -59,6 +60,7 @@ export default function App() {
                 <Route path="graphs" element={<Graphs />} />
                 <Route path="stats" element={<Stats />} />
                 <Route path="transactions" element={<Transactions />} />
+                <Route path="budgets" element={<Budgets />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="settings/:type" element={<ManageData />} />
                 <Route path="settings/sync" element={<SyncSettings />} />

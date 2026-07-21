@@ -9,6 +9,7 @@ export function DataProvider({ children }) {
   const [accounts, setAccounts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [payees, setPayees] = useState([]);
+  const [budgets, setBudgets] = useState([]);
   const [exchangeRates, setExchangeRates] = useState({});
   const [isLoading, setIsLoading] = useState(true);
 
@@ -25,6 +26,9 @@ export function DataProvider({ children }) {
 
       let pys = await db.getItems(db.payeesStore);
       setPayees(pys);
+
+      let bdgts = await db.getItems(db.budgetsStore);
+      setBudgets(bdgts);
     } catch (err) {
       console.error("Failed to load local database:", err);
     }
@@ -109,7 +113,7 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider value={{ 
-      transactions, accounts, categories, payees, exchangeRates, setExchangeRates, isLoading, loadData,
+      transactions, accounts, categories, payees, budgets, exchangeRates, setExchangeRates, isLoading, loadData,
       addTransaction, updateTransaction, deleteTransaction,
       saveAccount: (item) => updateDataItem(db.accountsStore, item, setAccounts),
       deleteAccount: (id) => deleteDataItem(db.accountsStore, id, setAccounts),
@@ -117,6 +121,8 @@ export function DataProvider({ children }) {
       deleteCategory: (id) => deleteDataItem(db.categoriesStore, id, setCategories),
       savePayee: (item) => updateDataItem(db.payeesStore, item, setPayees),
       deletePayee: (id) => deleteDataItem(db.payeesStore, id, setPayees),
+      saveBudget: (item) => updateDataItem(db.budgetsStore, item, setBudgets),
+      deleteBudget: (id) => deleteDataItem(db.budgetsStore, id, setBudgets),
     }}>
       {children}
     </DataContext.Provider>
