@@ -115,7 +115,16 @@ export function DataProvider({ children }) {
     <DataContext.Provider value={{ 
       transactions, accounts, categories, payees, budgets, exchangeRates, setExchangeRates, isLoading, loadData,
       addTransaction, updateTransaction, deleteTransaction,
-      saveAccount: (item) => updateDataItem(db.accountsStore, item, setAccounts),
+      saveAccount: async (item) => {
+        const isNew = !item.id;
+        await updateDataItem(db.accountsStore, item, setAccounts);
+        if (isNew) {
+          const hasInvestments = categories.some(c => c.name.toLowerCase() === 'investments');
+          if (!hasInvestments) {
+            await updateDataItem(db.categoriesStore, { name: 'Investments', color: '#10b981', iconName: 'TrendingUp' }, setCategories);
+          }
+        }
+      },
       deleteAccount: (id) => deleteDataItem(db.accountsStore, id, setAccounts),
       saveCategory: (item) => updateDataItem(db.categoriesStore, item, setCategories),
       deleteCategory: (id) => deleteDataItem(db.categoriesStore, id, setCategories),
