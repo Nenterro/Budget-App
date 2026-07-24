@@ -237,7 +237,7 @@ export default function Transactions() {
 
                       <div className="tx-right">
                         <div className={`tx-amount ${tx.type === 0 || tx.type === 'expense' ? 'expense' : tx.type === 1 || tx.type === 'income' ? 'income' : 'transfer'}`}>
-                          {getCurrencySymbol(tx.currency)}{formatCurrency(Math.abs(tx.amount))}
+                          {getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency)}{formatCurrency(Math.abs(tx.amount))}
                           {(tx.type === 2 || tx.type === 'transfer') && tx.receivedAmount && (
                             <span style={{ fontSize: '11px', opacity: 0.7, display: 'block', marginTop: '2px', color: 'var(--text-secondary)' }}>
                               → {getCurrencySymbol(accounts.find(a => a.name === tx.transferTo)?.currency)}{formatCurrency(tx.receivedAmount)}
