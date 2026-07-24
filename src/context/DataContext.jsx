@@ -48,15 +48,25 @@ export function DataProvider({ children }) {
 
       const activeUrl = await connectPocketBase();
       if (activeUrl) {
-        const restored = await tryRestoreSession();
-        if (restored) {
-          setUnlocked(true);
+        const recordSet = await db.settingsStore.getItem('appsettings1234');
+        const e2eeEnabled = recordSet?.config?.security?.e2eeEnabled || false;
+
+        if (e2eeEnabled) {
+          const restored = await tryRestoreSession();
+          if (restored) {
+            setUnlocked(true);
+            syncAll().then(() => loadData());
+            unsub = setupRealtimeSync((collection) => {
+              loadData();
+            });
+          } else {
+            setNeedsPin(true);
+          }
+        } else {
           syncAll().then(() => loadData());
           unsub = setupRealtimeSync((collection) => {
             loadData();
           });
-        } else {
-          setNeedsPin(true);
         }
       }
     }

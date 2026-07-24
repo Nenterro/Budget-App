@@ -30,7 +30,8 @@ const DEFAULT_SETTINGS = {
   graphs: { period: 'All Time', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE }, active: [] },
   stats: { period: 'This Month', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE }, active: DEFAULT_STATS },
   transactions: { period: 'All Time', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE } },
-  appearance: { theme: 'purple', customHex: '#6366f1', baseCurrency: 'USD', displayMode: 'unified' }
+  appearance: { theme: 'purple', customHex: '#6366f1', baseCurrency: 'USD', displayMode: 'unified' },
+  security: { e2eeEnabled: false }
 };
 
 const serializeFilters = (filters) => ({
@@ -63,7 +64,8 @@ export function SettingsProvider({ children }) {
             graphs: { ...DEFAULT_SETTINGS.graphs, ...config.graphs, filters: deserializeFilters(config.graphs?.filters) },
             stats: { ...DEFAULT_SETTINGS.stats, ...config.stats, filters: deserializeFilters(config.stats?.filters) },
             transactions: { ...DEFAULT_SETTINGS.transactions, ...config.transactions, filters: deserializeFilters(config.transactions?.filters) },
-            appearance: { ...DEFAULT_SETTINGS.appearance, ...config.appearance }
+            appearance: { ...DEFAULT_SETTINGS.appearance, ...config.appearance },
+            security: { ...DEFAULT_SETTINGS.security, ...config.security }
           });
         }
       } catch (err) {
@@ -82,7 +84,8 @@ export function SettingsProvider({ children }) {
         graphs: { ...newSettings.graphs, filters: serializeFilters(newSettings.graphs.filters) },
         stats: { ...newSettings.stats, filters: serializeFilters(newSettings.stats.filters) },
         transactions: { ...newSettings.transactions, filters: serializeFilters(newSettings.transactions.filters) },
-        appearance: { ...newSettings.appearance }
+        appearance: { ...newSettings.appearance },
+        security: { ...newSettings.security }
       };
 
       const existingRecord = await db.settingsStore.getItem('appsettings1234');
@@ -190,3 +193,21 @@ export const useAppearanceSettings = () => {
     setDisplayMode
   };
 };
+
+export const useSecuritySettings = () => {
+  const context = useContext(SettingsContext);
+  if (!context) throw new Error("useSecuritySettings must be used within SettingsProvider");
+  
+  const { getPageSettings, setPageSettings } = context;
+  const security = getPageSettings('security');
+  
+  const setE2EE = (enabled) => {
+    setPageSettings('security', { ...security, e2eeEnabled: enabled });
+  };
+  
+  return {
+    isE2eeEnabled: security.e2eeEnabled,
+    setE2EE
+  };
+};
+

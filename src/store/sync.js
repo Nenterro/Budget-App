@@ -46,7 +46,10 @@ export async function connectPocketBase() {
 }
 
 export async function syncStore(store, collectionName) {
-  if (!isUnlocked()) return;
+  const record = await db.settingsStore.getItem('appsettings1234');
+  const e2eeEnabled = record?.config?.security?.e2eeEnabled || false;
+
+  if (e2eeEnabled && !isUnlocked()) return;
 
   try {
     const localItems = [];
@@ -61,9 +64,14 @@ export async function syncStore(store, collectionName) {
         delete payload.updatedAt;
         const usersId = (pb.authStore.isValid && pb.authStore.model) ? pb.authStore.model.id : null;
         
-        // Encrypt the payload
-        const encrypted = await encryptPayload(payload);
-        const syncPayload = { encrypted_payload: encrypted };
+        let syncPayload;
+        if (e2eeEnabled) {
+          const encrypted = await encryptPayload(payload);
+          syncPayload = { encrypted_payload: encrypted };
+        } else {
+          syncPayload = { ...payload, encrypted_payload: null };
+        }
+
         if (usersId) syncPayload.users = usersId;
 
         try {
@@ -95,20 +103,24 @@ export async function syncStore(store, collectionName) {
 
     const remoteItems = await pb.collection(collectionName).getFullList({ sort: '-created' });
     for (const remote of remoteItems) {
-      if (!remote.encrypted_payload) continue;
+      let finalRemote = remote;
       
-      try {
-        const decrypted = await decryptPayload(remote.encrypted_payload);
-        // Ensure ID and timestamps are kept from remote
-        decrypted.id = remote.id;
-        
-        const local = await store.getItem(remote.id);
-        if (!local || new Date(remote.updated) > new Date(local.updatedAt || 0)) {
-          const merged = { ...local, ...decrypted, pendingSync: false, updatedAt: remote.updated };
-          await store.setItem(remote.id, merged);
+      if (remote.encrypted_payload) {
+        if (!e2eeEnabled) continue; // Skip encrypted items if we disabled E2EE
+        try {
+          const decrypted = await decryptPayload(remote.encrypted_payload);
+          decrypted.id = remote.id;
+          finalRemote = decrypted;
+        } catch (err) {
+          console.error("Failed to decrypt incoming remote item", remote.id, err);
+          continue;
         }
-      } catch (err) {
-        console.error("Failed to decrypt incoming remote item", remote.id, err);
+      }
+      
+      const local = await store.getItem(remote.id);
+      if (!local || new Date(remote.updated) > new Date(local.updatedAt || 0)) {
+        const merged = { ...local, ...finalRemote, pendingSync: false, updatedAt: remote.updated };
+        await store.setItem(remote.id, merged);
       }
     }
   } catch (error) {
@@ -151,6 +163,10 @@ export function setupRealtimeSync(onUpdate) {
   collections.forEach(coll => {
     pb.collection(coll).subscribe('*', async function (e) {
       const store = stores[coll];
+      
+      const recordSet = await db.settingsStore.getItem('appsettings1234');
+      const e2eeEnabled = recordSet?.config?.security?.e2eeEnabled || false;
+
       if (e.action === 'delete') {
         const item = await store.getItem(e.record.id);
         if (item) {
@@ -158,17 +174,23 @@ export function setupRealtimeSync(onUpdate) {
           await store.setItem(item.id, item);
         }
       } else {
-        if (!e.record.encrypted_payload) return;
-        try {
-          if (!isUnlocked()) return; // Can't decrypt real-time updates if locked
-          const decrypted = await decryptPayload(e.record.encrypted_payload);
-          decrypted.id = e.record.id;
-          const localItem = await store.getItem(e.record.id);
-          const merged = { ...localItem, ...decrypted, pendingSync: false, updatedAt: e.record.updated };
-          await store.setItem(merged.id, merged);
-        } catch (err) {
-          console.error("Failed to decrypt realtime item", err);
+        let finalRecord = e.record;
+        if (e.record.encrypted_payload) {
+          if (!e2eeEnabled) return;
+          try {
+            if (!isUnlocked()) return; 
+            const decrypted = await decryptPayload(e.record.encrypted_payload);
+            decrypted.id = e.record.id;
+            finalRecord = decrypted;
+          } catch (err) {
+            console.error("Failed to decrypt realtime item", err);
+            return;
+          }
         }
+        
+        const localItem = await store.getItem(e.record.id);
+        const merged = { ...localItem, ...finalRecord, pendingSync: false, updatedAt: e.record.updated };
+        await store.setItem(merged.id, merged);
       }
       if (onUpdate) onUpdate(coll);
     }).catch(err => console.warn(`Subscribe error ${coll}:`, err));

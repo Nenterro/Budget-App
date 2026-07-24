@@ -11,6 +11,7 @@ import ManageData from './pages/ManageData';
 import SyncSettings from './pages/SyncSettings';
 import AppearanceSettings, { applyTheme } from './pages/AppearanceSettings';
 import CurrencySettings from './pages/CurrencySettings';
+import SecuritySettings from './pages/SecuritySettings';
 import Login from './pages/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -66,6 +67,7 @@ export default function App() {
                 <Route path="settings/sync" element={<SyncSettings />} />
                 <Route path="settings/appearance" element={<AppearanceSettings />} />
                 <Route path="settings/currency" element={<CurrencySettings />} />
+                <Route path="settings/security" element={<SecuritySettings />} />
               </Route>
             </Routes>
           </BrowserRouter>
