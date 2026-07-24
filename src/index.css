@@ -82,6 +82,15 @@ body {
   }
 }
 
+@media (min-width: 768px) {
+  .page-container::after {
+    content: '';
+    display: block;
+    height: 48px;
+    flex-shrink: 0;
+  }
+}
+
 /* Glassmorphism utility */
 .glass-panel {
   background: rgba(30, 30, 40, 0.7);
