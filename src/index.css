@@ -85,7 +85,7 @@ body {
   .page-container::after {
     content: '';
     display: block;
-    height: 16px;
+    height: 1px;
     flex-shrink: 0;
   }
 }
