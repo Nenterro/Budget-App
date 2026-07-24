@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tag, Wallet, User, Paintbrush, Globe, Database, ChevronRight, Cloud, Upload, Download, LogOut } from 'lucide-react';
+import { Tag, Wallet, User, Paintbrush, Globe, Database, ChevronRight, Cloud, Upload, Download, LogOut, ArrowLeft } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { importData, exportData } from '../store/db';
 import { syncAll } from '../store/sync';
@@ -102,8 +102,11 @@ export default function Settings() {
 
   return (
     <div className="page-container settings-page">
-      <div className="page-header">
-        <h1 className="page-title">Settings</h1>
+      <div className="settings-header">
+        <button className="icon-btn" onClick={() => navigate(sessionStorage.getItem('lastNonSettingsPath') || '/')} title="Go Back">
+          <ArrowLeft size={24} />
+        </button>
+        <h1 className="page-title" style={{ margin: 0 }}>Settings</h1>
       </div>
 
       <motion.div 

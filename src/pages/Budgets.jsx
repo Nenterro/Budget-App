@@ -5,12 +5,13 @@ import { useData } from '../context/DataContext';
 import { useAppearanceSettings } from '../context/SettingsContext';
 import { formatCurrency, getCurrencySymbol, formatAmountInput } from '../utils/format';
 import { calculateBudgets, calculateTotalBalance } from '../utils/budget';
-import { ChevronLeft, ChevronRight, X, AlertCircle, Plus, Repeat, Target, Edit2, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, AlertCircle, Plus, Repeat, Target, Edit2, Trash2, Home } from 'lucide-react';
 import { addMonths, subMonths, format, endOfMonth, parseISO, eachDayOfInterval, getDay } from 'date-fns';
 import { generateId } from '../store/db';
 import UnifiedDropdown from '../components/UnifiedDropdown';
 import ManageGoalsModal from '../components/ManageGoalsModal';
 import EditBudgetModal from '../components/EditBudgetModal';
+import { NavLink } from 'react-router-dom';
 import './Budgets.css';
 
 export default function Budgets() {
@@ -28,24 +29,27 @@ export default function Budgets() {
   const [editingCategory, setEditingCategory] = useState('');
   const [editAmount, setEditAmount] = useState('');
 
-  const { budgetData, totalCash } = useMemo(() => {
-    // Total cash up to the end of the selected month
-    const endDate = endOfMonth(currentDate);
-    const totalCash = calculateTotalBalance(transactions, accounts, exchangeRates, baseCurrency, endDate);
+  const { budgetData, totalCash, globalBudgetData } = useMemo(() => {
+    // Total cash across all time
+    const totalCash = calculateTotalBalance(transactions, accounts, exchangeRates, baseCurrency);
     
     // Budgets for the selected month
     const budgetData = calculateBudgets(transactions, accounts, categories, budgets || [], exchangeRates, baseCurrency, monthStr);
     
-    return { budgetData, totalCash };
-  }, [transactions, accounts, categories, budgets, exchangeRates, baseCurrency, monthStr, currentDate]);
+    // Global budgets for calculating global Ready to Assign
+    const globalBudgetData = calculateBudgets(transactions, accounts, categories, budgets || [], exchangeRates, baseCurrency, '9999-12');
+
+    return { budgetData, totalCash, globalBudgetData };
+  }, [transactions, accounts, categories, budgets, exchangeRates, baseCurrency, monthStr]);
 
   const leftToBudget = useMemo(() => {
     let positiveAvailableSum = 0;
-    budgetData.categories.forEach(c => {
+    globalBudgetData.categories.forEach(c => {
       if (c.available > 0) positiveAvailableSum += c.available;
     });
+
     return totalCash - positiveAvailableSum;
-  }, [totalCash, budgetData]);
+  }, [totalCash, globalBudgetData]);
 
   const handlePrevMonth = () => {
     setDirection(-1);
@@ -131,8 +135,24 @@ export default function Budgets() {
       <div className="budgets-header">
         <h1 className="page-title desktop-only" style={{ margin: 0 }}>Budgets</h1>
         
-        <div className="budgets-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginRight: 'auto', flex: 1, maxWidth: '400px' }}>
+        <div className="budgets-header-controls">
+          <NavLink to="/" className="mobile-only" title="Home" style={{ 
+              background: 'rgba(255, 255, 255, 0.05)', 
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '16px', 
+              width: '44px',
+              height: '44px',
+              flexShrink: 0,
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              color: 'var(--text-secondary)',
+              textDecoration: 'none'
+            }}>
+            <Home size={20} />
+          </NavLink>
           <button 
+            className="icon-btn"
             onClick={() => setIsGoalsModalOpen(true)}
             title="Manage Goals" 
             style={{ 
@@ -215,9 +235,13 @@ export default function Budgets() {
           
           {budgetData.categories
             .filter(cat => cat.assigned !== 0 || cat.target > 0)
-            .map(cat => {
-            const availClass = cat.available > 0 ? 'avail-green' : (cat.available < 0 ? 'avail-red' : 'avail-gray');
+            .map((cat) => {
+            const availClass = cat.available < 0 ? 'negative' : (cat.available > 0 ? 'positive' : 'neutral');
             
+            const totalCatBudget = cat.available + Math.abs(cat.activity);
+            const progressPercent = cat.available < 0 ? 100 : (totalCatBudget > 0 ? Math.min(100, (Math.abs(cat.activity) / totalCatBudget) * 100) : 0);
+            const progressColor = cat.available < 0 ? 'var(--accent-color)' : '#10b981';
+
             return (
               <div key={cat.name} className="category-row">
                 <div className="col-val" data-label="Category" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', paddingRight: '16px' }}>
@@ -281,6 +305,15 @@ export default function Budgets() {
                     </button>
                   </div>
                 </div>
+                <div style={{ width: '100%', gridColumn: '1 / -1', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden', marginTop: '4px' }}>
+                  <div style={{ 
+                    height: '100%', 
+                    width: `${progressPercent}%`, 
+                    background: progressColor,
+                    borderRadius: '2px',
+                    transition: 'width 0.3s ease-out'
+                  }} />
+                </div>
               </div>
             );
           })}
@@ -303,7 +336,6 @@ export default function Budgets() {
             <span style={{ fontSize: '16px', fontWeight: 500, color: 'var(--text-primary)' }}>Assign New Budget</span>
           </div>
         </div>
-        <div style={{ height: '96px' }} className="mobile-only"></div>
       </div>
 
       {isAssignModalOpen && createPortal(

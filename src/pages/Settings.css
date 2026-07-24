@@ -1,8 +1,20 @@
 .settings-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding-bottom: 40px;
+  padding-bottom: 24px;
+}
+
+@media (max-width: 767px) {
+  .settings-page::after {
+    display: none !important;
+  }
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
 .settings-content {

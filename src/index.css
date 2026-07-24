@@ -61,13 +61,25 @@ body {
 }
 
 .page-container {
-  padding: 0;
   width: 100% !important;
   max-width: 100% !important;
   margin: 0;
   min-height: 100vh;
-  padding-bottom: calc(80px + var(--safe-area-bottom));
+  min-height: 100dvh;
+  padding-bottom: 40px;
   animation: pageFadeIn 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@media (max-width: 767px) {
+  .page-container {
+    padding-bottom: var(--safe-area-bottom, 0px);
+  }
+  .page-container::after {
+    content: '';
+    display: block;
+    height: 120px;
+    flex-shrink: 0;
+  }
 }
 
 /* Glassmorphism utility */

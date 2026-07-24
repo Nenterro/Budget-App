@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Settings } from 'lucide-react';
+import { Plus, Filter, Settings, Home } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { NavLink } from 'react-router-dom';
 import ChartCard from '../components/Graphs/ChartCard';
@@ -109,6 +109,9 @@ export default function Graphs() {
         
         <div className="tx-header-actions">
           <div className="tx-controls">
+            <NavLink to="/" className="mobile-only icon-btn" title="Home" style={{ textDecoration: 'none' }}>
+              <Home size={20} />
+            </NavLink>
             <div style={{ flex: '1 1 auto', minWidth: '160px', maxWidth: '250px', marginRight: 'auto' }}>
               <UnifiedDropdown 
                 value={selectedPeriod} 
@@ -133,9 +136,6 @@ export default function Graphs() {
                 <span className="filter-badge"></span>
               )}
             </button>
-            <NavLink to="/settings" className="mobile-only icon-btn" title="Settings" style={{ textDecoration: 'none' }}>
-              <Settings size={20} />
-            </NavLink>
           </div>
         </div>
       </div>

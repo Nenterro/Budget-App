@@ -253,7 +253,7 @@ export default function Dashboard() {
               <div className="account-balance">{getCurrencySymbol(acc.currency)}{formatCurrency(acc.currentBalance)}</div>
             </div>
           ))}
-          <div className="add-widget-card" style={{ minWidth: '140px', minHeight: '100px', flexDirection: 'row', gap: '8px', padding: '0 20px' }} onClick={() => setEditingAccount({ isNew: true })}>
+          <div className="add-widget-card" style={{ flexShrink: 0, minWidth: '140px', minHeight: '100px', flexDirection: 'row', gap: '8px', padding: '0 20px' }} onClick={() => setEditingAccount({ isNew: true })}>
             <div className="add-icon-circle" style={{ width: '40px', height: '40px', color: 'var(--primary-color)' }}><Plus size={20} /></div>
             <span style={{ fontSize: '14px', fontWeight: 500, whiteSpace: 'nowrap' }}>Add Account</span>
           </div>

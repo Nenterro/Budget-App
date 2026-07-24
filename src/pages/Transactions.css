@@ -100,8 +100,7 @@
 .tx-list {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding-bottom: 32px;
+  gap: 16px;
 }
 
 .empty-state {
@@ -195,6 +194,10 @@
   padding: 2px 6px;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
 }
 
 .tx-dot {
@@ -205,6 +208,10 @@
 .tx-account {
   color: var(--text-secondary);
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
 }
 
 .tx-note {
@@ -224,7 +231,7 @@
 }
 
 .tx-amount {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.5px;
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
