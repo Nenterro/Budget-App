@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Shield, AlertTriangle } from 'lucide-react';
 import * as db from '../store/db';
-import { pb, syncAll, setupRealtimeSync, connectPocketBase } from '../store/sync';
-import { isUnlocked, tryRestoreSession, deriveKey, verifyPinWithData } from '../utils/crypto';
+import { pb, syncAll, syncSettings, setupRealtimeSync, connectPocketBase } from '../store/sync';
+import { isUnlocked, tryRestoreSession, deriveKey, verifyPinWithData, hasCachedPin } from '../utils/crypto';
 import PinPad from '../components/PinPad';
 import { useSecuritySettings } from './SettingsContext';
 
@@ -102,92 +102,100 @@ export function DataProvider({ children }) {
     }
   };
 
-  // Load initial data and setup sync
+  // ─── Main Initialization ───
+  // The correct order is:
+  // 1. Connect to PocketBase
+  // 2. Pull remote settings FIRST (so we know E2EE state from cloud)
+  // 3. Reload SettingsContext from the now-updated localforage
+  // 4. Determine E2EE state
+  // 5. If E2EE: try restore cached PIN → if no cached PIN, prompt user
+  // 6. After unlock: full syncAll → loadData
+  // 7. Setup realtime subscriptions
   useEffect(() => {
     let unsub = null;
+    let isMounted = true;
+
     async function init() {
+      // Load whatever local data exists first (may be empty on fresh device)
       await loadData();
       setIsLoading(false);
 
       const activeUrl = await connectPocketBase();
-      if (activeUrl && pb.authStore.isValid) {
-        const usersId = pb.authStore.model?.id;
-        let isRemoteE2ee = false;
+      if (!activeUrl || !pb.authStore.isValid) return;
 
+      // Step 1: Sync settings from PocketBase FIRST
+      await syncSettings();
+
+      // Step 2: Reload SettingsContext so it picks up the remote settings
+      if (reloadSettings) {
+        await reloadSettings();
+      }
+
+      // Step 3: Re-read E2EE state from the now-accurate local settings
+      const settingsRecord = await db.settingsStore.getItem('appsettings1234');
+      const e2eeEnabled = settingsRecord?.config?.security?.e2eeEnabled || false;
+
+      // Also check if remote has encrypted payloads (in case settings config doesn't reflect it)
+      let remoteHasEncrypted = false;
+      if (!e2eeEnabled) {
         try {
-          // Fetch remote settings for this user from PocketBase
-          const remoteSettings = await pb.collection('settings').getFullList({
-            filter: usersId ? `users = "${usersId}"` : ''
-          });
-
-          if (remoteSettings.length > 0) {
-            const remoteSet = remoteSettings[0];
-            if (remoteSet.encrypted_payload) {
-              isRemoteE2ee = true;
-            } else if (remoteSet.config?.security?.e2eeEnabled) {
-              isRemoteE2ee = true;
-            }
-            const mergedSettings = { ...remoteSet, id: 'appsettings1234' };
-            await db.settingsStore.setItem('appsettings1234', mergedSettings);
-          } else {
-            // Check if any remote collection has encrypted records
-            const collections = ['transactions', 'accounts', 'categories', 'payees', 'budgets'];
-            for (const coll of collections) {
-              const items = await pb.collection(coll).getFullList({
-                filter: usersId ? `users = "${usersId}"` : '',
-                sort: '-created'
-              });
-              if (items.some(i => i.encrypted_payload)) {
-                isRemoteE2ee = true;
-                break;
-              }
+          const usersId = pb.authStore.model?.id;
+          const collections = ['transactions', 'accounts', 'categories', 'payees', 'budgets'];
+          for (const coll of collections) {
+            const items = await pb.collection(coll).getList(1, 1, {
+              filter: usersId ? `users = "${usersId}" && encrypted_payload != ""` : `encrypted_payload != ""`
+            });
+            if (items.totalItems > 0) {
+              remoteHasEncrypted = true;
+              break;
             }
           }
         } catch (e) {
-          console.warn("Remote settings fetch warning:", e);
+          // If the filter query fails (field may not exist), ignore
         }
 
-        let recordSet = await db.settingsStore.getItem('appsettings1234');
-        let e2eeEnabled = recordSet?.config?.security?.e2eeEnabled || isRemoteE2ee;
-
-        if (isRemoteE2ee && !recordSet?.config?.security?.e2eeEnabled) {
-          e2eeEnabled = true;
+        if (remoteHasEncrypted) {
+          // Update local settings to reflect E2EE is actually enabled
           const updatedRecord = {
-            ...(recordSet || { id: 'appsettings1234' }),
+            ...(settingsRecord || { id: 'appsettings1234' }),
             config: {
-              ...(recordSet?.config || {}),
-              security: { ...(recordSet?.config?.security || {}), e2eeEnabled: true, hasPromptedE2ee: true }
-            }
+              ...(settingsRecord?.config || {}),
+              security: { ...(settingsRecord?.config?.security || {}), e2eeEnabled: true, hasPromptedE2ee: true }
+            },
+            pendingSync: true
           };
           await db.settingsStore.setItem('appsettings1234', updatedRecord);
-        }
-
-        if (reloadSettings) {
-          await reloadSettings();
-        }
-
-        if (e2eeEnabled) {
-          const restored = await tryRestoreSession();
-          if (restored) {
-            setUnlocked(true);
-            syncAll().then(() => loadData());
-            unsub = setupRealtimeSync((collection) => {
-              loadData();
-            });
-          } else {
-            setNeedsPin(true);
-          }
-        } else {
-          syncAll().then(() => loadData());
-          unsub = setupRealtimeSync((collection) => {
-            loadData();
-          });
+          if (reloadSettings) await reloadSettings();
         }
       }
+
+      const finalE2ee = e2eeEnabled || remoteHasEncrypted;
+
+      if (finalE2ee) {
+        // Try to restore from cached PIN (localStorage)
+        const restored = await tryRestoreSession();
+        if (restored && isMounted) {
+          setUnlocked(true);
+          // Full sync now that we can decrypt
+          await syncAll();
+          await loadData();
+          unsub = setupRealtimeSync(() => loadData());
+        } else if (isMounted) {
+          // No cached PIN — prompt user
+          setNeedsPin(true);
+        }
+      } else {
+        // No E2EE — just sync everything
+        await syncAll();
+        await loadData();
+        unsub = setupRealtimeSync(() => loadData());
+      }
     }
+
     init();
 
     return () => {
+      isMounted = false;
       if (unsub) unsub();
     };
   }, [loadData, reloadSettings]);
@@ -256,10 +264,10 @@ export function DataProvider({ children }) {
       setUnlocked(true);
       setNeedsPin(false);
       
-      syncAll().then(() => loadData());
-      setupRealtimeSync((collection) => {
-        loadData();
-      });
+      // Now that we can decrypt, do a full sync and load
+      await syncAll();
+      await loadData();
+      setupRealtimeSync(() => loadData());
     }
   };
 

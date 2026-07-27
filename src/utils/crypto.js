@@ -28,7 +28,7 @@ export async function deriveKey(pin) {
     },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
-    false, // Do not allow extracting the key material
+    false,
     ["encrypt", "decrypt"]
   );
   
@@ -40,16 +40,18 @@ export function isUnlocked() {
   return cryptoKey !== null;
 }
 
+// Check if a PIN is cached on this device (without deriving or verifying)
+export function hasCachedPin() {
+  return !!(localStorage.getItem('BUDGET_E2EE_PIN') || sessionStorage.getItem('BUDGET_E2EE_PIN'));
+}
+
+// Restore session from cached PIN — just derives the key, no verification.
+// Verification happens naturally when syncAll tries to decrypt records.
 export async function tryRestoreSession() {
   const pin = localStorage.getItem('BUDGET_E2EE_PIN') || sessionStorage.getItem('BUDGET_E2EE_PIN');
-  if (pin) {
-    const isValid = await verifyPinWithData(pin);
-    if (isValid) {
-      return true;
-    } else {
-      lockSession();
-      return false;
-    }
+  if (pin && !cryptoKey) {
+    await deriveKey(pin);
+    return true;
   }
   return cryptoKey !== null;
 }
@@ -73,13 +75,11 @@ export async function encryptPayload(payload) {
     enc.encode(jsonStr)
   );
   
-  // Convert to Base64
   const cipherBytes = new Uint8Array(cipherBuffer);
   const combined = new Uint8Array(iv.length + cipherBytes.length);
   combined.set(iv);
   combined.set(cipherBytes, iv.length);
   
-  // Quick base64 encode
   let binary = '';
   const len = combined.byteLength;
   for (let i = 0; i < len; i++) {
@@ -116,9 +116,13 @@ export async function decryptPayload(encryptedStr) {
   }
 }
 
+// Verify a PIN by attempting to decrypt real encrypted data.
+// Derives the key from the given PIN, then tries to decrypt any
+// encrypted record found locally or remotely.
 export async function verifyPinWithData(pin) {
   await deriveKey(pin);
   
+  // Try local stores first
   const stores = [
     db.settingsStore,
     db.transactionsStore,
@@ -133,7 +137,7 @@ export async function verifyPinWithData(pin) {
     await store.iterate((value) => {
       if (value && value.encrypted_payload) {
         testItem = value;
-        return value;
+        return value; // stop iteration
       }
     });
 
@@ -148,6 +152,7 @@ export async function verifyPinWithData(pin) {
     }
   }
 
+  // Fallback: try remote PocketBase records
   if (pb.baseUrl && pb.authStore.isValid) {
     const collections = ['settings', 'transactions', 'accounts', 'categories', 'payees', 'budgets'];
     const usersId = pb.authStore.model?.id;
@@ -174,5 +179,6 @@ export async function verifyPinWithData(pin) {
     }
   }
 
+  // No encrypted data found anywhere — PIN is accepted (first-time setup)
   return true;
 }
