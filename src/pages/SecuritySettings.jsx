@@ -251,6 +251,18 @@ export default function SecuritySettings() {
             </div>
           )}
         </div>
+
+        {!isE2eeEnabled && (
+          <div style={{ marginTop: '16px', padding: '16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '16px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+            <AlertTriangle size={22} style={{ color: '#ef4444', flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', color: '#ef4444', fontWeight: '600' }}>Privacy Warning</h4>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                With End-to-End Encryption disabled, your transactions and accounts are stored in plain text on the server. The server owner can view your financial data.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {modalMode && (

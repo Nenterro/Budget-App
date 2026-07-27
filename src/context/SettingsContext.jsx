@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS = {
   stats: { period: 'This Month', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE }, active: DEFAULT_STATS },
   transactions: { period: 'All Time', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE } },
   appearance: { theme: 'purple', customHex: '#6366f1', baseCurrency: 'USD', displayMode: 'unified' },
-  security: { e2eeEnabled: false }
+  security: { e2eeEnabled: false, hasPromptedE2ee: false }
 };
 
 const serializeFilters = (filters) => ({
@@ -202,12 +202,18 @@ export const useSecuritySettings = () => {
   const security = getPageSettings('security');
   
   const setE2EE = async (enabled) => {
-    return await setPageSettings('security', { ...security, e2eeEnabled: enabled });
+    return await setPageSettings('security', { ...security, e2eeEnabled: enabled, hasPromptedE2ee: true });
+  };
+
+  const dismissE2EEPrompt = async () => {
+    return await setPageSettings('security', { ...security, hasPromptedE2ee: true });
   };
   
   return {
     isE2eeEnabled: security.e2eeEnabled,
-    setE2EE
+    hasPromptedE2ee: security.hasPromptedE2ee || false,
+    setE2EE,
+    dismissE2EEPrompt
   };
 };
 
