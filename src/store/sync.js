@@ -127,7 +127,11 @@ export async function syncStore(store, collectionName) {
       }
     }
 
-    const remoteItems = await pb.collection(collectionName).getFullList({ sort: '-created' });
+    const fetchOptions = { sort: '-created' };
+    if (usersId) {
+      fetchOptions.filter = `users = "${usersId}"`;
+    }
+    const remoteItems = await pb.collection(collectionName).getFullList(fetchOptions);
     for (const remote of remoteItems) {
       let finalRemote = null;
       
@@ -198,6 +202,11 @@ export function setupRealtimeSync(onUpdate) {
     pb.collection(coll).subscribe('*', async function (e) {
       const store = stores[coll];
       
+      const currentUserId = (pb.authStore.isValid && pb.authStore.model) ? pb.authStore.model.id : null;
+      if (currentUserId && e.record.users && e.record.users !== currentUserId) {
+        return; // Ignore records that belong to another user
+      }
+
       const recordSet = await db.settingsStore.getItem('appsettings1234');
       const e2eeEnabled = recordSet?.config?.security?.e2eeEnabled || false;
 
