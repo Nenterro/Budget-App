@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import { DataProvider } from './context/DataContext'
+import { SettingsProvider } from './context/SettingsContext'
+import { AuthProvider } from './context/AuthContext'
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -29,9 +31,13 @@ class ErrorBoundary extends React.Component {
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
-      <DataProvider>
-        <App />
-      </DataProvider>
+      <AuthProvider>
+        <SettingsProvider>
+          <DataProvider>
+            <App />
+          </DataProvider>
+        </SettingsProvider>
+      </AuthProvider>
     </ErrorBoundary>
   </StrictMode>,
 )

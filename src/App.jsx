@@ -46,33 +46,29 @@ function ThemeInit({ children }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <SettingsProvider>
-        <ThemeInit>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/" element={
-                <ProtectedRoute>
-                  <Layout />
-                </ProtectedRoute>
-              }>
-                <Route index element={<Dashboard />} />
-                <Route path="graphs" element={<Graphs />} />
-                <Route path="stats" element={<Stats />} />
-                <Route path="transactions" element={<Transactions />} />
-                <Route path="budgets" element={<Budgets />} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="settings/:type" element={<ManageData />} />
-                <Route path="settings/sync" element={<SyncSettings />} />
-                <Route path="settings/appearance" element={<AppearanceSettings />} />
-                <Route path="settings/currency" element={<CurrencySettings />} />
-                <Route path="settings/security" element={<SecuritySettings />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </ThemeInit>
-      </SettingsProvider>
-    </AuthProvider>
+    <ThemeInit>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }>
+            <Route index element={<Dashboard />} />
+            <Route path="graphs" element={<Graphs />} />
+            <Route path="stats" element={<Stats />} />
+            <Route path="transactions" element={<Transactions />} />
+            <Route path="budgets" element={<Budgets />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="settings/:type" element={<ManageData />} />
+            <Route path="settings/sync" element={<SyncSettings />} />
+            <Route path="settings/appearance" element={<AppearanceSettings />} />
+            <Route path="settings/currency" element={<CurrencySettings />} />
+            <Route path="settings/security" element={<SecuritySettings />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </ThemeInit>
   );
 }
