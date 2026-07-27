@@ -53,28 +53,28 @@ export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  useEffect(() => {
-    async function loadSettings() {
-      try {
-        const record = await db.settingsStore.getItem('appsettings1234');
-        if (record && record.config) {
-          const config = record.config;
-          setSettings({
-            dashboard: { ...DEFAULT_SETTINGS.dashboard, ...config.dashboard, filters: deserializeFilters(config.dashboard?.filters) },
-            graphs: { ...DEFAULT_SETTINGS.graphs, ...config.graphs, filters: deserializeFilters(config.graphs?.filters) },
-            stats: { ...DEFAULT_SETTINGS.stats, ...config.stats, filters: deserializeFilters(config.stats?.filters) },
-            transactions: { ...DEFAULT_SETTINGS.transactions, ...config.transactions, filters: deserializeFilters(config.transactions?.filters) },
-            appearance: { ...DEFAULT_SETTINGS.appearance, ...config.appearance },
-            security: { ...DEFAULT_SETTINGS.security, ...config.security }
-          });
-        }
-      } catch (err) {
-        console.error("Failed to load settings:", err);
+  const reloadSettings = useCallback(async () => {
+    try {
+      const record = await db.settingsStore.getItem('appsettings1234');
+      if (record && record.config) {
+        const config = record.config;
+        setSettings({
+          dashboard: { ...DEFAULT_SETTINGS.dashboard, ...config.dashboard, filters: deserializeFilters(config.dashboard?.filters) },
+          graphs: { ...DEFAULT_SETTINGS.graphs, ...config.graphs, filters: deserializeFilters(config.graphs?.filters) },
+          stats: { ...DEFAULT_SETTINGS.stats, ...config.stats, filters: deserializeFilters(config.stats?.filters) },
+          transactions: { ...DEFAULT_SETTINGS.transactions, ...config.transactions, filters: deserializeFilters(config.transactions?.filters) },
+          appearance: { ...DEFAULT_SETTINGS.appearance, ...config.appearance },
+          security: { ...DEFAULT_SETTINGS.security, ...config.security }
+        });
       }
-      setIsLoaded(true);
+    } catch (err) {
+      console.error("Failed to load settings:", err);
     }
-    loadSettings();
   }, []);
+
+  useEffect(() => {
+    reloadSettings().then(() => setIsLoaded(true));
+  }, [reloadSettings]);
 
   const updateSettings = useCallback(async (newSettings) => {
     setSettings(newSettings);
@@ -123,7 +123,8 @@ export function SettingsProvider({ children }) {
       getPageSettings,
       setPageSettings,
       settings,
-      updateSettings
+      updateSettings,
+      reloadSettings
     }}>
       {children}
     </SettingsContext.Provider>
@@ -198,7 +199,7 @@ export const useSecuritySettings = () => {
   const context = useContext(SettingsContext);
   if (!context) throw new Error("useSecuritySettings must be used within SettingsProvider");
   
-  const { getPageSettings, setPageSettings } = context;
+  const { getPageSettings, setPageSettings, reloadSettings } = context;
   const security = getPageSettings('security');
   
   const setE2EE = async (enabled) => {
@@ -213,7 +214,8 @@ export const useSecuritySettings = () => {
     isE2eeEnabled: security.e2eeEnabled,
     hasPromptedE2ee: security.hasPromptedE2ee || false,
     setE2EE,
-    dismissE2EEPrompt
+    dismissE2EEPrompt,
+    reloadSettings
   };
 };
 

@@ -42,7 +42,7 @@ export function DataProvider({ children }) {
   const [needsPin, setNeedsPin] = useState(false);
   const [pinInput, setPinInput] = useState('');
 
-  const { isE2eeEnabled, hasPromptedE2ee, setE2EE, dismissE2EEPrompt } = useSecuritySettings();
+  const { isE2eeEnabled, hasPromptedE2ee, setE2EE, dismissE2EEPrompt, reloadSettings } = useSecuritySettings();
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [onboardingPin, setOnboardingPin] = useState('');
   const [onboardingConfirmPin, setOnboardingConfirmPin] = useState('');
@@ -110,9 +110,61 @@ export function DataProvider({ children }) {
       setIsLoading(false);
 
       const activeUrl = await connectPocketBase();
-      if (activeUrl) {
-        const recordSet = await db.settingsStore.getItem('appsettings1234');
-        const e2eeEnabled = recordSet?.config?.security?.e2eeEnabled || false;
+      if (activeUrl && pb.authStore.isValid) {
+        const usersId = pb.authStore.model?.id;
+        let isRemoteE2ee = false;
+
+        try {
+          // Fetch remote settings for this user from PocketBase
+          const remoteSettings = await pb.collection('settings').getFullList({
+            filter: usersId ? `users = "${usersId}"` : ''
+          });
+
+          if (remoteSettings.length > 0) {
+            const remoteSet = remoteSettings[0];
+            if (remoteSet.encrypted_payload) {
+              isRemoteE2ee = true;
+            } else if (remoteSet.config?.security?.e2eeEnabled) {
+              isRemoteE2ee = true;
+            }
+            const mergedSettings = { ...remoteSet, id: 'appsettings1234' };
+            await db.settingsStore.setItem('appsettings1234', mergedSettings);
+          } else {
+            // Check if any remote collection has encrypted records
+            const collections = ['transactions', 'accounts', 'categories', 'payees', 'budgets'];
+            for (const coll of collections) {
+              const items = await pb.collection(coll).getFullList({
+                filter: usersId ? `users = "${usersId}"` : '',
+                sort: '-created'
+              });
+              if (items.some(i => i.encrypted_payload)) {
+                isRemoteE2ee = true;
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Remote settings fetch warning:", e);
+        }
+
+        let recordSet = await db.settingsStore.getItem('appsettings1234');
+        let e2eeEnabled = recordSet?.config?.security?.e2eeEnabled || isRemoteE2ee;
+
+        if (isRemoteE2ee && !recordSet?.config?.security?.e2eeEnabled) {
+          e2eeEnabled = true;
+          const updatedRecord = {
+            ...(recordSet || { id: 'appsettings1234' }),
+            config: {
+              ...(recordSet?.config || {}),
+              security: { ...(recordSet?.config?.security || {}), e2eeEnabled: true, hasPromptedE2ee: true }
+            }
+          };
+          await db.settingsStore.setItem('appsettings1234', updatedRecord);
+        }
+
+        if (reloadSettings) {
+          await reloadSettings();
+        }
 
         if (e2eeEnabled) {
           const restored = await tryRestoreSession();
@@ -138,7 +190,7 @@ export function DataProvider({ children }) {
     return () => {
       if (unsub) unsub();
     };
-  }, [loadData]);
+  }, [loadData, reloadSettings]);
 
 
   const addTransaction = async (tx) => {
