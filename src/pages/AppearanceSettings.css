@@ -54,6 +54,7 @@
   padding: 8px;
   border-radius: 16px;
   transition: all 0.2s;
+  width: 100%;
 }
 
 .theme-card:hover {

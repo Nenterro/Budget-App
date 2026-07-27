@@ -43,7 +43,7 @@ export default function UnifiedColorPicker({ color, onChange, children }) {
   return (
     <div className="unified-color-picker" ref={popoverRef}>
       {children ? (
-        <div onClick={() => setIsOpen(!isOpen)} style={{ cursor: 'pointer' }}>
+        <div onClick={() => setIsOpen(!isOpen)} style={{ cursor: 'pointer', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           {children}
         </div>
       ) : (

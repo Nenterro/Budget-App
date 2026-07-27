@@ -116,24 +116,27 @@ export default function AppearanceSettings() {
             </button>
           ))}
           
-          <div className={`theme-card custom-card ${activeTheme === 'custom' ? 'active' : ''}`}>
-            <UnifiedColorPicker color={customHex} onChange={(c) => handleThemeChange('custom', c)}>
+          <UnifiedColorPicker color={customHex} onChange={(c) => handleThemeChange('custom', c)}>
+            <div 
+              className={`theme-card ${activeTheme === 'custom' ? 'active' : ''}`}
+              onClick={() => {
+                if (activeTheme !== 'custom') {
+                  handleThemeChange('custom', customHex);
+                }
+              }}
+            >
               <div 
                 className="theme-preview" 
-                style={{ background: activeTheme === 'custom' ? generateCustomTheme(customHex).gradient : 'rgba(255, 255, 255, 0.05)', border: activeTheme === 'custom' ? 'none' : '2px dashed rgba(255,255,255,0.2)' }}
-                onClick={() => {
-                  if (activeTheme !== 'custom') {
-                    handleThemeChange('custom', customHex);
-                  }
+                style={{ 
+                  background: activeTheme === 'custom' ? generateCustomTheme(customHex).gradient : 'rgba(255, 255, 255, 0.05)', 
+                  border: activeTheme === 'custom' ? 'none' : '2px dashed rgba(255,255,255,0.2)' 
                 }}
               >
                 {activeTheme === 'custom' ? <Check size={20} color="#fff" /> : <Plus size={20} color="var(--text-secondary)" />}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '8px' }}>
-                <span className="theme-name" onClick={() => handleThemeChange('custom', customHex)}>Custom</span>
-              </div>
-            </UnifiedColorPicker>
-          </div>
+              <span className="theme-name">Custom</span>
+            </div>
+          </UnifiedColorPicker>
         </div>
 
       </div>
