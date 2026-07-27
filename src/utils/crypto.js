@@ -32,6 +32,7 @@ export async function deriveKey(pin) {
     ["encrypt", "decrypt"]
   );
   
+  localStorage.setItem('BUDGET_E2EE_PIN', pin);
   sessionStorage.setItem('BUDGET_E2EE_PIN', pin);
 }
 
@@ -40,16 +41,22 @@ export function isUnlocked() {
 }
 
 export async function tryRestoreSession() {
-  const pin = sessionStorage.getItem('BUDGET_E2EE_PIN');
-  if (pin && !cryptoKey) {
-    await deriveKey(pin);
-    return true;
+  const pin = localStorage.getItem('BUDGET_E2EE_PIN') || sessionStorage.getItem('BUDGET_E2EE_PIN');
+  if (pin) {
+    const isValid = await verifyPinWithData(pin);
+    if (isValid) {
+      return true;
+    } else {
+      lockSession();
+      return false;
+    }
   }
-  return false;
+  return cryptoKey !== null;
 }
 
 export function lockSession() {
   cryptoKey = null;
+  localStorage.removeItem('BUDGET_E2EE_PIN');
   sessionStorage.removeItem('BUDGET_E2EE_PIN');
 }
 
