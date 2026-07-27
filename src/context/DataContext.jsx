@@ -49,10 +49,10 @@ export function DataProvider({ children }) {
   const [isProcessingOnboarding, setIsProcessingOnboarding] = useState(false);
 
   useEffect(() => {
-    if (pb.authStore.isValid && !isE2eeEnabled && !hasPromptedE2ee && onboardingStep === 0) {
+    if (pb.authStore.isValid && !isE2eeEnabled && !hasPromptedE2ee && !needsPin && !unlocked && onboardingStep === 0) {
       setOnboardingStep(1);
     }
-  }, [pb.authStore.isValid, isE2eeEnabled, hasPromptedE2ee, onboardingStep]);
+  }, [pb.authStore.isValid, isE2eeEnabled, hasPromptedE2ee, needsPin, unlocked, onboardingStep]);
 
   const handleSkipOnboarding = async () => {
     await dismissE2EEPrompt();
@@ -270,8 +270,9 @@ export function DataProvider({ children }) {
       setUnlocked(true);
       setNeedsPin(false);
       
-      // Now that we can decrypt, do a full sync and load
+      // Now that we can decrypt, do a full sync and reload settings
       await syncAll();
+      if (reloadSettings) await reloadSettings();
       await loadData();
       setupRealtimeSync((collection) => {
         loadData();
