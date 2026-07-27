@@ -202,12 +202,18 @@ export const useSecuritySettings = () => {
   const security = getPageSettings('security');
   
   const setE2EE = async (enabled) => {
-    return await setPageSettings('security', { ...security, e2eeEnabled: enabled });
+    return await setPageSettings('security', { ...security, e2eeEnabled: enabled, hasPromptedE2ee: true });
+  };
+
+  const dismissE2EEPrompt = async () => {
+    return await setPageSettings('security', { ...security, hasPromptedE2ee: true });
   };
   
   return {
     isE2eeEnabled: security.e2eeEnabled,
-    setE2EE
+    hasPromptedE2ee: security.hasPromptedE2ee || false,
+    setE2EE,
+    dismissE2EEPrompt
   };
 };
 
