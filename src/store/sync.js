@@ -80,6 +80,20 @@ export async function syncStore(store, collectionName) {
         if (e2eeEnabled) {
           const encrypted = await encryptPayload(payload);
           syncPayload = { encrypted_payload: encrypted };
+          
+          // Clear standard plaintext fields on PocketBase so patch update clears old values
+          for (const key of Object.keys(payload)) {
+            if (!['id', 'collectionId', 'collectionName', 'created', 'updated', 'users', 'expand', 'encrypted_payload'].includes(key)) {
+              const val = payload[key];
+              if (typeof val === 'number') {
+                syncPayload[key] = 0;
+              } else if (typeof val === 'boolean') {
+                syncPayload[key] = false;
+              } else {
+                syncPayload[key] = "";
+              }
+            }
+          }
         } else {
           syncPayload = { ...payload, encrypted_payload: "" };
         }
