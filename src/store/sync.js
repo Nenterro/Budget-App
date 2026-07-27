@@ -59,6 +59,18 @@ export async function syncStore(store, collectionName) {
 
     if (localItems.length > 0) {
       for (const item of localItems) {
+        if (item.deleted) {
+          try {
+            if (item.id.length === 15) {
+              await pb.collection(collectionName).delete(item.id);
+            }
+          } catch (err) {
+            console.warn(`PB Delete Error [${collectionName}]:`, err);
+          }
+          await store.removeItem(item.id);
+          continue;
+        }
+
         const payload = { ...item };
         delete payload.pendingSync;
         delete payload.updatedAt;
@@ -176,11 +188,7 @@ export function setupRealtimeSync(onUpdate) {
       const e2eeEnabled = recordSet?.config?.security?.e2eeEnabled || false;
 
       if (e.action === 'delete') {
-        const item = await store.getItem(e.record.id);
-        if (item) {
-          item.deleted = true;
-          await store.setItem(item.id, item);
-        }
+        await store.removeItem(e.record.id);
       } else {
         let finalRecord = e.record;
         if (e.record.encrypted_payload) {
