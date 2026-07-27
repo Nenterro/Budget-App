@@ -42,17 +42,26 @@ export function DataProvider({ children }) {
   const [needsPin, setNeedsPin] = useState(false);
   const [pinInput, setPinInput] = useState('');
 
-  const { isE2eeEnabled, hasPromptedE2ee, setE2EE, dismissE2EEPrompt } = useSecuritySettings();
+  const { isE2eeEnabled, setE2EE } = useSecuritySettings();
+  const [hasSkippedSession, setHasSkippedSession] = useState(
+    () => sessionStorage.getItem('E2EE_SKIPPED_SESSION') === 'true'
+  );
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [onboardingPin, setOnboardingPin] = useState('');
   const [onboardingConfirmPin, setOnboardingConfirmPin] = useState('');
   const [isProcessingOnboarding, setIsProcessingOnboarding] = useState(false);
 
   useEffect(() => {
-    if (pb.authStore.isValid && !isE2eeEnabled && !hasPromptedE2ee && onboardingStep === 0) {
+    if (pb.authStore.isValid && !isE2eeEnabled && !hasSkippedSession && onboardingStep === 0) {
       setOnboardingStep(1);
     }
-  }, [isE2eeEnabled, hasPromptedE2ee, onboardingStep]);
+  }, [pb.authStore.isValid, isE2eeEnabled, hasSkippedSession, onboardingStep]);
+
+  const handleSkipOnboarding = () => {
+    sessionStorage.setItem('E2EE_SKIPPED_SESSION', 'true');
+    setHasSkippedSession(true);
+    setOnboardingStep(0);
+  };
 
   const handleOnboardingPinComplete = async (enteredPin) => {
     if (onboardingStep === 2) {
@@ -252,10 +261,7 @@ export function DataProvider({ children }) {
                 </button>
 
                 <button 
-                  onClick={async () => {
-                    await dismissE2EEPrompt();
-                    setOnboardingStep(0);
-                  }} 
+                  onClick={handleSkipOnboarding} 
                   style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}
                 >
                   Skip for Now
