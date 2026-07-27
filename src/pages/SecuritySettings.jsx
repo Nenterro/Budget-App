@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Lock, Unlock, Key, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Lock, Unlock, Key, AlertTriangle, Edit2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useSecuritySettings } from '../context/SettingsContext';
 import { useData } from '../context/DataContext';
@@ -41,7 +41,7 @@ export default function SecuritySettings() {
     setIsProcessing(true);
     try {
       await deriveKey(pinInput);
-      setE2EE(true);
+      await setE2EE(true);
       await markAllPending();
       await syncAll();
       await loadData();
@@ -67,7 +67,7 @@ export default function SecuritySettings() {
         await deriveKey(pinInput);
       }
       
-      setE2EE(false);
+      await setE2EE(false);
       lockSession(); // Remove key from memory
       await markAllPending();
       await syncAll(); // This will push plaintext and { encrypted_payload: null }
@@ -113,60 +113,55 @@ export default function SecuritySettings() {
   };
 
   return (
-    <div className="page-container">
-      <div className="header-container">
+    <div className="page-container manage-data-page">
+      <div className="manage-header">
         <button className="back-btn" onClick={() => navigate('/settings')} aria-label="Go back">
           <ArrowLeft size={24} />
         </button>
-        <h1 className="page-title">Security & Encryption</h1>
+        <h1>Security & Encryption</h1>
       </div>
 
-      <div className="settings-list">
-        <div className="form-group" style={{ marginBottom: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ padding: '12px', background: isE2eeEnabled ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)', borderRadius: '12px', color: isE2eeEnabled ? '#10b981' : 'var(--text-secondary)' }}>
-                {isE2eeEnabled ? <Lock size={24} /> : <Unlock size={24} />}
+      <div className="manage-content">
+        {pb.authStore.isValid ? (
+          <button className="add-item-btn" onClick={() => openModal(isE2eeEnabled ? 'disable' : 'enable')} style={{ color: isE2eeEnabled ? '#ef4444' : 'var(--accent-color)' }}>
+            {isE2eeEnabled ? <Unlock size={20} /> : <Lock size={20} />} {isE2eeEnabled ? 'Disable Encryption' : 'Enable Encryption'}
+          </button>
+        ) : (
+          <div className="empty-state" style={{ marginTop: '0', background: 'rgba(255,255,255,0.05)', padding: '16px', borderRadius: '16px' }}>
+            Login Required to Toggle Encryption
+          </div>
+        )}
+
+        <div className="data-item-list">
+          <div className="data-item-card" style={{ cursor: 'default' }}>
+            <div className="item-info">
+              <div className="item-icon-wrap" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: isE2eeEnabled ? '#10b981' : 'var(--text-secondary)' }}>
+                {isE2eeEnabled ? <Lock size={20} /> : <Unlock size={20} />}
               </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '16px' }}>End-to-End Encryption</h3>
-                <p style={{ margin: '4px 0 0', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                  {isE2eeEnabled ? 'Your data is encrypted before leaving your device.' : 'Your data is synced in plain text.'}
-                </p>
+              <div className="item-details">
+                <span className="item-name">End-to-End Encryption</span>
+                <span className="item-currency">{isE2eeEnabled ? 'Your data is securely encrypted before leaving your device.' : 'Your data is currently synced to the server in plain text.'}</span>
               </div>
             </div>
-            
-            {pb.authStore.isValid ? (
-              <button 
-                onClick={() => openModal(isE2eeEnabled ? 'disable' : 'enable')}
-                style={{ 
-                  background: isE2eeEnabled ? 'rgba(239,68,68,0.2)' : 'var(--primary-color)', 
-                  color: isE2eeEnabled ? '#ef4444' : 'white',
-                  border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '500'
-                }}
-              >
-                {isE2eeEnabled ? 'Disable' : 'Enable'}
-              </button>
-            ) : (
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Login Required</span>
-            )}
           </div>
-        </div>
 
-        {isE2eeEnabled && pb.authStore.isValid && (
-          <div className="form-group">
-            <button className="submit-btn" onClick={() => openModal('change_pin')} style={{ background: 'rgba(255,255,255,0.05)', color: 'white' }}>
-              <Key size={20} /> Change PIN
-            </button>
-          </div>
-        )}
-        
-        {!pb.authStore.isValid && (
-          <div style={{ padding: '16px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <AlertTriangle size={20} style={{ flexShrink: 0 }} />
-            <p style={{ margin: 0, fontSize: '14px' }}>You must connect to PocketBase and log in before you can manage encryption settings.</p>
-          </div>
-        )}
+          {isE2eeEnabled && pb.authStore.isValid && (
+            <div className="data-item-card">
+              <div className="item-info">
+                <div className="item-icon-wrap" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'white' }}>
+                  <Key size={20} />
+                </div>
+                <div className="item-details">
+                  <span className="item-name">Change PIN</span>
+                  <span className="item-currency">Update your encryption PIN.</span>
+                </div>
+              </div>
+              <div className="item-actions">
+                <button className="action-btn edit" onClick={() => openModal('change_pin')}><Edit2 size={18} /></button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {modalMode && (

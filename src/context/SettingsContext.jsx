@@ -110,7 +110,7 @@ export function SettingsProvider({ children }) {
   }, [settings]);
 
   const setPageSettings = useCallback((page, newPageSettings) => {
-    updateSettings({
+    return updateSettings({
       ...settings,
       [page]: newPageSettings
     });
@@ -201,8 +201,8 @@ export const useSecuritySettings = () => {
   const { getPageSettings, setPageSettings } = context;
   const security = getPageSettings('security');
   
-  const setE2EE = (enabled) => {
-    setPageSettings('security', { ...security, e2eeEnabled: enabled });
+  const setE2EE = async (enabled) => {
+    return await setPageSettings('security', { ...security, e2eeEnabled: enabled });
   };
   
   return {

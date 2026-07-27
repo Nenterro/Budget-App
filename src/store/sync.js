@@ -68,6 +68,12 @@ export async function syncStore(store, collectionName) {
         if (e2eeEnabled) {
           const encrypted = await encryptPayload(payload);
           syncPayload = { encrypted_payload: encrypted };
+          // Explicitly wipe the plain text fields on the server
+          for (const key of Object.keys(payload)) {
+            if (!['id', 'collectionId', 'collectionName', 'created', 'updated', 'users', 'expand'].includes(key)) {
+              syncPayload[key] = null;
+            }
+          }
         } else {
           syncPayload = { ...payload, encrypted_payload: null };
         }
