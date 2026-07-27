@@ -30,7 +30,7 @@ const DEFAULT_SETTINGS = {
   graphs: { period: 'All Time', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE }, active: [] },
   stats: { period: 'This Month', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE }, active: DEFAULT_STATS },
   transactions: { period: 'All Time', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE } },
-  appearance: { theme: 'purple', customHex: '#6366f1', baseCurrency: 'USD', displayMode: 'unified' },
+  appearance: { theme: 'purple', customHex: '#6366f1', baseCurrency: 'PKR', displayMode: 'unified' },
   security: { e2eeEnabled: false, hasPromptedE2ee: false }
 };
 
@@ -187,7 +187,7 @@ export const useAppearanceSettings = () => {
     activeTheme: appearance.theme,
     customHex: appearance.customHex,
     setTheme,
-    baseCurrency: appearance.baseCurrency || 'USD',
+    baseCurrency: appearance.baseCurrency || 'PKR',
     setBaseCurrency,
     displayMode: appearance.displayMode || 'unified',
     setDisplayMode

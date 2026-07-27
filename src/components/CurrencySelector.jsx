@@ -8,7 +8,7 @@ export default function CurrencySelector({ value, onChange, disabled }) {
   const [search, setSearch] = useState('');
   const wrapperRef = useRef(null);
 
-  const selectedCurrency = getCurrencyData(value || 'USD');
+  const selectedCurrency = getCurrencyData(value || 'PKR');
   const [maxHeight, setMaxHeight] = useState(250);
   const [dropDirection, setDropDirection] = useState('down');
 

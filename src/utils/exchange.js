@@ -4,7 +4,7 @@ const CACHE_KEY = 'budget_exchange_rates';
 const CACHE_TIME_KEY = 'budget_exchange_rates_time';
 const CACHE_DURATION = 1000 * 60 * 60 * 12; // 12 hours
 
-export async function fetchExchangeRates(baseCurrency = 'USD') {
+export async function fetchExchangeRates(baseCurrency = 'PKR') {
   try {
     const cached = localStorage.getItem(CACHE_KEY);
     const cachedTime = localStorage.getItem(CACHE_TIME_KEY);

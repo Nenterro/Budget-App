@@ -35,7 +35,7 @@ export const CURRENCIES = [
 ];
 
 export const getCurrencySymbol = (code) => {
-  if (!code) return '$';
+  if (!code) return '₨';
   const c = CURRENCIES.find(x => x.code === code);
   return c ? c.symbol : code;
 };
