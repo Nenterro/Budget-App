@@ -16,8 +16,9 @@ export default function SecuritySettings() {
   
   const [modalMode, setModalMode] = useState(null); // 'enable', 'disable', 'change_pin'
   const [pinStep, setPinStep] = useState(1);
-  const [pinInput, setPinInput] = useState('');
-  const [pinInputConfirm, setPinInputConfirm] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
   const markAllPending = async () => {
@@ -37,48 +38,35 @@ export default function SecuritySettings() {
   const openModal = (mode) => {
     setModalMode(mode);
     setPinStep(1);
-    setPinInput('');
-    setPinInputConfirm('');
+    setCurrentPin('');
+    setNewPin('');
+    setConfirmPin('');
+  };
+
+  const verifyCurrentPin = async (inputPin) => {
+    const activePin = sessionStorage.getItem('BUDGET_E2EE_PIN');
+    if (activePin) {
+      return inputPin === activePin;
+    }
+    try {
+      await deriveKey(inputPin);
+      return true;
+    } catch (e) {
+      return false;
+    }
   };
 
   const handlePinComplete = async (enteredPin) => {
-    if (modalMode === 'enable' || modalMode === 'change_pin') {
-      if (pinStep === 1) {
-        setPinInput(enteredPin);
-        setPinStep(2);
-      } else if (pinStep === 2) {
-        if (enteredPin !== pinInput) {
-          alert("PINs do not match. Please try again.");
-          setPinInput('');
-          setPinInputConfirm('');
-          setPinStep(1);
-          return;
-        }
-
-        setIsProcessing(true);
-        try {
-          await deriveKey(enteredPin);
-          if (modalMode === 'enable') {
-            await setE2EE(true);
-          }
-          await markAllPending();
-          await syncAll();
-          await loadData();
-          setModalMode(null);
-          alert(modalMode === 'enable' ? "End-to-End Encryption Enabled!" : "PIN Changed Successfully!");
-        } catch (err) {
-          console.error(err);
-          alert("Operation failed.");
-        } finally {
-          setIsProcessing(false);
-        }
+    if (modalMode === 'disable') {
+      const isValid = await verifyCurrentPin(enteredPin);
+      if (!isValid) {
+        alert("Incorrect current PIN. Access denied.");
+        setCurrentPin('');
+        return;
       }
-    } else if (modalMode === 'disable') {
+
       setIsProcessing(true);
       try {
-        if (!isUnlocked()) {
-          await deriveKey(enteredPin);
-        }
         await setE2EE(false);
         lockSession();
         await markAllPending();
@@ -92,7 +80,125 @@ export default function SecuritySettings() {
       } finally {
         setIsProcessing(false);
       }
+    } else if (modalMode === 'change_pin') {
+      if (pinStep === 1) {
+        const isValid = await verifyCurrentPin(enteredPin);
+        if (!isValid) {
+          alert("Incorrect current PIN. Access denied.");
+          setCurrentPin('');
+          return;
+        }
+        setCurrentPin(enteredPin);
+        setPinStep(2);
+      } else if (pinStep === 2) {
+        setNewPin(enteredPin);
+        setPinStep(3);
+      } else if (pinStep === 3) {
+        if (enteredPin !== newPin) {
+          alert("New PINs do not match. Please try again.");
+          setNewPin('');
+          setConfirmPin('');
+          setPinStep(2);
+          return;
+        }
+
+        setIsProcessing(true);
+        try {
+          await deriveKey(enteredPin);
+          await markAllPending();
+          await syncAll();
+          await loadData();
+          setModalMode(null);
+          alert("PIN Changed Successfully!");
+        } catch (err) {
+          console.error(err);
+          alert("Failed to change PIN.");
+        } finally {
+          setIsProcessing(false);
+        }
+      }
+    } else if (modalMode === 'enable') {
+      if (pinStep === 1) {
+        setNewPin(enteredPin);
+        setPinStep(2);
+      } else if (pinStep === 2) {
+        if (enteredPin !== newPin) {
+          alert("PINs do not match. Please try again.");
+          setNewPin('');
+          setConfirmPin('');
+          setPinStep(1);
+          return;
+        }
+
+        setIsProcessing(true);
+        try {
+          await deriveKey(enteredPin);
+          await setE2EE(true);
+          await markAllPending();
+          await syncAll();
+          await loadData();
+          setModalMode(null);
+          alert("End-to-End Encryption Enabled!");
+        } catch (err) {
+          console.error(err);
+          alert("Failed to enable E2EE.");
+        } finally {
+          setIsProcessing(false);
+        }
+      }
     }
+  };
+
+  const getPinPadProps = () => {
+    if (modalMode === 'disable') {
+      return {
+        value: currentPin,
+        onChange: setCurrentPin,
+        title: 'Enter Current PIN',
+        subtitle: 'Enter your current 4-digit PIN to disable encryption.'
+      };
+    }
+    if (modalMode === 'change_pin') {
+      if (pinStep === 1) {
+        return {
+          value: currentPin,
+          onChange: setCurrentPin,
+          title: 'Enter Current PIN',
+          subtitle: 'Enter your current 4-digit PIN to authorize changing PIN.'
+        };
+      }
+      if (pinStep === 2) {
+        return {
+          value: newPin,
+          onChange: setNewPin,
+          title: 'Enter New PIN',
+          subtitle: 'Enter a new 4-digit PIN.'
+        };
+      }
+      return {
+        value: confirmPin,
+        onChange: setConfirmPin,
+        title: 'Confirm New PIN',
+        subtitle: 'Re-enter your new 4-digit PIN to confirm.'
+      };
+    }
+    if (modalMode === 'enable') {
+      if (pinStep === 1) {
+        return {
+          value: newPin,
+          onChange: setNewPin,
+          title: 'Set Encryption PIN',
+          subtitle: 'Enter a 4-digit PIN to encrypt your data.'
+        };
+      }
+      return {
+        value: confirmPin,
+        onChange: setConfirmPin,
+        title: 'Confirm PIN',
+        subtitle: 'Re-enter your 4-digit PIN to confirm.'
+      };
+    }
+    return {};
   };
 
   return (
@@ -160,18 +266,8 @@ export default function SecuritySettings() {
             </button>
             
             <PinPad 
-              value={pinStep === 1 ? pinInput : pinInputConfirm}
-              onChange={pinStep === 1 ? setPinInput : setPinInputConfirm}
+              {...getPinPadProps()}
               onSubmit={handlePinComplete}
-              title={
-                modalMode === 'enable' ? (pinStep === 1 ? 'Set Encryption PIN' : 'Confirm PIN') :
-                modalMode === 'change_pin' ? (pinStep === 1 ? 'Enter New PIN' : 'Confirm New PIN') :
-                'Disable Encryption'
-              }
-              subtitle={
-                modalMode === 'disable' ? 'Enter your 4-digit PIN to disable encryption.' :
-                pinStep === 1 ? 'Enter a 4-digit PIN to encrypt your data.' : 'Re-enter your 4-digit PIN to confirm.'
-              }
             />
 
             {isProcessing && (
