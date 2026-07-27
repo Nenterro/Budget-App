@@ -68,14 +68,8 @@ export async function syncStore(store, collectionName) {
         if (e2eeEnabled) {
           const encrypted = await encryptPayload(payload);
           syncPayload = { encrypted_payload: encrypted };
-          // Explicitly wipe the plain text fields on the server
-          for (const key of Object.keys(payload)) {
-            if (!['id', 'collectionId', 'collectionName', 'created', 'updated', 'users', 'expand'].includes(key)) {
-              syncPayload[key] = null;
-            }
-          }
         } else {
-          syncPayload = { ...payload, encrypted_payload: null };
+          syncPayload = { ...payload, encrypted_payload: "" };
         }
 
         if (usersId) syncPayload.users = usersId;
@@ -109,7 +103,7 @@ export async function syncStore(store, collectionName) {
 
     const remoteItems = await pb.collection(collectionName).getFullList({ sort: '-created' });
     for (const remote of remoteItems) {
-      let finalRemote = remote;
+      let finalRemote = null;
       
       if (remote.encrypted_payload) {
         if (!e2eeEnabled) continue; // Skip encrypted items if we disabled E2EE
@@ -121,8 +115,16 @@ export async function syncStore(store, collectionName) {
           console.error("Failed to decrypt incoming remote item", remote.id, err);
           continue;
         }
+      } else {
+        if (e2eeEnabled) {
+          // E2EE is enabled but remote item has no encrypted_payload; do not pull/overwrite local
+          continue;
+        }
+        finalRemote = remote;
       }
       
+      if (!finalRemote) continue;
+
       const local = await store.getItem(remote.id);
       if (!local || new Date(remote.updated) > new Date(local.updatedAt || 0)) {
         const merged = { ...local, ...finalRemote, pendingSync: false, updatedAt: remote.updated };
