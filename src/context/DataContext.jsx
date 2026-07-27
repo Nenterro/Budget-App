@@ -179,7 +179,10 @@ export function DataProvider({ children }) {
           // Full sync now that we can decrypt
           await syncAll();
           await loadData();
-          unsub = setupRealtimeSync(() => loadData());
+          unsub = setupRealtimeSync((collection) => {
+            loadData();
+            if (collection === 'settings' && reloadSettings) reloadSettings();
+          });
         } else if (isMounted) {
           // No cached PIN — prompt user
           setNeedsPin(true);
@@ -188,7 +191,10 @@ export function DataProvider({ children }) {
         // No E2EE — just sync everything
         await syncAll();
         await loadData();
-        unsub = setupRealtimeSync(() => loadData());
+        unsub = setupRealtimeSync((collection) => {
+          loadData();
+          if (collection === 'settings' && reloadSettings) reloadSettings();
+        });
       }
     }
 
@@ -267,7 +273,10 @@ export function DataProvider({ children }) {
       // Now that we can decrypt, do a full sync and load
       await syncAll();
       await loadData();
-      setupRealtimeSync(() => loadData());
+      setupRealtimeSync((collection) => {
+        loadData();
+        if (collection === 'settings' && reloadSettings) reloadSettings();
+      });
     }
   };
 
