@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import * as db from '../store/db';
 import { pb, syncAll, setupRealtimeSync, connectPocketBase } from '../store/sync';
 import { isUnlocked, tryRestoreSession, deriveKey } from '../utils/crypto';
+import PinPad from '../components/PinPad';
 
 const DataContext = createContext(null);
 
@@ -129,10 +130,9 @@ export function DataProvider({ children }) {
     syncAll();
   };
 
-  const handlePinSubmit = async (e) => {
-    e.preventDefault();
-    if (pinInput.length === 4) {
-      await deriveKey(pinInput);
+  const handlePinSubmit = async (enteredPin) => {
+    if (enteredPin.length === 4) {
+      await deriveKey(enteredPin);
       setUnlocked(true);
       
       syncAll().then(() => loadData());
@@ -167,23 +167,15 @@ export function DataProvider({ children }) {
       {children}
       {needsPin && !unlocked && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(20,20,25,0.95)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <form onSubmit={handlePinSubmit} className="glass-panel" style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>
-            <h2 style={{ margin: 0, fontSize: '20px' }}>Enter E2EE PIN</h2>
-            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)', textAlign: 'center', maxWidth: '250px' }}>
-              Your data is encrypted. Enter your 4-digit PIN to sync and unlock.
-            </p>
-            <input 
-              type="password" 
-              maxLength="4" 
-              value={pinInput} 
-              onChange={e => setPinInput(e.target.value.replace(/[^0-9]/g, ''))}
-              style={{ width: '100px', textAlign: 'center', letterSpacing: '8px', fontSize: '24px', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', color: 'white' }}
-              autoFocus
+          <div className="glass-panel" style={{ padding: '32px', borderRadius: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <PinPad 
+              value={pinInput}
+              onChange={setPinInput}
+              onSubmit={handlePinSubmit}
+              title="Enter E2EE PIN"
+              subtitle="Your data is encrypted. Enter your 4-digit PIN to sync and unlock."
             />
-            <button type="submit" disabled={pinInput.length !== 4} className="submit-btn bg-primary" style={{ width: '100%' }}>
-              Unlock Vault
-            </button>
-          </form>
+          </div>
         </div>
       )}
     </DataContext.Provider>
