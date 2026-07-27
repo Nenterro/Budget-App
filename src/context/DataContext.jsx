@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import { Shield, AlertTriangle } from 'lucide-react';
 import * as db from '../store/db';
 import { pb, syncAll, setupRealtimeSync, connectPocketBase } from '../store/sync';
-import { isUnlocked, tryRestoreSession, deriveKey } from '../utils/crypto';
+import { isUnlocked, tryRestoreSession, deriveKey, verifyPinWithData } from '../utils/crypto';
 import PinPad from '../components/PinPad';
 import { useSecuritySettings } from './SettingsContext';
 
@@ -194,8 +194,15 @@ export function DataProvider({ children }) {
 
   const handlePinSubmit = async (enteredPin) => {
     if (enteredPin.length === 4) {
-      await deriveKey(enteredPin);
+      const isValid = await verifyPinWithData(enteredPin);
+      if (!isValid) {
+        alert("Incorrect PIN. Access Denied.");
+        setPinInput('');
+        return;
+      }
+
       setUnlocked(true);
+      setNeedsPin(false);
       
       syncAll().then(() => loadData());
       setupRealtimeSync((collection) => {

@@ -3,7 +3,7 @@ import { ArrowLeft, Lock, Unlock, Key, AlertTriangle, Edit2, X } from 'lucide-re
 import { useNavigate } from 'react-router-dom';
 import { useSecuritySettings } from '../context/SettingsContext';
 import { useData } from '../context/DataContext';
-import { deriveKey, lockSession, isUnlocked } from '../utils/crypto';
+import { deriveKey, lockSession, isUnlocked, verifyPinWithData } from '../utils/crypto';
 import * as db from '../store/db';
 import { syncAll, pb } from '../store/sync';
 import PinPad from '../components/PinPad';
@@ -44,16 +44,7 @@ export default function SecuritySettings() {
   };
 
   const verifyCurrentPin = async (inputPin) => {
-    const activePin = sessionStorage.getItem('BUDGET_E2EE_PIN');
-    if (activePin) {
-      return inputPin === activePin;
-    }
-    try {
-      await deriveKey(inputPin);
-      return true;
-    } catch (e) {
-      return false;
-    }
+    return await verifyPinWithData(inputPin);
   };
 
   const handlePinComplete = async (enteredPin) => {

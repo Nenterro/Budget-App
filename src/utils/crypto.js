@@ -1,3 +1,6 @@
+import * as db from '../store/db';
+import { pb } from '../store/sync';
+
 // AES-GCM 256 Encryption using Web Crypto API
 
 // We use a constant salt so the same 4-digit PIN derives the same key across different devices.
@@ -29,9 +32,6 @@ export async function deriveKey(pin) {
     ["encrypt", "decrypt"]
   );
   
-  // Save an indicator to session storage so we know it's unlocked for this session,
-  // but we can't save the CryptoKey object easily. Instead, we can just save the PIN in sessionStorage
-  // so it persists across page reloads in the same tab, restoring the key automatically.
   sessionStorage.setItem('BUDGET_E2EE_PIN', pin);
 }
 
@@ -107,4 +107,65 @@ export async function decryptPayload(encryptedStr) {
     console.error("Failed to decrypt payload:", e);
     throw new Error("Decryption failed. Incorrect PIN or corrupted data.");
   }
+}
+
+export async function verifyPinWithData(pin) {
+  await deriveKey(pin);
+  
+  const stores = [
+    db.settingsStore,
+    db.transactionsStore,
+    db.accountsStore,
+    db.categoriesStore,
+    db.payeesStore,
+    db.budgetsStore
+  ];
+  
+  for (const store of stores) {
+    let testItem = null;
+    await store.iterate((value) => {
+      if (value && value.encrypted_payload) {
+        testItem = value;
+        return value;
+      }
+    });
+
+    if (testItem && testItem.encrypted_payload) {
+      try {
+        await decryptPayload(testItem.encrypted_payload);
+        return true;
+      } catch (e) {
+        lockSession();
+        return false;
+      }
+    }
+  }
+
+  if (pb.baseUrl && pb.authStore.isValid) {
+    const collections = ['settings', 'transactions', 'accounts', 'categories', 'payees', 'budgets'];
+    const usersId = pb.authStore.model?.id;
+    for (const coll of collections) {
+      try {
+        const remoteItems = await pb.collection(coll).getFullList({ 
+          filter: usersId ? `users = "${usersId}"` : '',
+          sort: '-created'
+        });
+        for (const remote of remoteItems) {
+          if (remote.encrypted_payload) {
+            try {
+              await decryptPayload(remote.encrypted_payload);
+              return true;
+            } catch (e) {
+              lockSession();
+              return false;
+            }
+          }
+        }
+      } catch (e) {
+        // Skip network errors
+      }
+    }
+  }
+
+  return true;
 }
