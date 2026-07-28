@@ -92,6 +92,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   const [isCrossCurrency, setIsCrossCurrency] = useState(false);
   
   const [activeSplitIndex, setActiveSplitIndex] = useState(0);
+  const [touchStart, setTouchStart] = useState(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   const reset = () => {
@@ -244,6 +245,25 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   const handleClose = () => {
     reset();
     onClose();
+  };
+
+  const handleTouchStart = (e) => {
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchEnd = (e) => {
+    if (touchStart === null) return;
+    const touchEnd = e.changedTouches[0].clientX;
+    const diff = touchStart - touchEnd;
+    
+    if (diff > 50) {
+      // Swiped left -> next
+      setActiveSplitIndex(Math.min(splits.length - 1, activeSplitIndex + 1));
+    } else if (diff < -50) {
+      // Swiped right -> prev
+      setActiveSplitIndex(Math.max(0, activeSplitIndex - 1));
+    }
+    setTouchStart(null);
   };
 
   const formatPreview = (val) => {
@@ -489,7 +509,11 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                         transition={{ duration: 0.25, ease: "easeOut" }}
                         style={{ display: 'flex', flexDirection: 'column', width: '100%' }}
                       >
-                      <div className="splits-carousel-viewport">
+                      <div 
+                        className="splits-carousel-viewport"
+                        onTouchStart={handleTouchStart}
+                        onTouchEnd={handleTouchEnd}
+                      >
                         <div 
                           className="splits-carousel-track"
                           style={{ transform: `translateX(-${activeSplitIndex * 100}%)` }}
@@ -615,10 +639,10 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                         transition={{ duration: 0.25, ease: "easeOut" }}
                       >
                         {isMobile ? (
-                          <>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {renderTapField("Category", category, Tag, 'category')}
                             {renderTapField("Payee", payee, User, 'payee')}
-                          </>
+                          </div>
                         ) : (
                           <>
                             <div className="form-group">
