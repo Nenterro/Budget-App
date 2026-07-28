@@ -63,6 +63,8 @@ export default function Settings() {
     e.target.value = '';
   };
 
+  const isMobileDevice = typeof window !== 'undefined' && (/android|iphone|ipad|ipod/i.test(navigator.userAgent) || window.innerWidth <= 768);
+
   const settingsGroups = [
     {
       title: "Data Management",
@@ -84,7 +86,7 @@ export default function Settings() {
       items: [
         { label: "Appearance", icon: Paintbrush, path: "/settings/appearance" },
         { label: "Currency", icon: Globe, path: "/settings/currency" },
-        ...(!isInstalled ? [{ label: "Install App / Add to Home Screen", icon: Smartphone, action: handleInstallClick }] : []),
+        ...(!isInstalled && isMobileDevice ? [{ label: "Install App / Add to Home Screen", icon: Smartphone, action: handleInstallClick }] : []),
         { label: "Import Data", icon: Upload, action: () => fileInputRef.current?.click() },
         { label: "Export Data", icon: Download, action: handleExport },
       ]
