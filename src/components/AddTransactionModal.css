@@ -79,6 +79,7 @@
   padding: 4px;
   gap: 4px;
   position: relative;
+  margin-bottom: 4px;
 }
 
 .tx-type-selector::before {
