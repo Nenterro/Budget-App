@@ -475,9 +475,9 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                         <div className="es-card-info">
                           <div className="es-card-payee">{tx.payee}</div>
                           <div className="es-card-meta">
-                            <span>{tx.category}</span>
+                            <span className="es-card-category">{tx.category}</span>
                             <span className="es-dot">•</span>
-                            <span>{formatDateShort(tx.date)}</span>
+                            <span className="es-card-date">{formatDateShort(tx.date)}</span>
                           </div>
                         </div>
                       </div>
