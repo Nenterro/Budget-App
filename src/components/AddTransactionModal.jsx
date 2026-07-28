@@ -98,6 +98,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   const [isCrossCurrency, setIsCrossCurrency] = useState(false);
   
   const [activeSplitIndex, setActiveSplitIndex] = useState(0);
+  const [activePersonIndex, setActivePersonIndex] = useState(0);
   const [touchStart, setTouchStart] = useState(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
@@ -112,11 +113,13 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
     setSelectedTransferTo(accounts.length > 1 ? accounts[1].name : (accounts.length > 0 ? accounts[0].name : ''));
     setReceivedAmount('');
     setIsSplit(false);
+    setActiveSplitIndex(0);
     setSplits([
       { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
       { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
     ]);
     setIsExpenseShare(false);
+    setActivePersonIndex(0);
     setExpenseShares([{ id: generateId(), name: '', amount: '' }]);
   };
 
@@ -300,12 +303,18 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
     const touchEnd = e.changedTouches[0].clientX;
     const diff = touchStart - touchEnd;
     
-    if (diff > 50) {
-      // Swiped left -> next
-      setActiveSplitIndex(Math.min(splits.length - 1, activeSplitIndex + 1));
-    } else if (diff < -50) {
-      // Swiped right -> prev
-      setActiveSplitIndex(Math.max(0, activeSplitIndex - 1));
+    if (isSplit) {
+      if (diff > 50) {
+        setActiveSplitIndex(Math.min(splits.length - 1, activeSplitIndex + 1));
+      } else if (diff < -50) {
+        setActiveSplitIndex(Math.max(0, activeSplitIndex - 1));
+      }
+    } else if (isExpenseShare) {
+      if (diff > 50) {
+        setActivePersonIndex(Math.min(expenseShares.length - 1, activePersonIndex + 1));
+      } else if (diff < -50) {
+        setActivePersonIndex(Math.max(0, activePersonIndex - 1));
+      }
     }
     setTouchStart(null);
   };
@@ -445,8 +454,25 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                 )}
                 {isExpenseShare && (
                   <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    Shared Expense
+                    Person {activePersonIndex + 1} of {expenseShares.length}
                   </span>
+                )}
+                {isExpenseShare && (
+                  <button type="button" className="delete-split-btn" onClick={() => {
+                    const s = expenseShares[activePersonIndex];
+                    if (expenseShares.length > 1) {
+                      setExpenseShares(expenseShares.filter(sp => sp.id !== s.id));
+                      if (activePersonIndex >= expenseShares.length - 1) {
+                        setActivePersonIndex(Math.max(0, expenseShares.length - 2));
+                      }
+                    } else {
+                      setIsExpenseShare(false);
+                      setActivePersonIndex(0);
+                      setExpenseShares([{ id: generateId(), name: '', amount: '' }]);
+                    }
+                  }} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}>
+                    <Trash2 size={16} />
+                  </button>
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -764,102 +790,133 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
 
                         {/* Your Share (auto-calculated) */}
                         <div style={{ 
-                          background: 'rgba(255,255,255,0.03)', 
+                          background: 'rgba(16,185,129,0.08)', 
                           borderRadius: '12px', 
-                          padding: '12px 16px', 
-                          border: '1px solid rgba(255,255,255,0.06)',
+                          padding: '10px 14px', 
+                          border: '1px solid rgba(16,185,129,0.2)',
                           display: 'flex', 
                           justifyContent: 'space-between', 
                           alignItems: 'center',
-                          marginTop: '4px'
+                          marginTop: '4px',
+                          marginBottom: '4px'
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <User size={16} style={{ color: '#10b981' }} />
-                            <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Your Share</span>
+                            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Your Share</span>
                           </div>
-                          <span style={{ fontSize: '15px', fontWeight: 700, color: '#10b981' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 700, color: '#10b981' }}>
                             {getCurrencySymbol(sourceCurrency)}{formatCurrency(Math.max(0, Math.abs(evalMath(amount) || 0) - expenseShares.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0)))}
                           </span>
                         </div>
 
-                        {/* Other people's shares */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {expenseShares.map((share, idx) => (
-                            <motion.div 
-                              key={share.id}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -10 }}
-                              transition={{ duration: 0.2 }}
-                              style={{ 
-                                display: 'flex', 
-                                gap: '8px', 
-                                alignItems: 'center',
-                                background: 'rgba(255,255,255,0.02)',
-                                borderRadius: '12px',
-                                padding: '8px',
-                                border: '1px solid rgba(255,255,255,0.05)'
-                              }}
-                            >
-                              <div className="form-group" style={{ flex: 1, minWidth: 0 }}>
-                                <div className="input-with-icon">
-                                  <User size={16} className="input-icon" />
-                                  <input 
-                                    type="text" 
-                                    placeholder="Person's name" 
-                                    value={share.name}
-                                    onChange={(e) => setExpenseShares(expenseShares.map(s => s.id === share.id ? { ...s, name: e.target.value } : s))}
-                                    style={{ fontSize: '14px' }}
-                                  />
+                        {/* Persons Carousel Viewport */}
+                        <div 
+                          className="splits-carousel-viewport"
+                          onTouchStart={handleTouchStart}
+                          onTouchEnd={handleTouchEnd}
+                        >
+                          <div 
+                            className="splits-carousel-track"
+                            style={{ transform: `translateX(-${activePersonIndex * 100}%)` }}
+                          >
+                            {expenseShares.map((share, index) => (
+                              <div key={share.id} className="split-card">
+                                <div style={isMobile ? { paddingBottom: '0px' } : { background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+                                  {!isMobile && (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Person {index + 1} of {expenseShares.length}</span>
+                                      <button type="button" className="delete-split-btn" onClick={() => {
+                                        if (expenseShares.length > 1) {
+                                          setExpenseShares(expenseShares.filter(sp => sp.id !== share.id));
+                                          if (activePersonIndex >= expenseShares.length - 1) {
+                                            setActivePersonIndex(Math.max(0, expenseShares.length - 2));
+                                          }
+                                        } else {
+                                          setIsExpenseShare(false);
+                                          setActivePersonIndex(0);
+                                          setExpenseShares([{ id: generateId(), name: '', amount: '' }]);
+                                        }
+                                      }} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', zIndex: 10, padding: '4px' }}>
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                                    {share.name && <label>Person's Name</label>}
+                                    <div className="input-with-icon">
+                                      <User size={16} className="input-icon" />
+                                      <input 
+                                        type="text" 
+                                        placeholder="Person's name" 
+                                        value={share.name}
+                                        onChange={(e) => setExpenseShares(expenseShares.map(s => s.id === share.id ? { ...s, name: e.target.value } : s))}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="form-group">
+                                    {share.amount && <label>Owed Amount</label>}
+                                    <div className="input-with-icon">
+                                      <CurrencyIcon size={16} className="input-icon" />
+                                      <input 
+                                        type="text" 
+                                        placeholder="Owed Amount" 
+                                        value={share.amount}
+                                        onChange={(e) => setExpenseShares(expenseShares.map(s => s.id === share.id ? { ...s, amount: formatAmountInput(e.target.value) } : s))}
+                                      />
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-                              <div className="form-group" style={{ width: isMobile ? '100px' : '120px', flexShrink: 0 }}>
-                                <div className="input-with-icon">
-                                  <CurrencyIcon size={14} className="input-icon" />
-                                  <input 
-                                    type="text" 
-                                    placeholder="Amount" 
-                                    value={share.amount}
-                                    onChange={(e) => setExpenseShares(expenseShares.map(s => s.id === share.id ? { ...s, amount: formatAmountInput(e.target.value) } : s))}
-                                    style={{ fontSize: '14px' }}
-                                  />
-                                </div>
-                              </div>
-                              {expenseShares.length > 1 && (
-                                <button 
-                                  type="button" 
-                                  onClick={() => setExpenseShares(expenseShares.filter(s => s.id !== share.id))}
-                                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
-                            </motion.div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
 
-                        <motion.button 
-                          type="button" 
-                          whileHover={!isMobile ? { scale: 1.02 } : {}}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => setExpenseShares([...expenseShares, { id: generateId(), name: '', amount: '' }])}
-                          style={{ 
-                            background: 'transparent', 
-                            border: '1px dashed rgba(255,255,255,0.15)', 
-                            borderRadius: '12px', 
-                            padding: '10px', 
-                            color: '#f59e0b', 
-                            fontWeight: 600, 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            gap: '6px', 
-                            cursor: 'pointer',
-                            fontSize: '13px'
-                          }}
-                        >
-                          <Plus size={16} /> Add Person
-                        </motion.button>
+                        {/* Persons Carousel Pagination */}
+                        <div className="splits-pagination">
+                          <button 
+                            type="button" 
+                            onClick={() => setActivePersonIndex(Math.max(0, activePersonIndex - 1))}
+                            disabled={activePersonIndex === 0}
+                            className="pagination-btn"
+                          >
+                            <ChevronLeft size={20} />
+                          </button>
+                          
+                          <div className="splits-dots">
+                            {expenseShares.map((_, i) => (
+                              <div 
+                                key={i} 
+                                className={`split-dot ${i === activePersonIndex ? 'active' : ''}`} 
+                                onClick={() => setActivePersonIndex(i)}
+                              />
+                            ))}
+                          </div>
+
+                          <button 
+                            type="button" 
+                            onClick={() => setActivePersonIndex(Math.min(expenseShares.length - 1, activePersonIndex + 1))}
+                            disabled={activePersonIndex === expenseShares.length - 1}
+                            className="pagination-btn"
+                          >
+                            <ChevronRight size={20} />
+                          </button>
+
+                          <motion.button 
+                            type="button" 
+                            whileHover={!isMobile ? { scale: 1.05 } : {}}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setExpenseShares([...expenseShares, { id: generateId(), name: '', amount: '' }]);
+                              setActivePersonIndex(expenseShares.length);
+                            }}
+                            className="add-split-btn-pagination"
+                            style={{ marginLeft: 'auto', color: '#f59e0b' }}
+                          >
+                            <Plus size={16} /> Add Person
+                          </motion.button>
+                        </div>
                       </motion.div>
                     ) : (
                       <motion.div 
