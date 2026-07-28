@@ -373,12 +373,12 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
 
           {type !== 2 && (
             <div style={{ display: 'flex', justifyContent: isSplit ? 'space-between' : 'flex-end', alignItems: 'center', marginBottom: '8px', marginTop: '8px' }}>
-              {isSplit && (
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  Split {activeSplitIndex + 1} of {splits.length}
-                </span>
-              )}
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {isSplit && (
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Split {activeSplitIndex + 1} of {splits.length}
+                  </span>
+                )}
                 {isSplit && (
                   <button type="button" className="delete-split-btn" onClick={() => {
                     const s = splits[activeSplitIndex];
@@ -399,6 +399,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                     <Trash2 size={16} />
                   </button>
                 )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
                 <button 
                   type="button" 
                   onClick={() => setIsSplit(!isSplit)}
@@ -547,7 +549,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                         >
                           {splits.map((s, index) => (
                             <div key={s.id} className="split-card">
-                              <div style={isMobile ? { paddingBottom: '12px' } : { background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+                              <div style={isMobile ? { paddingBottom: '0px' } : { background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
                                 {!isMobile && (
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                     <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Split {index + 1} of {splits.length}</span>
