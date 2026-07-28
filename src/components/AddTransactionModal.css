@@ -457,7 +457,6 @@
 
 .delete-split-btn:hover {
   color: #ff4444 !important;
-  background-color: rgba(255, 68, 68, 0.1) !important;
   transform: scale(1.1);
 }
 
