@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
-import { X, Calendar, DollarSign, Tag, User, AlignLeft, ArrowRight, ArrowRightLeft, Plus, Wallet } from 'lucide-react';
+import { X, Calendar, DollarSign, Tag, User, AlignLeft, ArrowRight, ArrowRightLeft, Plus, Wallet, Split, Trash2 } from 'lucide-react';
 import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
 import ModalWrapper from './ModalWrapper';
@@ -62,6 +62,13 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   const [type, setType] = useState(initialData?.type ?? 0); // 0: expense, 1: income, 2: transfer
   const [direction, setDirection] = useState(0);
 
+  const [isSplit, setIsSplit] = useState(false);
+  const [splits, setSplits] = useState([
+    { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
+    { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
+  ]);
+  const [activeSplitId, setActiveSplitId] = useState(null);
+
   const handleTypeChange = (newType) => {
     setDirection(newType > type ? 1 : -1);
     setType(newType);
@@ -95,6 +102,11 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
     setSelectedAccount(accounts.length > 0 ? accounts[0].name : '');
     setSelectedTransferTo(accounts.length > 1 ? accounts[1].name : (accounts.length > 0 ? accounts[0].name : ''));
     setReceivedAmount('');
+    setIsSplit(false);
+    setSplits([
+      { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
+      { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
+    ]);
   };
 
   useEffect(() => {
@@ -116,6 +128,21 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
            setReceivedAmount(initialData.receivedAmount ? Math.abs(initialData.receivedAmount).toString() : '');
         } else {
            setReceivedAmount('');
+        }
+        
+        const hasSplits = initialData.splits && initialData.splits.length > 0;
+        setIsSplit(hasSplits);
+        if (hasSplits) {
+          setSplits(initialData.splits.map(s => ({
+            ...s,
+            id: s.id || generateId(),
+            amount: s.amount ? Math.abs(s.amount).toString() : '0'
+          })));
+        } else {
+          setSplits([
+            { id: generateId(), amount: '', category: '', payee: '', account: initialData.account || (accounts.length > 0 ? accounts[0].name : '') },
+            { id: generateId(), amount: '', category: '', payee: '', account: initialData.account || (accounts.length > 0 ? accounts[0].name : '') }
+          ]);
         }
       } else {
         reset();
@@ -160,8 +187,34 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       transferAccount = selectedTransferTo;
     }
 
+    let finalSplits = [];
+    if (isSplit && type !== 2) {
+      let sumSplits = 0;
+      for (const s of splits) {
+        const val = evalMath(s.amount);
+        if (val !== null) sumSplits += Math.abs(val);
+      }
+      if (Math.abs(sumSplits - Math.abs(dbAmt)) > 0.01) {
+        alert("Split amounts must exactly equal the total amount.");
+        return;
+      }
+      finalCat = 'Split';
+      finalPayee = 'Split';
+      finalSplits = splits.map(s => {
+        const sAmt = Math.abs(evalMath(s.amount) || 0);
+        return {
+          ...s,
+          amount: type === 0 ? -sAmt : sAmt,
+          category: s.category || 'Unspecified',
+          payee: s.payee || 'Unspecified',
+          account: s.account || selectedAccount
+        };
+      });
+    }
+
     const tx = {
       id: initialData ? initialData.id : generateId(),
+      splits: finalSplits,
       type: type, // 0 = Expense, 1 = Income, 2 = Transfer
       amount: dbAmt,
       category: finalCat,
@@ -351,11 +404,12 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           <div 
             className="dynamic-fields-wrapper"
             style={{ 
-              height: isMobile ? 
+              height: (isSplit && type !== 2) ? 'auto' : (isMobile ? 
                       (type === 2 ? (isCrossCurrency ? '100px' : '0px') : '140px') : 
-                      (type === 2 ? (isCrossCurrency ? '80px' : '0px') : '160px'),
+                      (type === 2 ? (isCrossCurrency ? '80px' : '0px') : '160px')),
               transition: 'height 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-              position: 'relative'
+              position: 'relative',
+              overflow: (isSplit && type !== 2) ? 'visible' : 'hidden'
             }}
           >
             <AnimatePresence initial={false} custom={direction} mode="popLayout">
@@ -403,28 +457,107 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                   className="dynamic-fields-content"
                   style={{ width: '100%' }}
                 >
-                  {isMobile ? (
-                    <>
-                      {renderTapField("Category", category, Tag, 'category')}
-                      {renderTapField("Payee", payee, User, 'payee')}
-                    </>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+                    <button 
+                      type="button" 
+                      onClick={() => setIsSplit(!isSplit)}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--accent-color)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                    >
+                      <Split size={16} />
+                      {isSplit ? 'Remove Split' : 'Split Transaction'}
+                    </button>
+                  </div>
+                  
+                  {isSplit ? (
+                    <div className="splits-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      {splits.map((s, index) => (
+                        <div key={s.id} className="split-row" style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+                          <button type="button" onClick={() => {
+                            if (splits.length > 2) {
+                              setSplits(splits.filter(sp => sp.id !== s.id));
+                            }
+                          }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: splits.length > 2 ? 1 : 0.3 }}>
+                            <Trash2 size={16} />
+                          </button>
+                          
+                          <div className="form-group" style={{ marginBottom: '12px', paddingRight: '24px' }}>
+                            <label>Split {index + 1} Amount</label>
+                            <div className="input-with-icon">
+                              <CurrencyIcon size={16} className="input-icon" />
+                              <input 
+                                type="text" 
+                                placeholder="0" 
+                                value={s.amount}
+                                onChange={(e) => {
+                                  const val = formatAmountInput(e.target.value);
+                                  setSplits(splits.map(sp => sp.id === s.id ? { ...sp, amount: val } : sp));
+                                }}
+                              />
+                            </div>
+                          </div>
+                          
+                          {isMobile ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div onClick={() => { setActiveSplitId(s.id); setActiveField('category'); }}>
+                                {renderTapField("Category", s.category, Tag, 'category', true)}
+                              </div>
+                              <div onClick={() => { setActiveSplitId(s.id); setActiveField('payee'); }}>
+                                {renderTapField("Payee", s.payee, User, 'payee', true)}
+                              </div>
+                              <div onClick={() => { setActiveSplitId(s.id); setActiveField('account'); }}>
+                                {renderTapField("Account", s.account, Wallet, 'account', true)}
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                              <div className="form-group" style={{ flex: '1 1 30%' }}>
+                                <label>Category</label>
+                                <UnifiedDropdown value={s.category} options={categories.map(c => ({ value: c.name, label: c.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, category: val } : sp))} />
+                              </div>
+                              <div className="form-group" style={{ flex: '1 1 30%' }}>
+                                <label>Payee</label>
+                                <UnifiedDropdown value={s.payee} options={payees.map(p => ({ value: p.name, label: p.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, payee: val } : sp))} />
+                              </div>
+                              <div className="form-group" style={{ flex: '1 1 30%' }}>
+                                <label>Account</label>
+                                <UnifiedDropdown value={s.account} options={accounts.map(a => ({ value: a.name, label: a.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, account: val } : sp))} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <button 
+                        type="button" 
+                        onClick={() => setSplits([...splits, { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }])}
+                        style={{ alignSelf: 'flex-start', background: 'rgba(99, 102, 241, 0.1)', color: 'var(--accent-color)', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Plus size={16} /> Add Split
+                      </button>
+                    </div>
                   ) : (
-                    <>
-                      <div className="form-group">
-                        <label>Category</label>
-                        <div className="input-with-icon" onClick={() => setActiveField('category')}>
-                          <Tag size={18} className="input-icon" />
-                          <input type="text" placeholder="e.g. Groceries" value={category} readOnly style={{ cursor: 'pointer' }} />
+                    isMobile ? (
+                      <>
+                        {renderTapField("Category", category, Tag, 'category')}
+                        {renderTapField("Payee", payee, User, 'payee')}
+                      </>
+                    ) : (
+                      <>
+                        <div className="form-group">
+                          <label>Category</label>
+                          <div className="input-with-icon" onClick={() => setActiveField('category')}>
+                            <Tag size={18} className="input-icon" />
+                            <input type="text" placeholder="e.g. Groceries" value={category} readOnly style={{ cursor: 'pointer' }} />
+                          </div>
                         </div>
-                      </div>
-                      <div className="form-group">
-                        <label>Payee</label>
-                        <div className="input-with-icon" onClick={() => setActiveField('payee')}>
-                          <User size={18} className="input-icon" />
-                          <input type="text" placeholder="e.g. Whole Foods" value={payee} readOnly style={{ cursor: 'pointer' }} />
+                        <div className="form-group">
+                          <label>Payee</label>
+                          <div className="input-with-icon" onClick={() => setActiveField('payee')}>
+                            <User size={18} className="input-icon" />
+                            <input type="text" placeholder="e.g. Whole Foods" value={payee} readOnly style={{ cursor: 'pointer' }} />
+                          </div>
                         </div>
-                      </div>
-                    </>
+                      </>
+                    )
                   )}
                 </motion.div>
               )}
@@ -448,9 +581,20 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             )}
           </div>
 
-          <div className="modal-actions">
+          <div className="modal-actions" style={{ alignItems: 'center' }}>
+            {isSplit && type !== 2 && (
+              <div style={{ marginRight: 'auto', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {(() => {
+                   const total = evalMath(amount) || 0;
+                   const splitTotal = splits.reduce((acc, s) => acc + (evalMath(s.amount) || 0), 0);
+                   const rem = total - splitTotal;
+                   if (Math.abs(rem) < 0.01) return <span style={{color: '#10b981', fontWeight: 600}}>Split balanced ✓</span>;
+                   return <span style={{fontWeight: 600}}>Remaining: {formatCurrency(rem)}</span>;
+                })()}
+              </div>
+            )}
             <button type="button" className="cancel-btn" onClick={handleClose}>Cancel</button>
-            <button type="submit" className="submit-btn" style={{ background: 'var(--accent-color)', color: '#fff', border: 'none' }}>
+            <button type="submit" className="submit-btn" style={{ background: 'var(--accent-color)', color: '#fff', border: 'none' }} disabled={isSplit && type !== 2 && Math.abs((evalMath(amount) || 0) - splits.reduce((acc, s) => acc + (evalMath(s.amount) || 0), 0)) > 0.01}>
               Save Transaction
             </button>
           </div>
@@ -459,45 +603,63 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
         {activeField && (
           <PoppedFieldOverlay 
             field={activeField}
-            onClose={() => setActiveField(null)}
             items={
               activeField === 'category' ? categories : 
               activeField === 'payee' ? payees : 
               (activeField === 'account' || activeField === 'transferTo') ? accounts : []
             }
             initialValue={
-              activeField === 'amount' ? amount :
-              activeField === 'note' ? note :
-              activeField === 'category' ? category :
-              activeField === 'payee' ? payee :
-              activeField === 'account' ? selectedAccount :
-              activeField === 'transferTo' ? selectedTransferTo : ''
+              activeSplitId ? (
+                activeField === 'category' ? splits.find(s => s.id === activeSplitId)?.category :
+                activeField === 'payee' ? splits.find(s => s.id === activeSplitId)?.payee :
+                activeField === 'account' ? splits.find(s => s.id === activeSplitId)?.account : ''
+              ) : (
+                activeField === 'amount' ? amount :
+                activeField === 'note' ? note :
+                activeField === 'category' ? category :
+                activeField === 'payee' ? payee :
+                activeField === 'account' ? selectedAccount :
+                activeField === 'transferTo' ? selectedTransferTo : ''
+              )
             }
             onSelect={(val) => {
-              if (activeField === 'category') setCategory(val);
-              if (activeField === 'payee') setPayee(val);
-              if (activeField === 'account') setSelectedAccount(val);
-              if (activeField === 'transferTo') setSelectedTransferTo(val);
+              if (activeSplitId) {
+                setSplits(splits.map(sp => sp.id === activeSplitId ? { ...sp, [activeField]: val } : sp));
+              } else {
+                if (activeField === 'category') setCategory(val);
+                if (activeField === 'payee') setPayee(val);
+                if (activeField === 'account') setSelectedAccount(val);
+                if (activeField === 'transferTo') setSelectedTransferTo(val);
+              }
               setActiveField(null);
+              setActiveSplitId(null);
             }}
             onSaveValue={(val) => {
-              if (activeField === 'amount') setAmount(val);
-              if (activeField === 'note') setNote(val);
-              if (activeField === 'category') setCategory(val);
-              if (activeField === 'payee') setPayee(val);
-              if (activeField === 'account') setSelectedAccount(val);
-              if (activeField === 'transferTo') setSelectedTransferTo(val);
+              if (activeSplitId) {
+                setSplits(splits.map(sp => sp.id === activeSplitId ? { ...sp, [activeField]: val } : sp));
+              } else {
+                if (activeField === 'amount') setAmount(val);
+                if (activeField === 'note') setNote(val);
+                if (activeField === 'category') setCategory(val);
+                if (activeField === 'payee') setPayee(val);
+                if (activeField === 'account') setSelectedAccount(val);
+                if (activeField === 'transferTo') setSelectedTransferTo(val);
+              }
             }}
             onAdd={async (val) => {
               if (activeField === 'category') {
                 await saveCategory({ name: val, color: '#6366f1' });
-                setCategory(val);
+                if (activeSplitId) setSplits(splits.map(sp => sp.id === activeSplitId ? { ...sp, category: val } : sp));
+                else setCategory(val);
               } else if (activeField === 'payee') {
                 await savePayee({ name: val, color: '#10b981' });
-                setPayee(val);
+                if (activeSplitId) setSplits(splits.map(sp => sp.id === activeSplitId ? { ...sp, payee: val } : sp));
+                else setPayee(val);
               }
               setActiveField(null);
+              setActiveSplitId(null);
             }}
+            onClose={() => { setActiveField(null); setActiveSplitId(null); }}
           />
         )}
       </div>

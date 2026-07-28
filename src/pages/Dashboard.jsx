@@ -115,42 +115,60 @@ export default function Dashboard() {
     transactions.forEach(tx => {
       const txTime = parseISO(tx.date).getTime();
       if (!endT || txTime <= endT) {
-        const acc = accounts?.find(a => a.name === tx.account);
-        const cur = acc ? (acc.currency || 'USD') : 'USD';
-        
-        if (tx.type !== 2) { // Income/Expense
-          const rate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
-          const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
-          const converted = (tx.amount / rate) * baseRate;
-          total += converted;
+        if (tx.splits && tx.splits.length > 0 && tx.type !== 2) {
+          tx.splits.forEach(s => {
+            const acc = accounts?.find(a => a.name === s.account);
+            const cur = acc ? (acc.currency || 'USD') : 'USD';
+            const rate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
+            const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
+            const converted = (s.amount / rate) * baseRate;
+            total += converted;
+            
+            if (!split[cur]) split[cur] = 0;
+            split[cur] += s.amount;
+            
+            if (accBalances[s.account]) {
+              accBalances[s.account].currentBalance += s.amount;
+            }
+          });
+        } else {
+          const acc = accounts?.find(a => a.name === tx.account);
+          const cur = acc ? (acc.currency || 'USD') : 'USD';
           
-          if (!split[cur]) split[cur] = 0;
-          split[cur] += tx.amount;
-        } else if (tx.type === 2) { // Transfer
-          const destAcc = accounts?.find(a => a.name === tx.transferTo);
-          const destCur = destAcc ? (destAcc.currency || 'USD') : 'USD';
-          const destAmt = tx.receivedAmount || Math.abs(tx.amount);
-          
-          const srcRate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
-          const destRate = exchangeRates && exchangeRates[destCur] ? exchangeRates[destCur] : 1;
-          const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
-          
-          total += (tx.amount / srcRate) * baseRate; // source amount (negative)
-          total += (destAmt / destRate) * baseRate; // destination amount (positive)
-          
-          if (!split[cur]) split[cur] = 0;
-          split[cur] += tx.amount;
-          
-          if (!split[destCur]) split[destCur] = 0;
-          split[destCur] += destAmt;
-          
-          if (accBalances[tx.transferTo]) {
-            accBalances[tx.transferTo].currentBalance += destAmt;
+          if (tx.type !== 2) { // Income/Expense
+            const rate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
+            const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
+            const converted = (tx.amount / rate) * baseRate;
+            total += converted;
+            
+            if (!split[cur]) split[cur] = 0;
+            split[cur] += tx.amount;
+          } else if (tx.type === 2) { // Transfer
+            const destAcc = accounts?.find(a => a.name === tx.transferTo);
+            const destCur = destAcc ? (destAcc.currency || 'USD') : 'USD';
+            const destAmt = tx.receivedAmount || Math.abs(tx.amount);
+            
+            const srcRate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
+            const destRate = exchangeRates && exchangeRates[destCur] ? exchangeRates[destCur] : 1;
+            const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
+            
+            total += (tx.amount / srcRate) * baseRate; // source amount (negative)
+            total += (destAmt / destRate) * baseRate; // destination amount (positive)
+            
+            if (!split[cur]) split[cur] = 0;
+            split[cur] += tx.amount;
+            
+            if (!split[destCur]) split[destCur] = 0;
+            split[destCur] += destAmt;
+            
+            if (accBalances[tx.transferTo]) {
+              accBalances[tx.transferTo].currentBalance += destAmt;
+            }
           }
-        }
-        
-        if (accBalances[tx.account]) {
-          accBalances[tx.account].currentBalance += tx.amount;
+          
+          if (accBalances[tx.account]) {
+            accBalances[tx.account].currentBalance += tx.amount;
+          }
         }
       }
     });

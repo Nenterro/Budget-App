@@ -11,22 +11,29 @@ export function calculateBudgets(transactions, accounts, categories, budgets, ex
   
   transactions.forEach(tx => {
     if (tx.type === 0 || tx.type === 'expense') {
-      const cat = tx.category || 'Uncategorized';
-      const monthStr = format(startOfMonth(parseISO(tx.date)), 'yyyy-MM');
-      
-      let txCurrency = tx.currency;
-      if (!txCurrency) {
-        const acc = accounts?.find(a => a.id === tx.account || a.name === tx.account);
-        txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
+      const processItem = (cat, amt, accName) => {
+        const monthStr = format(startOfMonth(parseISO(tx.date)), 'yyyy-MM');
+        
+        let txCurrency = tx.currency;
+        if (!txCurrency) {
+          const acc = accounts?.find(a => a.id === accName || a.name === accName);
+          txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
+        }
+        
+        let finalAmt = Math.abs(amt);
+        if (txCurrency !== baseCurrency && exchangeRates) {
+          finalAmt = convertAmount(finalAmt, txCurrency, baseCurrency, exchangeRates);
+        }
+        
+        if (!activityByMonthCat[monthStr]) activityByMonthCat[monthStr] = {};
+        activityByMonthCat[monthStr][cat] = (activityByMonthCat[monthStr][cat] || 0) - finalAmt;
+      };
+
+      if (tx.splits && tx.splits.length > 0) {
+        tx.splits.forEach(s => processItem(s.category || 'Uncategorized', s.amount, s.account));
+      } else {
+        processItem(tx.category || 'Uncategorized', tx.amount, tx.account);
       }
-      
-      let amt = Math.abs(tx.amount);
-      if (txCurrency !== baseCurrency && exchangeRates) {
-        amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
-      }
-      
-      if (!activityByMonthCat[monthStr]) activityByMonthCat[monthStr] = {};
-      activityByMonthCat[monthStr][cat] = (activityByMonthCat[monthStr][cat] || 0) - amt;
     }
   });
 
@@ -108,24 +115,34 @@ export function calculateTotalBalance(transactions, accounts, exchangeRates, bas
   transactions.forEach(tx => {
     const txTime = parseISO(tx.date).getTime();
     if (!endT || txTime <= endT) {
-      const acc = accounts?.find(a => a.name === tx.account);
-      const cur = acc ? (acc.currency || 'USD') : 'USD';
-      
-      if (tx.type !== 2) {
-        const rate = exchangeRates?.[cur] || 1;
-        const baseRate = exchangeRates?.[baseCurrency] || 1;
-        total += (tx.amount / rate) * baseRate;
-      } else if (tx.type === 2) {
-        const destAcc = accounts?.find(a => a.name === tx.transferTo);
-        const destCur = destAcc ? (destAcc.currency || 'USD') : 'USD';
-        const destAmt = tx.receivedAmount || Math.abs(tx.amount);
+      if (tx.splits && tx.splits.length > 0 && tx.type !== 2) {
+        tx.splits.forEach(s => {
+          const acc = accounts?.find(a => a.name === s.account);
+          const cur = acc ? (acc.currency || 'USD') : 'USD';
+          const rate = exchangeRates?.[cur] || 1;
+          const baseRate = exchangeRates?.[baseCurrency] || 1;
+          total += (s.amount / rate) * baseRate;
+        });
+      } else {
+        const acc = accounts?.find(a => a.name === tx.account);
+        const cur = acc ? (acc.currency || 'USD') : 'USD';
         
-        const srcRate = exchangeRates?.[cur] || 1;
-        const destRate = exchangeRates?.[destCur] || 1;
-        const baseRate = exchangeRates?.[baseCurrency] || 1;
-        
-        total += (tx.amount / srcRate) * baseRate; 
-        total += (destAmt / destRate) * baseRate; 
+        if (tx.type !== 2) {
+          const rate = exchangeRates?.[cur] || 1;
+          const baseRate = exchangeRates?.[baseCurrency] || 1;
+          total += (tx.amount / rate) * baseRate;
+        } else if (tx.type === 2) {
+          const destAcc = accounts?.find(a => a.name === tx.transferTo);
+          const destCur = destAcc ? (destAcc.currency || 'USD') : 'USD';
+          const destAmt = tx.receivedAmount || Math.abs(tx.amount);
+          
+          const srcRate = exchangeRates?.[cur] || 1;
+          const destRate = exchangeRates?.[destCur] || 1;
+          const baseRate = exchangeRates?.[baseCurrency] || 1;
+          
+          total += (tx.amount / srcRate) * baseRate; 
+          total += (destAmt / destRate) * baseRate; 
+        }
       }
     }
   });
