@@ -238,7 +238,8 @@ export default function Transactions() {
                   return (
                     <div key={tx.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '12px' }}>
                       <div 
-                        className="tx-row glass-panel"
+                        className={`tx-row glass-panel ${openTxId === tx.id ? 'is-open' : ''}`}
+                        onClick={() => setOpenTxId(openTxId === tx.id ? null : tx.id)}
                         style={{ marginBottom: 0 }}
                       >
                         <div className="tx-icon" style={{ backgroundColor: `${color}33`, color: color }}>
