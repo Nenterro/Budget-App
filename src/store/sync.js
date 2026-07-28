@@ -284,8 +284,31 @@ async function syncDataStore(store, collectionName) {
           const created = await pb.collection(collectionName).create(syncPayload);
 
           if (created.id !== item.id) {
-            await store.removeItem(item.id);
+            const oldId = item.id;
+            await store.removeItem(oldId);
             item.id = created.id;
+
+            // If this item was a parent or child, update references across store
+            if (collectionName === 'transactions') {
+              await store.iterate((value, key) => {
+                let updated = false;
+                if (value.parentExpenseShareTxId === oldId) {
+                  value.parentExpenseShareTxId = created.id;
+                  updated = true;
+                }
+                if (value.repayments) {
+                  value.repayments = value.repayments.map(r => r.linkedTxId === oldId ? { ...r, linkedTxId: created.id } : r);
+                  updated = true;
+                }
+                if (value.writeOffs) {
+                  value.writeOffs = value.writeOffs.map(w => w.linkedTxId === oldId ? { ...w, linkedTxId: created.id } : w);
+                  updated = true;
+                }
+                if (updated) {
+                  store.setItem(key, value);
+                }
+              });
+            }
           }
         }
         item.pendingSync = false;

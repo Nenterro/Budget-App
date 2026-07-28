@@ -229,7 +229,8 @@ export function DataProvider({ children }) {
         return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
       });
     }
-    syncAll();
+    await syncAll();
+    await loadData();
   };
 
   const updateTransaction = async (tx) => {
@@ -295,7 +296,8 @@ export function DataProvider({ children }) {
 
       return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
-    syncAll();
+    await syncAll();
+    await loadData();
   };
 
   const deleteTransaction = async (id) => {
@@ -334,7 +336,8 @@ export function DataProvider({ children }) {
 
       return updated.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
-    syncAll();
+    await syncAll();
+    await loadData();
   };
 
   const updateDataItem = async (store, item, setType) => {
