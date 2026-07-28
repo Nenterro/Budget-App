@@ -434,9 +434,9 @@
 
 .es-input-label {
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text-secondary);
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
   margin-bottom: 4px;
   display: block;
   background: transparent;

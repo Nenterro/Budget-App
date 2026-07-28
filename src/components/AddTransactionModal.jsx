@@ -426,7 +426,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           </AnimatePresence>
 
           {type !== 2 && (
-            <div style={{ display: 'flex', justifyContent: (isSplit || isExpenseShare) ? 'space-between' : 'flex-end', alignItems: 'center', marginBottom: '8px', marginTop: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: (isSplit || isExpenseShare) ? 'space-between' : 'flex-end', alignItems: 'center', marginBottom: '2px', marginTop: '4px' }}>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 {isSplit && (
                   <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -565,8 +565,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             className="dynamic-fields-wrapper"
             animate={{ 
               height: (isSplit && type !== 2) ? 'auto' : (isExpenseShare && type !== 2) ? 'auto' : (isMobile ? 
-                      (type === 2 ? (isCrossCurrency ? 66 : 0) : 104) : 
-                      (type === 2 ? (isCrossCurrency ? 42 : 0) : 98)),
+                      (type === 2 ? (isCrossCurrency ? 66 : 0) : 122) : 
+                      (type === 2 ? (isCrossCurrency ? 42 : 0) : 116)),
               marginTop: (type === 2 && !isCrossCurrency) ? -16 : 0
             }}
             transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
