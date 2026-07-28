@@ -341,25 +341,23 @@
 .es-people {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .es-person-row {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
   background: rgba(255, 255, 255, 0.02);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.04);
+  gap: 8px;
 }
 
 .es-person-row.yours {
   background: rgba(16, 185, 129, 0.05);
   border-color: rgba(16, 185, 129, 0.15);
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .es-person-row.settled {
@@ -370,16 +368,21 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .es-person-name {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .es-badge {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
@@ -394,10 +397,9 @@
 .es-person-amounts {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  flex-wrap: wrap;
   gap: 8px;
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .es-person-owed {
@@ -417,6 +419,101 @@
 .es-person-pending {
   color: #f59e0b;
   font-weight: 600;
+}
+
+.es-person-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.es-writeoff-btn {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.es-writeoff-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+/* Detail Bottom Sticky Bar */
+.es-detail-bottom-bar {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.es-add-repayment-btn-primary {
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent-color, #6366f1), #4f46e5);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+  transition: all 0.2s ease;
+}
+
+.es-add-repayment-btn-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+/* Drawer / Popover Form Overlay */
+.es-form-drawer-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 20px;
+}
+
+.es-form-drawer-card {
+  width: 100%;
+  background: var(--bg-surface, #1e1e2d);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px 20px 0 0;
+  padding: 18px 20px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.es-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.es-drawer-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .es-person-actions {

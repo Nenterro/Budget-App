@@ -586,12 +586,9 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                 {share.settled && <span className="es-badge settled-badge">{writtenOff > 0 && repaid === 0 ? 'Written Off' : 'Settled'}</span>}
                               </div>
                               <div className="es-person-amounts">
-                                <span className="es-person-owed">Owes: {currency}{formatCurrency(share.amount)}</span>
-                                {repaid > 0 && <span className="es-person-repaid">Paid: {currency}{formatCurrency(repaid)}</span>}
-                                {writtenOff > 0 && <span className="es-person-writtenoff">Written Off: {currency}{formatCurrency(writtenOff)}</span>}
-                                {pending > 0 && (
-                                  <div className="es-person-actions">
-                                    <span className="es-person-pending">Pending: {currency}{formatCurrency(pending)}</span>
+                                {pending > 0 ? (
+                                  <>
+                                    <span className="es-person-pending">Owes: {currency}{formatCurrency(pending)}</span>
                                     <motion.button
                                       whileHover={{ scale: 1.05 }}
                                       whileTap={{ scale: 0.95 }}
@@ -600,22 +597,34 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                     >
                                       <AlertTriangle size={12} /> Write Off
                                     </motion.button>
-                                  </div>
+                                  </>
+                                ) : (
+                                  <span className="es-person-owed">{writtenOff > 0 ? `Written Off: ${currency}${formatCurrency(writtenOff)}` : `Paid: ${currency}${formatCurrency(repaid)}`}</span>
                                 )}
                               </div>
 
-                              {/* Write-off form */}
+                              {/* Write-off form popover */}
                               <AnimatePresence>
                                 {isWritingOff && (
                                   <motion.div
-                                    className="es-writeoff-form"
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: 'auto', opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.2 }}
+                                    className="es-form-drawer-overlay"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    onClick={() => setWritingOffFor(null)}
                                   >
-                                    <div className="es-writeoff-inner">
-                                      <span className="es-writeoff-label">Write Off Expense</span>
+                                    <motion.div
+                                      className="es-form-drawer-card"
+                                      initial={{ y: '100%' }}
+                                      animate={{ y: 0 }}
+                                      exit={{ y: '100%' }}
+                                      transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                                      onClick={e => e.stopPropagation()}
+                                    >
+                                      <div className="es-drawer-header">
+                                        <h4>Write Off Expense for {share.name}</h4>
+                                        <button className="close-btn" type="button" onClick={() => setWritingOffFor(null)}><X size={18} /></button>
+                                      </div>
                                       
                                       <div className="es-form-row">
                                         <div style={{ flex: 1 }}>
@@ -664,7 +673,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           Confirm Write-Off
                                         </motion.button>
                                       </div>
-                                    </div>
+                                    </motion.div>
                                   </motion.div>
                                 )}
                               </AnimatePresence>
@@ -683,78 +692,93 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
                               if (isEditingThis) {
                                 return (
-                                  <motion.div
-                                    key={rep.id}
-                                    className="es-add-repayment-form"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                  >
-                                    <div className="es-section-title" style={{ marginTop: 0 }}>Edit Repayment</div>
-                                    
-                                    <div className="es-form-row">
-                                      <div style={{ flex: 1 }}>
-                                        <label className="es-input-label">Person</label>
-                                        <UnifiedDropdown
-                                          value={editPerson}
-                                          placeholder="Person"
-                                          options={tx.expenseShares.map(s => ({ value: s.name, label: s.name }))}
-                                          onChange={setEditPerson}
-                                        />
-                                      </div>
-                                      <div style={{ flex: 1 }}>
-                                        <label className="es-input-label">Amount</label>
-                                        <div className="input-with-icon" style={{ height: '40px' }}>
-                                          <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
-                                          <input 
-                                            type="text" 
-                                            placeholder="Amount" 
-                                            value={editAmount}
-                                            onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
-                                            style={{ fontSize: '14px', height: '40px' }}
-                                          />
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    <div className="es-form-row">
-                                      <div style={{ flex: 1 }}>
-                                        <label className="es-input-label">Account</label>
-                                        <UnifiedDropdown
-                                          value={editAccount}
-                                          placeholder="Account"
-                                          options={accounts.map(a => ({ value: a.name, label: a.name }))}
-                                          onChange={setEditAccount}
-                                        />
-                                      </div>
-                                      <div style={{ flex: 1 }}>
-                                        <label className="es-input-label">Date</label>
-                                        <div 
-                                          className="input-with-icon" 
-                                          onClick={() => setShowEditCalendar(true)} 
-                                          style={{ cursor: 'pointer', height: '40px' }}
-                                        >
-                                          <Calendar size={14} className="input-icon" />
-                                          <input 
-                                            type="text" 
-                                            value={formatDateShort(editDate)} 
-                                            readOnly 
-                                            style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px' }} 
-                                          />
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                                      <button className="es-btn-cancel" onClick={() => setEditingRepayment(null)}>Cancel</button>
-                                      <motion.button 
-                                        whileTap={{ scale: 0.95 }}
-                                        className="es-btn-confirm"
-                                        onClick={() => handleSaveEditRepayment(tx, rep)}
+                                  <AnimatePresence key={rep.id}>
+                                    <motion.div
+                                      className="es-form-drawer-overlay"
+                                      initial={{ opacity: 0 }}
+                                      animate={{ opacity: 1 }}
+                                      exit={{ opacity: 0 }}
+                                      onClick={() => setEditingRepayment(null)}
+                                    >
+                                      <motion.div
+                                        className="es-form-drawer-card"
+                                        initial={{ y: '100%' }}
+                                        animate={{ y: 0 }}
+                                        exit={{ y: '100%' }}
+                                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                                        onClick={e => e.stopPropagation()}
                                       >
-                                        Save Repayment
-                                      </motion.button>
-                                    </div>
-                                  </motion.div>
+                                        <div className="es-drawer-header">
+                                          <h4>Edit Repayment</h4>
+                                          <button className="close-btn" type="button" onClick={() => setEditingRepayment(null)}><X size={18} /></button>
+                                        </div>
+                                        
+                                        <div className="es-form-row">
+                                          <div style={{ flex: 1 }}>
+                                            <label className="es-input-label">Person</label>
+                                            <UnifiedDropdown
+                                              value={editPerson}
+                                              placeholder="Person"
+                                              options={tx.expenseShares.map(s => ({ value: s.name, label: s.name }))}
+                                              onChange={setEditPerson}
+                                            />
+                                          </div>
+                                          <div style={{ flex: 1 }}>
+                                            <label className="es-input-label">Amount</label>
+                                            <div className="input-with-icon" style={{ height: '40px' }}>
+                                              <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
+                                              <input 
+                                                type="text" 
+                                                placeholder="Amount" 
+                                                value={editAmount}
+                                                onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
+                                                style={{ fontSize: '14px', height: '40px' }}
+                                              />
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="es-form-row">
+                                          <div style={{ flex: 1 }}>
+                                            <label className="es-input-label">Account</label>
+                                            <UnifiedDropdown
+                                              value={editAccount}
+                                              placeholder="Account"
+                                              options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                                              onChange={setEditAccount}
+                                            />
+                                          </div>
+                                          <div style={{ flex: 1 }}>
+                                            <label className="es-input-label">Date</label>
+                                            <div 
+                                              className="input-with-icon" 
+                                              onClick={() => setShowEditCalendar(true)} 
+                                              style={{ cursor: 'pointer', height: '40px' }}
+                                            >
+                                              <Calendar size={14} className="input-icon" />
+                                              <input 
+                                                type="text" 
+                                                value={formatDateShort(editDate)} 
+                                                readOnly 
+                                                style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px' }} 
+                                              />
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                                          <button className="es-btn-cancel" onClick={() => setEditingRepayment(null)}>Cancel</button>
+                                          <motion.button 
+                                            whileTap={{ scale: 0.95 }}
+                                            className="es-btn-confirm"
+                                            onClick={() => handleSaveEditRepayment(tx, rep)}
+                                          >
+                                            Save Repayment
+                                          </motion.button>
+                                        </div>
+                                      </motion.div>
+                                    </motion.div>
+                                  </AnimatePresence>
                                 );
                               }
 
@@ -765,7 +789,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                     <span className="es-repayment-date">{formatDateShort(rep.date)}</span>
                                   </div>
                                   <div className="es-repayment-right">
-                                    <span className="es-repayment-amount">{currency}{formatCurrency(rep.amount)}</span>
+                                    <span className="es-repayment-amount">+{currency}{formatCurrency(rep.amount)}</span>
                                     <button className="es-repayment-edit" onClick={() => handleStartEditRepayment(tx, rep)}><Edit2 size={14} /></button>
                                     <button className="es-repayment-delete" onClick={() => handleDeleteRepayment(tx, rep)}><Trash2 size={14} /></button>
                                   </div>
@@ -802,115 +826,131 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                           </div>
                         </>
                       )}
-
-                      {/* Add Repayment */}
-                      {!allSettled && (
-                        <div style={{ marginTop: '8px' }}>
-                          {addingRepaymentFor === tx.id ? (
-                            <motion.div
-                              className="es-add-repayment-form"
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <div className="es-section-title" style={{ marginTop: 0 }}>Add Repayment (Incoming Loan)</div>
-                              
-                              <div className="es-form-row">
-                                <div style={{ flex: 1 }}>
-                                  <label className="es-input-label">Person</label>
-                                  <UnifiedDropdown
-                                    value={repayPerson}
-                                    placeholder="Person"
-                                    options={tx.expenseShares
-                                      .filter(s => !s.settled)
-                                      .map(s => ({ value: s.name, label: s.name }))}
-                                    onChange={(val) => {
-                                      setRepayPerson(val);
-                                      const pending = getPersonPending(tx, val);
-                                      setRepayAmount(pending.toString());
-                                    }}
-                                  />
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                  <label className="es-input-label">Amount</label>
-                                  <div className="input-with-icon" style={{ height: '40px' }}>
-                                    <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
-                                    <input 
-                                      type="text" 
-                                      placeholder="Amount" 
-                                      value={repayAmount}
-                                      onChange={(e) => setRepayAmount(formatAmountInput(e.target.value))}
-                                      style={{ fontSize: '14px', height: '40px' }}
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="es-form-row">
-                                <div style={{ flex: 1 }}>
-                                  <label className="es-input-label">Account</label>
-                                  <UnifiedDropdown
-                                    value={repayAccount}
-                                    placeholder="Account"
-                                    options={accounts.map(a => ({ value: a.name, label: a.name }))}
-                                    onChange={setRepayAccount}
-                                  />
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                  <label className="es-input-label">Date</label>
-                                  <div 
-                                    className="input-with-icon" 
-                                    onClick={() => setShowRepayCalendar(true)} 
-                                    style={{ cursor: 'pointer', height: '40px' }}
-                                  >
-                                    <Calendar size={14} className="input-icon" />
-                                    <input 
-                                      type="text" 
-                                      value={formatDateShort(repayDate)} 
-                                      readOnly 
-                                      style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px' }} 
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                                <button className="es-btn-cancel" onClick={() => setAddingRepaymentFor(null)}>Cancel</button>
-                                <motion.button 
-                                  whileTap={{ scale: 0.95 }}
-                                  className="es-btn-confirm"
-                                  onClick={() => handleAddRepayment(tx)}
-                                >
-                                  Add Repayment
-                                </motion.button>
-                              </div>
-                            </motion.div>
-                          ) : (
-                            <motion.button 
-                              type="button"
-                              whileTap={{ scale: 0.98 }}
-                              className="es-add-repayment-btn"
-                              onClick={() => {
-                                setAddingRepaymentFor(tx.id);
-                                const firstUnsettled = tx.expenseShares.find(s => !s.settled);
-                                if (firstUnsettled) {
-                                  setRepayPerson(firstUnsettled.name);
-                                  const pending = getPersonPending(tx, firstUnsettled.name);
-                                  setRepayAmount(pending.toString());
-                                } else {
-                                  setRepayPerson('');
-                                  setRepayAmount('');
-                                }
-                                setRepayAccount(tx.account || (accounts[0]?.name || ''));
-                                setRepayDate(new Date().toISOString().substring(0, 10));
-                              }}
-                            >
-                              <Plus size={16} /> Add Repayment
-                            </motion.button>
-                          )}
-                        </div>
-                      )}
                     </div>
+
+                    {/* Sticky Bottom Action Bar */}
+                    {!allSettled && (
+                      <div className="es-detail-bottom-bar">
+                        <motion.button 
+                          type="button"
+                          whileTap={{ scale: 0.98 }}
+                          className="es-add-repayment-btn-primary"
+                          onClick={() => {
+                            setAddingRepaymentFor(tx.id);
+                            const firstUnsettled = tx.expenseShares.find(s => !s.settled);
+                            if (firstUnsettled) {
+                              setRepayPerson(firstUnsettled.name);
+                              const pending = getPersonPending(tx, firstUnsettled.name);
+                              setRepayAmount(pending.toString());
+                            } else {
+                              setRepayPerson('');
+                              setRepayAmount('');
+                            }
+                            setRepayAccount(tx.account || (accounts[0]?.name || ''));
+                            setRepayDate(new Date().toISOString().substring(0, 10));
+                          }}
+                        >
+                          <Plus size={18} /> Record Repayment
+                        </motion.button>
+                      </div>
+                    )}
+
+                    {/* Record Repayment Drawer Popover */}
+                    <AnimatePresence>
+                      {addingRepaymentFor === tx.id && (
+                        <motion.div
+                          className="es-form-drawer-overlay"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          onClick={() => setAddingRepaymentFor(null)}
+                        >
+                          <motion.div
+                            className="es-form-drawer-card"
+                            initial={{ y: '100%' }}
+                            animate={{ y: 0 }}
+                            exit={{ y: '100%' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <div className="es-drawer-header">
+                              <h4>Record Repayment</h4>
+                              <button className="close-btn" type="button" onClick={() => setAddingRepaymentFor(null)}><X size={18} /></button>
+                            </div>
+                            
+                            <div className="es-form-row">
+                              <div style={{ flex: 1 }}>
+                                <label className="es-input-label">Person</label>
+                                <UnifiedDropdown
+                                  value={repayPerson}
+                                  placeholder="Person"
+                                  options={tx.expenseShares
+                                    .filter(s => !s.settled)
+                                    .map(s => ({ value: s.name, label: s.name }))}
+                                  onChange={(val) => {
+                                    setRepayPerson(val);
+                                    const pending = getPersonPending(tx, val);
+                                    setRepayAmount(pending.toString());
+                                  }}
+                                />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <label className="es-input-label">Amount</label>
+                                <div className="input-with-icon" style={{ height: '40px' }}>
+                                  <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
+                                  <input 
+                                    type="text" 
+                                    placeholder="Amount" 
+                                    value={repayAmount}
+                                    onChange={(e) => setRepayAmount(formatAmountInput(e.target.value))}
+                                    style={{ fontSize: '14px', height: '40px' }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="es-form-row">
+                              <div style={{ flex: 1 }}>
+                                <label className="es-input-label">Account</label>
+                                <UnifiedDropdown
+                                  value={repayAccount}
+                                  placeholder="Account"
+                                  options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                                  onChange={setRepayAccount}
+                                />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <label className="es-input-label">Date</label>
+                                <div 
+                                  className="input-with-icon" 
+                                  onClick={() => setShowRepayCalendar(true)} 
+                                  style={{ cursor: 'pointer', height: '40px' }}
+                                >
+                                  <Calendar size={14} className="input-icon" />
+                                  <input 
+                                    type="text" 
+                                    value={formatDateShort(repayDate)} 
+                                    readOnly 
+                                    style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px' }} 
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                              <button className="es-btn-cancel" onClick={() => setAddingRepaymentFor(null)}>Cancel</button>
+                              <motion.button 
+                                whileTap={{ scale: 0.95 }}
+                                className="es-btn-confirm"
+                                onClick={() => handleAddRepayment(tx)}
+                              >
+                                Confirm Repayment
+                              </motion.button>
+                            </div>
+                          </motion.div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </>
                 );
               })()}
