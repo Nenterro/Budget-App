@@ -277,10 +277,10 @@ export default function Transactions() {
                               <div key={s.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < tx.splits.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                                   <span style={{ fontSize: '14px', fontWeight: 500 }}>{s.payee}</span>
-                                  <span style={{ fontSize: '12px', color: sCol }}>{s.category} • {s.account}</span>
+                                  <span style={{ fontSize: '12px', color: sCol }}>{s.category}</span>
                                 </div>
                                 <div className={`tx-amount ${tx.type === 0 || tx.type === 'expense' ? 'expense' : 'income'}`} style={{ fontSize: '14px' }}>
-                                  {getCurrencySymbol(accounts?.find(a => a.name === s.account)?.currency || tx.currency)}{formatCurrency(Math.abs(s.amount))}
+                                  {getCurrencySymbol(accounts?.find(a => a.name === (s.account || tx.account))?.currency || tx.currency)}{formatCurrency(Math.abs(s.amount))}
                                 </div>
                               </div>
                             );

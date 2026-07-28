@@ -347,6 +347,19 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             )}
           </AnimatePresence>
 
+          {type !== 2 && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px', marginTop: '8px' }}>
+              <button 
+                type="button" 
+                onClick={() => setIsSplit(!isSplit)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--accent-color)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+              >
+                <Split size={16} />
+                {isSplit ? 'Remove Split' : 'Split Transaction'}
+              </button>
+            </div>
+          )}
+
           {/* Account Selection */}
           {isMobile ? (
             type === 2 ? (
@@ -457,17 +470,6 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                   className="dynamic-fields-content"
                   style={{ width: '100%' }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
-                    <button 
-                      type="button" 
-                      onClick={() => setIsSplit(!isSplit)}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--accent-color)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-                    >
-                      <Split size={16} />
-                      {isSplit ? 'Remove Split' : 'Split Transaction'}
-                    </button>
-                  </div>
-                  
                   {isSplit ? (
                     <div className="splits-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       {splits.map((s, index) => (
@@ -504,23 +506,16 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                               <div onClick={() => { setActiveSplitId(s.id); setActiveField('payee'); }}>
                                 {renderTapField("Payee", s.payee, User, 'payee', true)}
                               </div>
-                              <div onClick={() => { setActiveSplitId(s.id); setActiveField('account'); }}>
-                                {renderTapField("Account", s.account, Wallet, 'account', true)}
-                              </div>
                             </div>
                           ) : (
                             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                              <div className="form-group" style={{ flex: '1 1 30%' }}>
+                              <div className="form-group" style={{ flex: '1 1 45%' }}>
                                 <label>Category</label>
                                 <UnifiedDropdown value={s.category} options={categories.map(c => ({ value: c.name, label: c.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, category: val } : sp))} />
                               </div>
-                              <div className="form-group" style={{ flex: '1 1 30%' }}>
+                              <div className="form-group" style={{ flex: '1 1 45%' }}>
                                 <label>Payee</label>
                                 <UnifiedDropdown value={s.payee} options={payees.map(p => ({ value: p.name, label: p.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, payee: val } : sp))} />
-                              </div>
-                              <div className="form-group" style={{ flex: '1 1 30%' }}>
-                                <label>Account</label>
-                                <UnifiedDropdown value={s.account} options={accounts.map(a => ({ value: a.name, label: a.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, account: val } : sp))} />
                               </div>
                             </div>
                           )}
@@ -611,8 +606,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             initialValue={
               activeSplitId ? (
                 activeField === 'category' ? splits.find(s => s.id === activeSplitId)?.category :
-                activeField === 'payee' ? splits.find(s => s.id === activeSplitId)?.payee :
-                activeField === 'account' ? splits.find(s => s.id === activeSplitId)?.account : ''
+                activeField === 'payee' ? splits.find(s => s.id === activeSplitId)?.payee : ''
               ) : (
                 activeField === 'amount' ? amount :
                 activeField === 'note' ? note :
