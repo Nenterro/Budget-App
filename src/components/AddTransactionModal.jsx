@@ -421,7 +421,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
               height: (isSplit && type !== 2) ? 'auto' : (isMobile ? 
                       (type === 2 ? (isCrossCurrency ? '66px' : '0px') : '116px') : 
                       (type === 2 ? (isCrossCurrency ? '42px' : '0px') : '98px')),
-              transition: 'height 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+              marginTop: (type === 2 && !isCrossCurrency) ? '-16px' : '0px',
+              transition: 'height 0.35s cubic-bezier(0.4, 0, 0.2, 1), margin-top 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
               position: 'relative',
               overflow: (isSplit && type !== 2) ? 'visible' : 'hidden'
             }}
