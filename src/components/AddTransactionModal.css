@@ -68,7 +68,7 @@
 .tx-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
 }
 
 /* Type Selector */
@@ -133,26 +133,28 @@
   transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
+  padding-top: 8px;
+  margin-top: -8px;
 }
 
 .dynamic-fields-wrapper.regular-mode {
-  max-height: 220px; /* Fits Category & Payee smoothly */
+  max-height: 280px; /* Fits Category & Payee smoothly with clearance */
 }
 
 .dynamic-fields-wrapper.transfer-mode {
-  max-height: 160px; /* Fits Arrow & Transfer To smoothly */
+  max-height: 180px; /* Fits Arrow & Transfer To smoothly */
 }
 
 .dynamic-fields-content {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
 }
 
 /* Form Layout */
 .form-row {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   align-items: flex-end;
 }
 
@@ -167,17 +169,19 @@
 
 .form-group > label {
   position: absolute;
-  top: -8px;
+  top: -7px;
   left: 12px;
-  background: var(--bg-surface);
-  padding: 0 4px;
-  font-size: 11px;
+  background: #1d1d27;
+  padding: 0 5px;
+  font-size: 10px;
   color: var(--text-secondary);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.3px;
   text-transform: capitalize;
-  z-index: 2;
+  z-index: 5;
   pointer-events: none;
-  border-radius: 4px;
+  border-radius: 2px;
+  line-height: 1;
 }
 
 /* Inputs */
@@ -470,6 +474,8 @@
   overflow: hidden;
   position: relative;
   border-radius: 16px;
+  padding-top: 8px;
+  margin-top: -8px;
 }
 
 .splits-carousel-track {
