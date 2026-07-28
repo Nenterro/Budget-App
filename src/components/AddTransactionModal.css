@@ -234,6 +234,17 @@
   padding-bottom: 12px;
 }
 
+/* Status Banner */
+.modal-status-banner {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  font-size: 12px;
+  padding: 2px 4px;
+  margin-top: 2px;
+  margin-bottom: -4px;
+}
+
 /* Actions */
 .modal-actions {
   display: flex;

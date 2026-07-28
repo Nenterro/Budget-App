@@ -976,30 +976,31 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             )}
           </div>
 
-          <div className="modal-actions" style={{ alignItems: 'center' }}>
-            {isSplit && type !== 2 && (
-              <div style={{ marginRight: 'auto', fontSize: '10.5px', color: 'var(--text-secondary)', lineHeight: 1.2, flexShrink: 1, minWidth: 0, paddingRight: '4px' }}>
-                {(() => {
+          {((isSplit || isExpenseShare) && type !== 2) && (
+            <div className="modal-status-banner">
+              {isSplit && (
+                (() => {
                    const total = evalMath(amount) || 0;
                    const splitTotal = splits.reduce((acc, s) => acc + (evalMath(s.amount) || 0), 0);
                    const rem = total - splitTotal;
                    if (Math.abs(rem) < 0.01) return <span style={{color: '#10b981', fontWeight: 600}}>Split balanced ✓</span>;
-                   return <span style={{fontWeight: 600}}>Remaining: {formatCurrency(rem)}</span>;
-                })()}
-              </div>
-            )}
-            {isExpenseShare && type !== 2 && (
-              <div style={{ marginRight: 'auto', fontSize: '10.5px', color: 'var(--text-secondary)', lineHeight: 1.2, flexShrink: 1, minWidth: 0, paddingRight: '4px' }}>
-                {(() => {
+                   return <span style={{fontWeight: 600, color: rem < 0 ? '#ef4444' : 'var(--text-secondary)'}}>Remaining: {formatCurrency(rem)}</span>;
+                })()
+              )}
+              {isExpenseShare && (
+                (() => {
                    const total = Math.abs(evalMath(amount) || 0);
                    const othersTotal = expenseShares.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0);
                    const yourShare = total - othersTotal;
                    if (othersTotal > total) return <span style={{color: '#ef4444', fontWeight: 600}}>Others exceed total!</span>;
                    if (othersTotal <= 0) return <span style={{fontWeight: 600}}>Enter shares</span>;
                    return <span style={{color: '#f59e0b', fontWeight: 600}}>Others owe: {getCurrencySymbol(sourceCurrency)}{formatCurrency(othersTotal)}</span>;
-                })()}
-              </div>
-            )}
+                })()
+              )}
+            </div>
+          )}
+
+          <div className="modal-actions">
             <button type="button" className="cancel-btn" onClick={handleClose}>Cancel</button>
             <button type="submit" className="submit-btn" style={{ background: 'var(--accent-color)', color: '#fff', border: 'none' }} disabled={
               (isSplit && type !== 2 && Math.abs((evalMath(amount) || 0) - splits.reduce((acc, s) => acc + (evalMath(s.amount) || 0), 0)) > 0.01) ||
