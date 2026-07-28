@@ -221,18 +221,83 @@ export function DataProvider({ children }) {
   const updateTransaction = async (tx) => {
     const savedTx = await db.saveTransaction(tx);
     setTransactions(prev => {
-      const idx = prev.findIndex(p => p.id === savedTx.id);
+      let copy = [...prev];
+      const idx = copy.findIndex(p => p.id === savedTx.id);
       if (idx !== -1) {
-        const copy = [...prev];
         copy[idx] = savedTx;
-        return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
+      } else {
+        copy.push(savedTx);
       }
-      return [savedTx, ...prev].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      // If this transaction is a repayment child, sync back with parent expense share tx
+      if (savedTx.parentExpenseShareTxId) {
+        const parentIdx = copy.findIndex(p => p.id === savedTx.parentExpenseShareTxId);
+        if (parentIdx !== -1) {
+          const parent = copy[parentIdx];
+          if (parent.repayments && parent.repayments.length > 0) {
+            const updatedRepayments = parent.repayments.map(r => {
+              if (r.linkedTxId === savedTx.id) {
+                return {
+                  ...r,
+                  amount: Math.abs(savedTx.amount),
+                  personName: savedTx.payee,
+                  account: savedTx.account,
+                  date: savedTx.date ? savedTx.date.substring(0, 10) : r.date
+                };
+              }
+              return r;
+            });
+            const updatedShares = (parent.expenseShares || []).map(s => {
+              const totalRepaid = updatedRepayments
+                .filter(r => r.personName === s.name)
+                .reduce((acc, r) => acc + r.amount, 0);
+              return { ...s, settled: totalRepaid >= s.amount };
+            });
+            const updatedParent = {
+              ...parent,
+              repayments: updatedRepayments,
+              expenseShares: updatedShares,
+              pendingSync: true,
+              updatedAt: new Date().toISOString()
+            };
+            db.saveTransaction(updatedParent);
+            copy[parentIdx] = updatedParent;
+          }
+        }
+      }
+
+      return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
     syncAll();
   };
 
   const deleteTransaction = async (id) => {
+    const txToDelete = transactions.find(t => t.id === id);
+    if (txToDelete?.parentExpenseShareTxId) {
+      const parent = transactions.find(t => t.id === txToDelete.parentExpenseShareTxId);
+      if (parent && parent.repayments) {
+        const updatedRepayments = parent.repayments.filter(r => r.linkedTxId !== id);
+        const updatedShares = (parent.expenseShares || []).map(s => {
+          const totalRepaid = updatedRepayments
+            .filter(r => r.personName === s.name)
+            .reduce((acc, r) => acc + r.amount, 0);
+          return { ...s, settled: totalRepaid >= s.amount };
+        });
+        const updatedParent = {
+          ...parent,
+          repayments: updatedRepayments,
+          expenseShares: updatedShares,
+          pendingSync: true,
+          updatedAt: new Date().toISOString()
+        };
+        await db.saveTransaction(updatedParent);
+        setTransactions(prev => prev.map(t => t.id === parent.id ? updatedParent : t).filter(t => t.id !== id));
+        await db.deleteTransaction(id);
+        syncAll();
+        return;
+      }
+    }
+
     await db.deleteTransaction(id);
     setTransactions(prev => prev.filter(t => t.id !== id));
     syncAll();

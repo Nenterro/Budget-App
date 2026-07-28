@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronDown, ChevronUp, Users, Plus, Trash2, Calendar, Check, AlertTriangle, Tag, User } from 'lucide-react';
+import { X, ChevronDown, Users, Plus, Trash2, Calendar, Check, AlertTriangle, User, Edit2, Wallet } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
@@ -23,27 +23,48 @@ function evalMath(input) {
 }
 
 export default function ExpenseSharingModal({ isOpen, onClose }) {
-  const { transactions, updateTransaction, addTransaction, categories, payees, accounts } = useData();
+  const { transactions, updateTransaction, addTransaction, deleteTransaction, categories, payees, accounts } = useData();
+  
+  const [activeTab, setActiveTab] = useState('unsettled'); // 'unsettled' | 'settled'
   const [expandedTxId, setExpandedTxId] = useState(null);
   const [addingRepaymentFor, setAddingRepaymentFor] = useState(null); // txId
+  const [editingRepayment, setEditingRepayment] = useState(null); // { txId, repayment }
   const [writingOffFor, setWritingOffFor] = useState(null); // { txId, shareId }
   
   // Repayment form state
   const [repayPerson, setRepayPerson] = useState('');
   const [repayAmount, setRepayAmount] = useState('');
+  const [repayAccount, setRepayAccount] = useState('');
   const [repayDate, setRepayDate] = useState(new Date().toISOString().substring(0, 10));
   const [showRepayCalendar, setShowRepayCalendar] = useState(false);
   
+  // Edit Repayment form state
+  const [editPerson, setEditPerson] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editAccount, setEditAccount] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [showEditCalendar, setShowEditCalendar] = useState(false);
+
   // Write-off form state
   const [writeOffCategory, setWriteOffCategory] = useState('');
   const [writeOffPayee, setWriteOffPayee] = useState('');
 
   // Get all expense sharing transactions
-  const sharedExpenses = useMemo(() => {
+  const allSharedExpenses = useMemo(() => {
     return transactions
       .filter(tx => tx.isExpenseShare && tx.expenseShares && tx.expenseShares.length > 0)
       .sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [transactions]);
+
+  const unsettledExpenses = useMemo(() => {
+    return allSharedExpenses.filter(tx => !tx.expenseShares.every(s => s.settled));
+  }, [allSharedExpenses]);
+
+  const settledExpenses = useMemo(() => {
+    return allSharedExpenses.filter(tx => tx.expenseShares.every(s => s.settled));
+  }, [allSharedExpenses]);
+
+  const displayedExpenses = activeTab === 'unsettled' ? unsettledExpenses : settledExpenses;
 
   if (!isOpen) return null;
 
@@ -73,14 +94,73 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     const amount = evalMath(repayAmount);
     if (!repayPerson || !amount || amount <= 0) return;
 
-    const newRepayment = {
-      id: generateId(),
-      personName: repayPerson,
-      amount: amount,
-      date: repayDate
-    };
+    const accountToUse = repayAccount || tx.account || (accounts[0]?.name || '');
+    const dateFormatted = repayDate.substring(0, 10);
 
-    const updatedRepayments = [...(tx.repayments || []), newRepayment];
+    // Check if an existing repayment for SAME person, SAME account, SAME date exists -> AUTO MERGE!
+    const existingIndex = (tx.repayments || []).findIndex(
+      r => r.personName === repayPerson && 
+           (r.account || tx.account) === accountToUse && 
+           (r.date ? r.date.substring(0, 10) : '') === dateFormatted
+    );
+
+    let updatedRepayments = [];
+    if (existingIndex !== -1) {
+      // Merge into existing repayment
+      const existing = tx.repayments[existingIndex];
+      const mergedAmount = existing.amount + amount;
+      const updatedRecord = {
+        ...existing,
+        amount: mergedAmount
+      };
+      
+      updatedRepayments = [...tx.repayments];
+      updatedRepayments[existingIndex] = updatedRecord;
+
+      // Update linked Income transaction in database
+      if (existing.linkedTxId) {
+        const linkedTx = transactions.find(t => t.id === existing.linkedTxId);
+        if (linkedTx) {
+          await updateTransaction({
+            ...linkedTx,
+            amount: mergedAmount,
+            updatedAt: new Date().toISOString(),
+            pendingSync: true
+          });
+        }
+      }
+    } else {
+      // Create new Income transaction
+      const linkedTxId = generateId();
+      const newIncomeTx = {
+        id: linkedTxId,
+        type: 1, // Income
+        amount: amount,
+        category: 'Loan',
+        payee: repayPerson,
+        note: `Repayment for shared expense (${tx.payee || 'Expense Share'})`,
+        date: new Date(repayDate).toISOString(),
+        account: accountToUse,
+        currency: accounts.find(a => a.name === accountToUse)?.currency || tx.currency,
+        parentExpenseShareTxId: tx.id,
+        isRepayment: true,
+        updatedAt: new Date().toISOString(),
+        pendingSync: true
+      };
+
+      await addTransaction(newIncomeTx);
+
+      const newRepayment = {
+        id: generateId(),
+        personName: repayPerson,
+        amount: amount,
+        date: dateFormatted,
+        account: accountToUse,
+        linkedTxId: linkedTxId
+      };
+
+      updatedRepayments = [...(tx.repayments || []), newRepayment];
+    }
     
     // Check if person is now fully settled
     const share = tx.expenseShares.find(s => s.name === repayPerson);
@@ -103,15 +183,85 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       updatedAt: new Date().toISOString()
     });
 
-    // Reset
+    // Reset form
     setRepayPerson('');
     setRepayAmount('');
+    setRepayAccount('');
     setRepayDate(new Date().toISOString().substring(0, 10));
     setAddingRepaymentFor(null);
   };
 
-  const handleDeleteRepayment = async (tx, repaymentId) => {
-    const updatedRepayments = (tx.repayments || []).filter(r => r.id !== repaymentId);
+  const handleStartEditRepayment = (tx, rep) => {
+    setEditingRepayment({ txId: tx.id, repaymentId: rep.id });
+    setEditPerson(rep.personName);
+    setEditAmount(rep.amount.toString());
+    setEditAccount(rep.account || tx.account || (accounts[0]?.name || ''));
+    setEditDate(rep.date ? rep.date.substring(0, 10) : new Date().toISOString().substring(0, 10));
+  };
+
+  const handleSaveEditRepayment = async (tx, rep) => {
+    const amount = evalMath(editAmount);
+    if (!editPerson || !amount || amount <= 0) return;
+
+    const accountToUse = editAccount || tx.account || (accounts[0]?.name || '');
+    const dateFormatted = editDate.substring(0, 10);
+
+    const updatedRepayments = (tx.repayments || []).map(r => {
+      if (r.id === rep.id) {
+        return {
+          ...r,
+          personName: editPerson,
+          amount: amount,
+          account: accountToUse,
+          date: dateFormatted
+        };
+      }
+      return r;
+    });
+
+    // Update linked Income transaction in database
+    if (rep.linkedTxId) {
+      const linkedTx = transactions.find(t => t.id === rep.linkedTxId);
+      if (linkedTx) {
+        await updateTransaction({
+          ...linkedTx,
+          amount: amount,
+          payee: editPerson,
+          account: accountToUse,
+          date: new Date(editDate).toISOString(),
+          currency: accounts.find(a => a.name === accountToUse)?.currency || tx.currency,
+          updatedAt: new Date().toISOString(),
+          pendingSync: true
+        });
+      }
+    }
+
+    // Recalculate settled status
+    const updatedShares = tx.expenseShares.map(s => {
+      const totalRepaid = updatedRepayments
+        .filter(r => r.personName === s.name)
+        .reduce((acc, r) => acc + r.amount, 0);
+      return { ...s, settled: totalRepaid >= s.amount };
+    });
+
+    await updateTransaction({
+      ...tx,
+      repayments: updatedRepayments,
+      expenseShares: updatedShares,
+      pendingSync: true,
+      updatedAt: new Date().toISOString()
+    });
+
+    setEditingRepayment(null);
+  };
+
+  const handleDeleteRepayment = async (tx, repaymentRecord) => {
+    // Delete linked Income transaction if present
+    if (repaymentRecord.linkedTxId) {
+      await deleteTransaction(repaymentRecord.linkedTxId);
+    }
+
+    const updatedRepayments = (tx.repayments || []).filter(r => r.id !== repaymentRecord.id);
     
     // Recalculate settled status
     const updatedShares = tx.expenseShares.map(s => {
@@ -142,23 +292,26 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     const newAmount = Math.abs(tx.amount) - pending;
     
     // 2. Create new write-off transaction
+    const writeOffTxId = generateId();
     const writeOffTx = {
-      id: generateId(),
+      id: writeOffTxId,
       type: tx.type,
       amount: tx.type === 0 ? -pending : pending,
       category: writeOffCategory || 'Bad Debt',
       payee: writeOffPayee || share.name,
-      note: `Written off from shared expense with ${share.name}`,
+      note: `Written off from shared expense (${tx.payee || 'Expense Share'})`,
       date: tx.date,
       account: tx.account,
       currency: tx.currency,
+      parentExpenseShareTxId: tx.id,
+      isWriteOff: true,
       pendingSync: true,
       updatedAt: new Date().toISOString()
     };
 
     // 3. Mark share as settled in original tx
     const updatedShares = tx.expenseShares.map(s => 
-      s.id === shareId ? { ...s, settled: true, writtenOff: true } : s
+      s.id === shareId ? { ...s, settled: true, writtenOff: true, writtenOffTxId: writeOffTxId } : s
     );
 
     await updateTransaction({
@@ -193,16 +346,34 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
           <button className="close-btn" onClick={onClose} type="button"><X size={24} /></button>
         </div>
 
+        {/* Tab Selector */}
+        <div className="es-tabs">
+          <button 
+            type="button"
+            className={`es-tab ${activeTab === 'unsettled' ? 'active' : ''}`}
+            onClick={() => setActiveTab('unsettled')}
+          >
+            Unsettled <span className="es-tab-count">{unsettledExpenses.length}</span>
+          </button>
+          <button 
+            type="button"
+            className={`es-tab ${activeTab === 'settled' ? 'active' : ''}`}
+            onClick={() => setActiveTab('settled')}
+          >
+            Settled <span className="es-tab-count">{settledExpenses.length}</span>
+          </button>
+        </div>
+
         <div className="es-list">
-          {sharedExpenses.length === 0 ? (
+          {displayedExpenses.length === 0 ? (
             <div className="es-empty">
               <Users size={48} style={{ opacity: 0.3 }} />
-              <p>No shared expenses yet</p>
-              <span>Create a transaction with expense sharing to get started.</span>
+              <p>No {activeTab} shared expenses</p>
+              <span>{activeTab === 'unsettled' ? 'All your shared expenses are fully paid back!' : 'Settled shared expenses will appear here.'}</span>
             </div>
           ) : (
             <AnimatePresence initial={false}>
-              {sharedExpenses.map(tx => {
+              {displayedExpenses.map(tx => {
                 const isExpanded = expandedTxId === tx.id;
                 const totalPending = getTotalPending(tx);
                 const totalRepaid = getTotalRepaid(tx);
@@ -363,23 +534,106 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                               <>
                                 <div className="es-section-title">Repayment History</div>
                                 <div className="es-repayments">
-                                  {getRepayments(tx).map(rep => (
-                                    <div key={rep.id} className="es-repayment-row">
-                                      <div className="es-repayment-info">
-                                        <span className="es-repayment-name">{rep.personName}</span>
-                                        <span className="es-repayment-date">{formatDateShort(rep.date)}</span>
-                                      </div>
-                                      <div className="es-repayment-right">
-                                        <span className="es-repayment-amount">+{currency}{formatCurrency(rep.amount)}</span>
-                                        <button 
-                                          className="es-repayment-delete"
-                                          onClick={() => handleDeleteRepayment(tx, rep.id)}
+                                  {getRepayments(tx).map(rep => {
+                                    const isEditingThis = editingRepayment?.txId === tx.id && editingRepayment?.repaymentId === rep.id;
+
+                                    if (isEditingThis) {
+                                      return (
+                                        <motion.div
+                                          key={rep.id}
+                                          className="es-add-repayment-form"
+                                          initial={{ opacity: 0 }}
+                                          animate={{ opacity: 1 }}
                                         >
-                                          <Trash2 size={14} />
-                                        </button>
+                                          <div className="es-section-title" style={{ marginTop: 0 }}>Edit Repayment</div>
+                                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            <div style={{ flex: '1 1 110px' }}>
+                                              <UnifiedDropdown
+                                                value={editPerson}
+                                                placeholder="Person"
+                                                options={tx.expenseShares.map(s => ({ value: s.name, label: s.name }))}
+                                                onChange={setEditPerson}
+                                              />
+                                            </div>
+                                            <div style={{ flex: '0 1 90px' }}>
+                                              <div className="input-with-icon" style={{ height: '40px' }}>
+                                                <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
+                                                <input 
+                                                  type="text" 
+                                                  placeholder="Amount" 
+                                                  value={editAmount}
+                                                  onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
+                                                  style={{ fontSize: '14px', height: '40px' }}
+                                                />
+                                              </div>
+                                            </div>
+                                            <div style={{ flex: '1 1 110px' }}>
+                                              <UnifiedDropdown
+                                                value={editAccount}
+                                                placeholder="Account"
+                                                options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                                                onChange={setEditAccount}
+                                              />
+                                            </div>
+                                            <div style={{ flex: '0 1 90px' }}>
+                                              <div 
+                                                className="input-with-icon" 
+                                                onClick={() => setShowEditCalendar(true)} 
+                                                style={{ cursor: 'pointer', height: '40px' }}
+                                              >
+                                                <Calendar size={14} className="input-icon" />
+                                                <input 
+                                                  type="text" 
+                                                  value={formatDateShort(editDate)} 
+                                                  readOnly 
+                                                  style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px' }} 
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                                            <button className="es-btn-cancel" onClick={() => setEditingRepayment(null)}>Cancel</button>
+                                            <motion.button 
+                                              whileTap={{ scale: 0.95 }}
+                                              className="es-btn-confirm"
+                                              onClick={() => handleSaveEditRepayment(tx, rep)}
+                                            >
+                                              Save Repayment
+                                            </motion.button>
+                                          </div>
+                                        </motion.div>
+                                      );
+                                    }
+
+                                    return (
+                                      <div key={rep.id} className="es-repayment-row">
+                                        <div className="es-repayment-info">
+                                          <span className="es-repayment-name">{rep.personName}</span>
+                                          <span className="es-repayment-date">{formatDateShort(rep.date)}</span>
+                                          {rep.account && (
+                                            <span className="es-repayment-account">({rep.account})</span>
+                                          )}
+                                        </div>
+                                        <div className="es-repayment-right">
+                                          <span className="es-repayment-amount">+{currency}{formatCurrency(rep.amount)}</span>
+                                          <button 
+                                            className="es-repayment-edit"
+                                            onClick={() => handleStartEditRepayment(tx, rep)}
+                                            title="Edit Repayment"
+                                          >
+                                            <Edit2 size={13} />
+                                          </button>
+                                          <button 
+                                            className="es-repayment-delete"
+                                            onClick={() => handleDeleteRepayment(tx, rep)}
+                                            title="Delete Repayment"
+                                          >
+                                            <Trash2 size={14} />
+                                          </button>
+                                        </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </>
                             )}
@@ -394,9 +648,9 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ duration: 0.2 }}
                                   >
-                                    <div className="es-section-title">Add Repayment</div>
+                                    <div className="es-section-title" style={{ marginTop: 0 }}>Add Repayment (Incoming Loan)</div>
                                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                      <div style={{ flex: '1 1 120px' }}>
+                                      <div style={{ flex: '1 1 110px' }}>
                                         <UnifiedDropdown
                                           value={repayPerson}
                                           placeholder="Person"
@@ -411,7 +665,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           }}
                                         />
                                       </div>
-                                      <div style={{ flex: '0 1 100px' }}>
+                                      <div style={{ flex: '0 1 90px' }}>
                                         <div className="input-with-icon" style={{ height: '40px' }}>
                                           <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
                                           <input 
@@ -423,7 +677,15 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           />
                                         </div>
                                       </div>
-                                      <div style={{ flex: '0 1 100px' }}>
+                                      <div style={{ flex: '1 1 110px' }}>
+                                        <UnifiedDropdown
+                                          value={repayAccount}
+                                          placeholder="Account"
+                                          options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                                          onChange={setRepayAccount}
+                                        />
+                                      </div>
+                                      <div style={{ flex: '0 1 90px' }}>
                                         <div 
                                           className="input-with-icon" 
                                           onClick={() => setShowRepayCalendar(true)} 
@@ -434,7 +696,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                             type="text" 
                                             value={formatDateShort(repayDate)} 
                                             readOnly 
-                                            style={{ cursor: 'pointer', fontSize: '14px', height: '40px', paddingLeft: '30px' }} 
+                                            style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px' }} 
                                           />
                                         </div>
                                       </div>
@@ -457,6 +719,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                     className="es-add-repayment-btn"
                                     onClick={() => {
                                       setAddingRepaymentFor(tx.id);
+                                      setRepayAccount(tx.account || (accounts[0]?.name || ''));
                                       setRepayDate(tx.date ? tx.date.substring(0, 10) : new Date().toISOString().substring(0, 10));
                                     }}
                                   >
@@ -482,6 +745,16 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
               value={repayDate} 
               onChange={setRepayDate} 
               onClose={() => setShowRepayCalendar(false)} 
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showEditCalendar && (
+            <UnifiedCalendar 
+              value={editDate} 
+              onChange={setEditDate} 
+              onClose={() => setShowEditCalendar(false)} 
             />
           )}
         </AnimatePresence>

@@ -1,6 +1,6 @@
 .expense-sharing-modal {
   width: 100%;
-  max-width: 580px;
+  max-width: 600px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -9,13 +9,52 @@
   position: relative;
 }
 
+.es-tabs {
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin-top: 12px;
+}
+
+.es-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.es-tab.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.es-tab-count {
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
 .es-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
   padding-right: 4px;
-  margin-top: 16px;
+  margin-top: 12px;
   flex: 1;
 }
 
@@ -314,6 +353,12 @@
   color: var(--text-secondary);
 }
 
+.es-repayment-account {
+  font-size: 11px;
+  color: var(--accent-color);
+  opacity: 0.8;
+}
+
 .es-repayment-right {
   display: flex;
   align-items: center;
@@ -325,6 +370,7 @@
   color: #10b981;
 }
 
+.es-repayment-edit,
 .es-repayment-delete {
   background: transparent;
   border: none;
@@ -335,6 +381,11 @@
   align-items: center;
   opacity: 0.6;
   transition: opacity 0.2s;
+}
+
+.es-repayment-edit:hover {
+  opacity: 1;
+  color: var(--accent-color);
 }
 
 .es-repayment-delete:hover {
