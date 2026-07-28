@@ -834,6 +834,15 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                       setAddingRepaymentFor(tx.id);
                                       setRepayAccount(tx.account || (accounts[0]?.name || ''));
                                       setRepayDate(tx.date ? tx.date.substring(0, 10) : new Date().toISOString().substring(0, 10));
+                                      const unsettled = tx.expenseShares.filter(s => !s.settled);
+                                      if (unsettled.length === 1) {
+                                        setRepayPerson(unsettled[0].name);
+                                        const pending = getPersonPending(tx, unsettled[0].name);
+                                        setRepayAmount(pending > 0 ? pending.toString() : '');
+                                      } else {
+                                        setRepayPerson('');
+                                        setRepayAmount('');
+                                      }
                                     }}
                                   >
                                     <Plus size={16} /> Add Repayment
