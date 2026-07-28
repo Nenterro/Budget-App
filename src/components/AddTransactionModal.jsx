@@ -406,7 +406,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             )
           ) : (
             type === 2 ? (
-              <div className="form-row split-row" style={{ alignItems: 'flex-end', gap: '12px' }}>
+              <div className="form-row split-row" style={{ alignItems: 'flex-end', gap: '8px' }}>
                 <div className="form-group flex-1">
                   {selectedAccount && <label>From Account</label>}
                   <UnifiedDropdown 
@@ -570,7 +570,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                                     </div>
                                   </div>
                                 ) : (
-                                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                     <div className="form-group" style={{ flex: '1 1 30%' }}>
                                       <UnifiedDropdown value={s.account} placeholder="Account" options={accounts.map(a => ({ value: a.name, label: a.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, account: val } : sp))} />
                                     </div>
@@ -637,7 +637,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 20 }}
                         transition={{ duration: 0.25, ease: "easeOut" }}
-                        style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
                       >
                         {isMobile ? (
                           <>

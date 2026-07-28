@@ -68,7 +68,7 @@
 .tx-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
 
 /* Type Selector */
@@ -145,13 +145,13 @@
 .dynamic-fields-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
 
 /* Form Layout */
 .form-row {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: flex-end;
 }
 
