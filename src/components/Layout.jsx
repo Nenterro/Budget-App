@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal, Wallet } from 'lucide-react';
 import AddTransactionModal from './AddTransactionModal';
 import MoreMenuModal from './MoreMenuModal';
+import PwaInstallBanner from './PwaInstallPrompt';
 import './Layout.css';
 
 const NAV_ITEMS = [
@@ -150,6 +151,7 @@ export default function Layout() {
         {isAddOpen && <AddTransactionModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />}
       </AnimatePresence>
       <MoreMenuModal isOpen={isMoreOpen} onClose={() => setIsMoreOpen(false)} />
+      <PwaInstallBanner />
     </div>
   );
 }

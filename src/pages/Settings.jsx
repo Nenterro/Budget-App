@@ -1,9 +1,10 @@
 import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tag, Wallet, User, Paintbrush, Globe, Database, ChevronRight, Cloud, Upload, Download, LogOut, ArrowLeft, Lock } from 'lucide-react';
+import { Tag, Wallet, User, Paintbrush, Globe, Database, ChevronRight, Cloud, Upload, Download, LogOut, ArrowLeft, Lock, Smartphone } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { importData, exportData } from '../store/db';
 import { syncAll } from '../store/sync';
+import { usePwaInstall } from '../components/PwaInstallPrompt';
 import './Settings.css';
 
 import { useData } from '../context/DataContext';
@@ -14,6 +15,15 @@ export default function Settings() {
   const fileInputRef = useRef(null);
   const { loadData } = useData();
   const { logout } = useAuth();
+  const { isInstalled, promptInstall, isIos } = usePwaInstall();
+
+  const handleInstallClick = () => {
+    if (isIos) {
+      alert("To install on iOS:\n1. Tap the Share button in Safari\n2. Tap 'Add to Home Screen'");
+    } else {
+      promptInstall();
+    }
+  };
 
   const handleExport = async () => {
     // ...
@@ -74,6 +84,7 @@ export default function Settings() {
       items: [
         { label: "Appearance", icon: Paintbrush, path: "/settings/appearance" },
         { label: "Currency", icon: Globe, path: "/settings/currency" },
+        ...(!isInstalled ? [{ label: "Install App / Add to Home Screen", icon: Smartphone, action: handleInstallClick }] : []),
         { label: "Import Data", icon: Upload, action: () => fileInputRef.current?.click() },
         { label: "Export Data", icon: Download, action: handleExport },
       ]
