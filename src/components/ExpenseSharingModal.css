@@ -2,7 +2,7 @@
   width: 100%;
   max-width: 620px;
   max-height: 85vh;
-  height: 85vh;
+  height: auto;
   display: flex;
   flex-direction: column;
   padding: 20px;
@@ -13,9 +13,38 @@
 .es-view-container {
   display: flex;
   flex-direction: column;
-  flex: 1;
   min-height: 0;
-  overflow: hidden;
+}
+
+.es-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-top: 12px;
+}
+
+.es-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.es-form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.es-form-row > div {
+  min-width: 0;
+  width: 100%;
 }
 
 .es-detail-header {
@@ -558,10 +587,25 @@
   color: #ef4444;
 }
 
+.es-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.es-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
 .es-form-row {
   display: flex;
   gap: 12px;
   align-items: flex-end;
+  width: 100%;
 }
 
 .es-input-label {
@@ -569,7 +613,7 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .es-repayments {

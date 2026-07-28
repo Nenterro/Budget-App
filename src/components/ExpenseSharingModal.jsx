@@ -626,24 +626,22 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                         <button className="close-btn" type="button" onClick={() => setWritingOffFor(null)}><X size={18} /></button>
                                       </div>
                                       
-                                      <div className="es-form-row">
-                                        <div style={{ flex: 1 }}>
+                                      <div className="es-form-grid">
+                                        <div className="es-field">
                                           <label className="es-input-label">Amount</label>
-                                          <div className="input-with-icon" style={{ height: '40px' }}>
+                                          <div className="input-with-icon" style={{ height: '40px', width: '100%' }}>
                                             <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
                                             <input 
                                               type="text" 
                                               placeholder="Amount to write off" 
                                               value={writeOffAmount}
                                               onChange={(e) => setWriteOffAmount(formatAmountInput(e.target.value))}
-                                              style={{ fontSize: '14px', height: '40px' }}
+                                              style={{ fontSize: '14px', height: '40px', width: '100%' }}
                                             />
                                           </div>
                                         </div>
-                                      </div>
 
-                                      <div className="es-form-row">
-                                        <div style={{ flex: 1 }}>
+                                        <div className="es-field">
                                           <label className="es-input-label">Category</label>
                                           <UnifiedDropdown
                                             value={writeOffCategory}
@@ -652,7 +650,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                             onChange={setWriteOffCategory}
                                           />
                                         </div>
-                                        <div style={{ flex: 1 }}>
+
+                                        <div className="es-field">
                                           <label className="es-input-label">Payee</label>
                                           <UnifiedDropdown
                                             value={writeOffPayee}
@@ -713,58 +712,58 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           <button className="close-btn" type="button" onClick={() => setEditingRepayment(null)}><X size={18} /></button>
                                         </div>
                                         
-                                        <div className="es-form-row">
-                                          <div style={{ flex: 1 }}>
-                                            <label className="es-input-label">Person</label>
-                                            <UnifiedDropdown
-                                              value={editPerson}
-                                              placeholder="Person"
-                                              options={tx.expenseShares.map(s => ({ value: s.name, label: s.name }))}
-                                              onChange={setEditPerson}
-                                            />
-                                          </div>
-                                          <div style={{ flex: 1 }}>
-                                            <label className="es-input-label">Amount</label>
-                                            <div className="input-with-icon" style={{ height: '40px' }}>
-                                              <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
-                                              <input 
-                                                type="text" 
-                                                placeholder="Amount" 
-                                                value={editAmount}
-                                                onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
-                                                style={{ fontSize: '14px', height: '40px' }}
-                                              />
-                                            </div>
-                                          </div>
-                                        </div>
+                                        <div className="es-form-grid">
+                                           <div className="es-field">
+                                             <label className="es-input-label">Person</label>
+                                             <UnifiedDropdown
+                                               value={editPerson}
+                                               placeholder="Person"
+                                               options={tx.expenseShares.map(s => ({ value: s.name, label: s.name }))}
+                                               onChange={setEditPerson}
+                                             />
+                                           </div>
 
-                                        <div className="es-form-row">
-                                          <div style={{ flex: 1 }}>
-                                            <label className="es-input-label">Account</label>
-                                            <UnifiedDropdown
-                                              value={editAccount}
-                                              placeholder="Account"
-                                              options={accounts.map(a => ({ value: a.name, label: a.name }))}
-                                              onChange={setEditAccount}
-                                            />
-                                          </div>
-                                          <div style={{ flex: 1 }}>
-                                            <label className="es-input-label">Date</label>
-                                            <div 
-                                              className="input-with-icon" 
-                                              onClick={() => setShowEditCalendar(true)} 
-                                              style={{ cursor: 'pointer', height: '40px' }}
-                                            >
-                                              <Calendar size={14} className="input-icon" />
-                                              <input 
-                                                type="text" 
-                                                value={formatDateShort(editDate)} 
-                                                readOnly 
-                                                style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px' }} 
-                                              />
-                                            </div>
-                                          </div>
-                                        </div>
+                                           <div className="es-field">
+                                             <label className="es-input-label">Amount</label>
+                                             <div className="input-with-icon" style={{ height: '40px', width: '100%' }}>
+                                               <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
+                                               <input 
+                                                 type="text" 
+                                                 placeholder="Amount" 
+                                                 value={editAmount}
+                                                 onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
+                                                 style={{ fontSize: '14px', height: '40px', width: '100%' }}
+                                               />
+                                             </div>
+                                           </div>
+
+                                           <div className="es-field">
+                                             <label className="es-input-label">Account</label>
+                                             <UnifiedDropdown
+                                               value={editAccount}
+                                               placeholder="Account"
+                                               options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                                               onChange={setEditAccount}
+                                             />
+                                           </div>
+
+                                           <div className="es-field">
+                                             <label className="es-input-label">Date</label>
+                                             <div 
+                                               className="input-with-icon" 
+                                               onClick={() => setShowEditCalendar(true)} 
+                                               style={{ cursor: 'pointer', height: '40px', width: '100%' }}
+                                             >
+                                               <Calendar size={14} className="input-icon" />
+                                               <input 
+                                                 type="text" 
+                                                 value={formatDateShort(editDate)} 
+                                                 readOnly 
+                                                 style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px', width: '100%' }} 
+                                               />
+                                             </div>
+                                           </div>
+                                         </div>
 
                                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
                                           <button className="es-btn-cancel" onClick={() => setEditingRepayment(null)}>Cancel</button>
@@ -878,8 +877,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                               <button className="close-btn" type="button" onClick={() => setAddingRepaymentFor(null)}><X size={18} /></button>
                             </div>
                             
-                            <div className="es-form-row">
-                              <div style={{ flex: 1 }}>
+                            <div className="es-form-grid">
+                              <div className="es-field">
                                 <label className="es-input-label">Person</label>
                                 <UnifiedDropdown
                                   value={repayPerson}
@@ -894,23 +893,22 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                   }}
                                 />
                               </div>
-                              <div style={{ flex: 1 }}>
+
+                              <div className="es-field">
                                 <label className="es-input-label">Amount</label>
-                                <div className="input-with-icon" style={{ height: '40px' }}>
+                                <div className="input-with-icon" style={{ height: '40px', width: '100%' }}>
                                   <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
                                   <input 
                                     type="text" 
                                     placeholder="Amount" 
                                     value={repayAmount}
                                     onChange={(e) => setRepayAmount(formatAmountInput(e.target.value))}
-                                    style={{ fontSize: '14px', height: '40px' }}
+                                    style={{ fontSize: '14px', height: '40px', width: '100%' }}
                                   />
                                 </div>
                               </div>
-                            </div>
 
-                            <div className="es-form-row">
-                              <div style={{ flex: 1 }}>
+                              <div className="es-field">
                                 <label className="es-input-label">Account</label>
                                 <UnifiedDropdown
                                   value={repayAccount}
@@ -919,19 +917,20 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                   onChange={setRepayAccount}
                                 />
                               </div>
-                              <div style={{ flex: 1 }}>
+
+                              <div className="es-field">
                                 <label className="es-input-label">Date</label>
                                 <div 
                                   className="input-with-icon" 
                                   onClick={() => setShowRepayCalendar(true)} 
-                                  style={{ cursor: 'pointer', height: '40px' }}
+                                  style={{ cursor: 'pointer', height: '40px', width: '100%' }}
                                 >
                                   <Calendar size={14} className="input-icon" />
                                   <input 
                                     type="text" 
                                     value={formatDateShort(repayDate)} 
                                     readOnly 
-                                    style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px' }} 
+                                    style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px', width: '100%' }} 
                                   />
                                 </div>
                               </div>
