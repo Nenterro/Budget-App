@@ -1,6 +1,6 @@
 .expense-sharing-modal {
   width: 100%;
-  max-width: 600px;
+  max-width: 620px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -274,6 +274,11 @@
   font-weight: 500;
 }
 
+.es-person-writtenoff {
+  color: #ef4444;
+  font-weight: 500;
+}
+
 .es-person-pending {
   color: #f59e0b;
   font-weight: 600;
@@ -312,13 +317,27 @@
   padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .es-writeoff-label {
   font-size: 12px;
   font-weight: 600;
   color: #ef4444;
+}
+
+.es-form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.es-input-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
 }
 
 .es-repayments {
@@ -335,6 +354,11 @@
   background: rgba(255, 255, 255, 0.02);
   border-radius: 8px;
   font-size: 13px;
+}
+
+.es-repayment-row.writeoff-history-row {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.15);
 }
 
 .es-repayment-info {
@@ -397,10 +421,10 @@
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
-  padding: 12px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .es-add-repayment-btn {
@@ -445,5 +469,10 @@
   .expense-sharing-modal {
     padding: 16px;
     max-height: 90vh;
+  }
+  
+  .es-form-row {
+    flex-direction: column;
+    gap: 8px;
   }
 }

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronDown, Users, Plus, Trash2, Calendar, Check, AlertTriangle, User, Edit2, Wallet } from 'lucide-react';
+import { X, ChevronDown, Users, Plus, Trash2, Calendar, Check, AlertTriangle, User, Edit2 } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
@@ -28,7 +28,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   const [activeTab, setActiveTab] = useState('unsettled'); // 'unsettled' | 'settled'
   const [expandedTxId, setExpandedTxId] = useState(null);
   const [addingRepaymentFor, setAddingRepaymentFor] = useState(null); // txId
-  const [editingRepayment, setEditingRepayment] = useState(null); // { txId, repayment }
+  const [editingRepayment, setEditingRepayment] = useState(null); // { txId, repaymentId }
   const [writingOffFor, setWritingOffFor] = useState(null); // { txId, shareId }
   
   // Repayment form state
@@ -46,6 +46,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   const [showEditCalendar, setShowEditCalendar] = useState(false);
 
   // Write-off form state
+  const [writeOffAmount, setWriteOffAmount] = useState('');
   const [writeOffCategory, setWriteOffCategory] = useState('');
   const [writeOffPayee, setWriteOffPayee] = useState('');
 
@@ -69,14 +70,25 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   const getRepayments = (tx) => tx.repayments || [];
-  
+  const getWriteOffs = (tx) => tx.writeOffs || [];
+
+  const getPersonRepaid = (tx, personName) => {
+    return getRepayments(tx)
+      .filter(r => r.personName === personName)
+      .reduce((acc, r) => acc + (r.amount || 0), 0);
+  };
+
+  const getPersonWrittenOff = (tx, personName) => {
+    return getWriteOffs(tx)
+      .filter(w => w.personName === personName)
+      .reduce((acc, w) => acc + (w.amount || 0), 0);
+  };
+
   const getPersonPending = (tx, personName) => {
     const share = tx.expenseShares.find(s => s.name === personName);
     if (!share) return 0;
-    const repaid = getRepayments(tx)
-      .filter(r => r.personName === personName)
-      .reduce((acc, r) => acc + (r.amount || 0), 0);
-    return Math.max(0, share.amount - repaid);
+    const totalCovered = getPersonRepaid(tx, personName) + getPersonWrittenOff(tx, personName);
+    return Math.max(0, share.amount - totalCovered);
   };
 
   const getTotalPending = (tx) => {
@@ -84,10 +96,6 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       if (share.settled) return acc;
       return acc + getPersonPending(tx, share.name);
     }, 0);
-  };
-
-  const getTotalRepaid = (tx) => {
-    return getRepayments(tx).reduce((acc, r) => acc + (r.amount || 0), 0);
   };
 
   const handleAddRepayment = async (tx) => {
@@ -106,7 +114,6 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
     let updatedRepayments = [];
     if (existingIndex !== -1) {
-      // Merge into existing repayment
       const existing = tx.repayments[existingIndex];
       const mergedAmount = existing.amount + amount;
       const updatedRecord = {
@@ -117,7 +124,6 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       updatedRepayments = [...tx.repayments];
       updatedRepayments[existingIndex] = updatedRecord;
 
-      // Update linked Income transaction in database
       if (existing.linkedTxId) {
         const linkedTx = transactions.find(t => t.id === existing.linkedTxId);
         if (linkedTx) {
@@ -130,7 +136,6 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
         }
       }
     } else {
-      // Create new Income transaction
       const linkedTxId = generateId();
       const newIncomeTx = {
         id: linkedTxId,
@@ -162,17 +167,13 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       updatedRepayments = [...(tx.repayments || []), newRepayment];
     }
     
-    // Check if person is now fully settled
-    const share = tx.expenseShares.find(s => s.name === repayPerson);
-    const totalRepaidForPerson = updatedRepayments
-      .filter(r => r.personName === repayPerson)
-      .reduce((acc, r) => acc + r.amount, 0);
-    
+    // Check settled status
     const updatedShares = tx.expenseShares.map(s => {
-      if (s.name === repayPerson && totalRepaidForPerson >= s.amount) {
-        return { ...s, settled: true };
-      }
-      return s;
+      const repaid = updatedRepayments
+        .filter(r => r.personName === s.name)
+        .reduce((acc, r) => acc + r.amount, 0);
+      const writtenOff = getPersonWrittenOff(tx, s.name);
+      return { ...s, settled: (repaid + writtenOff) >= s.amount };
     });
 
     await updateTransaction({
@@ -219,7 +220,6 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       return r;
     });
 
-    // Update linked Income transaction in database
     if (rep.linkedTxId) {
       const linkedTx = transactions.find(t => t.id === rep.linkedTxId);
       if (linkedTx) {
@@ -236,12 +236,12 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       }
     }
 
-    // Recalculate settled status
     const updatedShares = tx.expenseShares.map(s => {
-      const totalRepaid = updatedRepayments
+      const repaid = updatedRepayments
         .filter(r => r.personName === s.name)
         .reduce((acc, r) => acc + r.amount, 0);
-      return { ...s, settled: totalRepaid >= s.amount };
+      const writtenOff = getPersonWrittenOff(tx, s.name);
+      return { ...s, settled: (repaid + writtenOff) >= s.amount };
     });
 
     await updateTransaction({
@@ -256,19 +256,18 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   };
 
   const handleDeleteRepayment = async (tx, repaymentRecord) => {
-    // Delete linked Income transaction if present
     if (repaymentRecord.linkedTxId) {
       await deleteTransaction(repaymentRecord.linkedTxId);
     }
 
     const updatedRepayments = (tx.repayments || []).filter(r => r.id !== repaymentRecord.id);
     
-    // Recalculate settled status
     const updatedShares = tx.expenseShares.map(s => {
-      const totalRepaid = updatedRepayments
+      const repaid = updatedRepayments
         .filter(r => r.personName === s.name)
         .reduce((acc, r) => acc + r.amount, 0);
-      return { ...s, settled: totalRepaid >= s.amount };
+      const writtenOff = getPersonWrittenOff(tx, s.name);
+      return { ...s, settled: (repaid + writtenOff) >= s.amount };
     });
 
     await updateTransaction({
@@ -280,26 +279,29 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     });
   };
 
-  const handleWriteOff = async (tx, shareId) => {
+  const handleStartWriteOff = (tx, share) => {
+    const pending = getPersonPending(tx, share.name);
+    setWritingOffFor({ txId: tx.id, shareId: share.id });
+    setWriteOffAmount(pending.toString());
+    setWriteOffCategory(categories[0]?.name || 'Bad Debt');
+    setWriteOffPayee(share.name);
+  };
+
+  const handleConfirmWriteOff = async (tx, shareId) => {
     const share = tx.expenseShares.find(s => s.id === shareId);
     if (!share) return;
     
-    const pending = getPersonPending(tx, share.name);
-    if (pending <= 0) return;
-    if (!writeOffCategory && !writeOffPayee) return;
+    const amount = evalMath(writeOffAmount);
+    if (!amount || amount <= 0) return;
 
-    // 1. Reduce original transaction amount by the pending amount
-    const newAmount = Math.abs(tx.amount) - pending;
-    
-    // 2. Create new write-off transaction
     const writeOffTxId = generateId();
     const writeOffTx = {
       id: writeOffTxId,
       type: tx.type,
-      amount: tx.type === 0 ? -pending : pending,
+      amount: tx.type === 0 ? -amount : amount,
       category: writeOffCategory || 'Bad Debt',
       payee: writeOffPayee || share.name,
-      note: `Written off from shared expense (${tx.payee || 'Expense Share'})`,
+      note: `Written off from shared expense (${tx.payee || 'Shared Expense'})`,
       date: tx.date,
       account: tx.account,
       currency: tx.currency,
@@ -309,14 +311,30 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       updatedAt: new Date().toISOString()
     };
 
-    // 3. Mark share as settled in original tx
-    const updatedShares = tx.expenseShares.map(s => 
-      s.id === shareId ? { ...s, settled: true, writtenOff: true, writtenOffTxId: writeOffTxId } : s
-    );
+    const newWriteOffRecord = {
+      id: generateId(),
+      shareId: shareId,
+      personName: share.name,
+      amount: amount,
+      category: writeOffCategory || 'Bad Debt',
+      payee: writeOffPayee || share.name,
+      linkedTxId: writeOffTxId,
+      date: tx.date
+    };
+
+    const updatedWriteOffs = [...(tx.writeOffs || []), newWriteOffRecord];
+
+    const updatedShares = tx.expenseShares.map(s => {
+      const repaid = getPersonRepaid(tx, s.name);
+      const writtenOff = updatedWriteOffs
+        .filter(w => w.personName === s.name)
+        .reduce((acc, w) => acc + w.amount, 0);
+      return { ...s, settled: (repaid + writtenOff) >= s.amount };
+    });
 
     await updateTransaction({
       ...tx,
-      amount: tx.type === 0 ? -newAmount : newAmount,
+      writeOffs: updatedWriteOffs,
       expenseShares: updatedShares,
       pendingSync: true,
       updatedAt: new Date().toISOString()
@@ -325,8 +343,33 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     await addTransaction(writeOffTx);
 
     setWritingOffFor(null);
+    setWriteOffAmount('');
     setWriteOffCategory('');
     setWriteOffPayee('');
+  };
+
+  const handleDeleteWriteOff = async (tx, writeOffRecord) => {
+    if (writeOffRecord.linkedTxId) {
+      await deleteTransaction(writeOffRecord.linkedTxId);
+    }
+
+    const updatedWriteOffs = (tx.writeOffs || []).filter(w => w.id !== writeOffRecord.id);
+
+    const updatedShares = tx.expenseShares.map(s => {
+      const repaid = getPersonRepaid(tx, s.name);
+      const writtenOff = updatedWriteOffs
+        .filter(w => w.personName === s.name)
+        .reduce((acc, w) => acc + w.amount, 0);
+      return { ...s, settled: (repaid + writtenOff) >= s.amount };
+    });
+
+    await updateTransaction({
+      ...tx,
+      writeOffs: updatedWriteOffs,
+      expenseShares: updatedShares,
+      pendingSync: true,
+      updatedAt: new Date().toISOString()
+    });
   };
 
   const formatDateShort = (isoString) => {
@@ -376,10 +419,10 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
               {displayedExpenses.map(tx => {
                 const isExpanded = expandedTxId === tx.id;
                 const totalPending = getTotalPending(tx);
-                const totalRepaid = getTotalRepaid(tx);
                 const totalOwed = tx.expenseShares.reduce((acc, s) => acc + s.amount, 0);
                 const currency = getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency);
                 const allSettled = tx.expenseShares.every(s => s.settled);
+                const txWriteOffs = getWriteOffs(tx);
 
                 return (
                   <motion.div 
@@ -435,7 +478,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                         >
                           <div className="es-expanded-inner">
                             {/* People breakdown */}
-                            <div className="es-section-title">People</div>
+                            <div className="es-section-title">People Breakdown</div>
                             <div className="es-people">
                               {/* Your share */}
                               <div className="es-person-row yours">
@@ -450,9 +493,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
                               {tx.expenseShares.map(share => {
                                 const pending = getPersonPending(tx, share.name);
-                                const repaid = getRepayments(tx)
-                                  .filter(r => r.personName === share.name)
-                                  .reduce((acc, r) => acc + r.amount, 0);
+                                const repaid = getPersonRepaid(tx, share.name);
+                                const writtenOff = getPersonWrittenOff(tx, share.name);
                                 const isWritingOff = writingOffFor?.txId === tx.id && writingOffFor?.shareId === share.id;
 
                                 return (
@@ -460,11 +502,12 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                     <div className="es-person-info">
                                       <User size={14} style={{ color: share.settled ? '#10b981' : '#f59e0b' }} />
                                       <span className="es-person-name">{share.name}</span>
-                                      {share.settled && <span className="es-badge settled-badge">{share.writtenOff ? 'Written Off' : 'Settled'}</span>}
+                                      {share.settled && <span className="es-badge settled-badge">{writtenOff > 0 && repaid === 0 ? 'Written Off' : 'Settled'}</span>}
                                     </div>
                                     <div className="es-person-amounts">
                                       <span className="es-person-owed">Owes: {currency}{formatCurrency(share.amount)}</span>
                                       {repaid > 0 && <span className="es-person-repaid">Paid: {currency}{formatCurrency(repaid)}</span>}
+                                      {writtenOff > 0 && <span className="es-person-writtenoff">Written Off: {currency}{formatCurrency(writtenOff)}</span>}
                                       {pending > 0 && (
                                         <div className="es-person-actions">
                                           <span className="es-person-pending">Pending: {currency}{formatCurrency(pending)}</span>
@@ -472,7 +515,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                             whileHover={{ scale: 1.05 }}
                                             whileTap={{ scale: 0.95 }}
                                             className="es-writeoff-btn"
-                                            onClick={() => setWritingOffFor(isWritingOff ? null : { txId: tx.id, shareId: share.id })}
+                                            onClick={() => handleStartWriteOff(tx, share)}
                                           >
                                             <AlertTriangle size={12} /> Write Off
                                           </motion.button>
@@ -491,9 +534,29 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           transition={{ duration: 0.2 }}
                                         >
                                           <div className="es-writeoff-inner">
-                                            <span className="es-writeoff-label">Write off {currency}{formatCurrency(pending)} as:</span>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                            <span className="es-writeoff-label">Write Off Expense</span>
+                                            
+                                            {/* Row 1: Amount */}
+                                            <div className="es-form-row">
                                               <div style={{ flex: 1 }}>
+                                                <label className="es-input-label">Amount</label>
+                                                <div className="input-with-icon" style={{ height: '40px' }}>
+                                                  <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
+                                                  <input 
+                                                    type="text" 
+                                                    placeholder="Amount to write off" 
+                                                    value={writeOffAmount}
+                                                    onChange={(e) => setWriteOffAmount(formatAmountInput(e.target.value))}
+                                                    style={{ fontSize: '14px', height: '40px' }}
+                                                  />
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {/* Row 2: Category & Payee */}
+                                            <div className="es-form-row">
+                                              <div style={{ flex: 1 }}>
+                                                <label className="es-input-label">Category</label>
                                                 <UnifiedDropdown
                                                   value={writeOffCategory}
                                                   placeholder="Category"
@@ -502,6 +565,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                                 />
                                               </div>
                                               <div style={{ flex: 1 }}>
+                                                <label className="es-input-label">Payee</label>
                                                 <UnifiedDropdown
                                                   value={writeOffPayee}
                                                   placeholder="Payee"
@@ -510,12 +574,13 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                                 />
                                               </div>
                                             </div>
+
                                             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
                                               <button className="es-btn-cancel" onClick={() => setWritingOffFor(null)}>Cancel</button>
                                               <motion.button 
                                                 whileTap={{ scale: 0.95 }}
                                                 className="es-btn-confirm"
-                                                onClick={() => handleWriteOff(tx, share.id)}
+                                                onClick={() => handleConfirmWriteOff(tx, share.id)}
                                               >
                                                 Confirm Write-Off
                                               </motion.button>
@@ -546,8 +611,11 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           animate={{ opacity: 1 }}
                                         >
                                           <div className="es-section-title" style={{ marginTop: 0 }}>Edit Repayment</div>
-                                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                            <div style={{ flex: '1 1 110px' }}>
+                                          
+                                          {/* Row 1: Person & Amount */}
+                                          <div className="es-form-row">
+                                            <div style={{ flex: 1 }}>
+                                              <label className="es-input-label">Person</label>
                                               <UnifiedDropdown
                                                 value={editPerson}
                                                 placeholder="Person"
@@ -555,7 +623,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                                 onChange={setEditPerson}
                                               />
                                             </div>
-                                            <div style={{ flex: '0 1 90px' }}>
+                                            <div style={{ flex: 1 }}>
+                                              <label className="es-input-label">Amount</label>
                                               <div className="input-with-icon" style={{ height: '40px' }}>
                                                 <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
                                                 <input 
@@ -567,7 +636,12 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                                 />
                                               </div>
                                             </div>
-                                            <div style={{ flex: '1 1 110px' }}>
+                                          </div>
+
+                                          {/* Row 2: Account & Date */}
+                                          <div className="es-form-row">
+                                            <div style={{ flex: 1 }}>
+                                              <label className="es-input-label">Account</label>
                                               <UnifiedDropdown
                                                 value={editAccount}
                                                 placeholder="Account"
@@ -575,7 +649,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                                 onChange={setEditAccount}
                                               />
                                             </div>
-                                            <div style={{ flex: '0 1 90px' }}>
+                                            <div style={{ flex: 1 }}>
+                                              <label className="es-input-label">Date</label>
                                               <div 
                                                 className="input-with-icon" 
                                                 onClick={() => setShowEditCalendar(true)} 
@@ -591,6 +666,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                               </div>
                                             </div>
                                           </div>
+
                                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
                                             <button className="es-btn-cancel" onClick={() => setEditingRepayment(null)}>Cancel</button>
                                             <motion.button 
@@ -638,6 +714,33 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                               </>
                             )}
 
+                            {/* Write-Off History */}
+                            {txWriteOffs.length > 0 && (
+                              <>
+                                <div className="es-section-title">Write-Off History</div>
+                                <div className="es-repayments">
+                                  {txWriteOffs.map(wo => (
+                                    <div key={wo.id} className="es-repayment-row writeoff-history-row">
+                                      <div className="es-repayment-info">
+                                        <span className="es-repayment-name" style={{ color: '#ef4444' }}>{wo.personName}</span>
+                                        <span className="es-repayment-date">({wo.category})</span>
+                                      </div>
+                                      <div className="es-repayment-right">
+                                        <span className="es-repayment-amount" style={{ color: '#ef4444' }}>-{currency}{formatCurrency(wo.amount)}</span>
+                                        <button 
+                                          className="es-repayment-delete"
+                                          onClick={() => handleDeleteWriteOff(tx, wo)}
+                                          title="Delete Write-Off (Re-open Share)"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+
                             {/* Add Repayment */}
                             {!allSettled && (
                               <>
@@ -649,8 +752,11 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                     transition={{ duration: 0.2 }}
                                   >
                                     <div className="es-section-title" style={{ marginTop: 0 }}>Add Repayment (Incoming Loan)</div>
-                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                      <div style={{ flex: '1 1 110px' }}>
+                                    
+                                    {/* Row 1: Person & Amount */}
+                                    <div className="es-form-row">
+                                      <div style={{ flex: 1 }}>
+                                        <label className="es-input-label">Person</label>
                                         <UnifiedDropdown
                                           value={repayPerson}
                                           placeholder="Person"
@@ -659,13 +765,13 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                             .map(s => ({ value: s.name, label: s.name }))}
                                           onChange={(val) => {
                                             setRepayPerson(val);
-                                            // Default amount to their remaining balance
                                             const pending = getPersonPending(tx, val);
                                             setRepayAmount(pending.toString());
                                           }}
                                         />
                                       </div>
-                                      <div style={{ flex: '0 1 90px' }}>
+                                      <div style={{ flex: 1 }}>
+                                        <label className="es-input-label">Amount</label>
                                         <div className="input-with-icon" style={{ height: '40px' }}>
                                           <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
                                           <input 
@@ -677,7 +783,12 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           />
                                         </div>
                                       </div>
-                                      <div style={{ flex: '1 1 110px' }}>
+                                    </div>
+
+                                    {/* Row 2: Account & Date */}
+                                    <div className="es-form-row">
+                                      <div style={{ flex: 1 }}>
+                                        <label className="es-input-label">Account</label>
                                         <UnifiedDropdown
                                           value={repayAccount}
                                           placeholder="Account"
@@ -685,7 +796,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           onChange={setRepayAccount}
                                         />
                                       </div>
-                                      <div style={{ flex: '0 1 90px' }}>
+                                      <div style={{ flex: 1 }}>
+                                        <label className="es-input-label">Date</label>
                                         <div 
                                           className="input-with-icon" 
                                           onClick={() => setShowRepayCalendar(true)} 
@@ -701,6 +813,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                         </div>
                                       </div>
                                     </div>
+
                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
                                       <button className="es-btn-cancel" onClick={() => setAddingRepaymentFor(null)}>Cancel</button>
                                       <motion.button 
