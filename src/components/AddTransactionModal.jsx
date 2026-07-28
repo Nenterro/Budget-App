@@ -637,12 +637,13 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 20 }}
                         transition={{ duration: 0.25, ease: "easeOut" }}
+                        style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
                       >
                         {isMobile ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <>
                             {renderTapField("Category", category, Tag, 'category')}
                             {renderTapField("Payee", payee, User, 'payee')}
-                          </div>
+                          </>
                         ) : (
                           <>
                             <div className="form-group">
