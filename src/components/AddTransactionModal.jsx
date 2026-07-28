@@ -401,14 +401,16 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center' }}>
-                <button 
+                <motion.button 
                   type="button" 
+                  whileHover={!isMobile ? { scale: 1.05 } : {}}
+                  whileTap={{ scale: 0.95 }}
                   onClick={() => setIsSplit(!isSplit)}
                   style={{ background: 'transparent', border: 'none', color: 'var(--accent-color)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
                 >
                   <Split size={16} />
                   {isSplit ? 'Remove Split' : 'Split Transaction'}
-                </button>
+                </motion.button>
               </div>
             </div>
           )}
@@ -648,8 +650,10 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                           <ChevronRight size={20} />
                         </button>
 
-                        <button 
+                        <motion.button 
                           type="button" 
+                          whileHover={!isMobile ? { scale: 1.05 } : {}}
+                          whileTap={{ scale: 0.95 }}
                           onClick={() => {
                             setSplits([...splits, { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }]);
                             setActiveSplitIndex(splits.length);
@@ -658,7 +662,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                           style={{ marginLeft: 'auto' }}
                         >
                           <Plus size={16} /> Add Split
-                        </button>
+                        </motion.button>
                       </div>
                       </motion.div>
                     ) : (
