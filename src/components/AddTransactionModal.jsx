@@ -567,12 +567,12 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
               height: (isSplit && type !== 2) ? 'auto' : (isExpenseShare && type !== 2) ? 'auto' : (isMobile ? 
                       (type === 2 ? (isCrossCurrency ? 66 : 0) : 122) : 
                       (type === 2 ? (isCrossCurrency ? 42 : 0) : 116)),
-              marginTop: (type === 2 && !isCrossCurrency) ? -16 : 0
+              marginTop: (type === 2 && !isCrossCurrency) ? -16 : -10
             }}
             transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
             style={{ 
               position: 'relative',
-              overflow: ((isSplit || isExpenseShare) && type !== 2) ? 'visible' : 'hidden'
+              overflow: 'visible'
             }}
           >
             <AnimatePresence initial={false} custom={direction} mode="popLayout">
