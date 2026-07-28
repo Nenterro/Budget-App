@@ -372,15 +372,42 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           </AnimatePresence>
 
           {type !== 2 && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px', marginTop: '8px' }}>
-              <button 
-                type="button" 
-                onClick={() => setIsSplit(!isSplit)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--accent-color)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-              >
-                <Split size={16} />
-                {isSplit ? 'Remove Split' : 'Split Transaction'}
-              </button>
+            <div style={{ display: 'flex', justifyContent: isSplit ? 'space-between' : 'flex-end', alignItems: 'center', marginBottom: '8px', marginTop: '8px' }}>
+              {isSplit && (
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  Split {activeSplitIndex + 1} of {splits.length}
+                </span>
+              )}
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                {isSplit && (
+                  <button type="button" className="delete-split-btn" onClick={() => {
+                    const s = splits[activeSplitIndex];
+                    if (splits.length > 2) {
+                      setSplits(splits.filter(sp => sp.id !== s.id));
+                      if (activeSplitIndex >= splits.length - 1) {
+                        setActiveSplitIndex(Math.max(0, splits.length - 2));
+                      }
+                    } else if (splits.length === 2) {
+                      setIsSplit(false);
+                      setActiveSplitIndex(0);
+                      setSplits([
+                        { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
+                        { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
+                      ]);
+                    }
+                  }} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}>
+                    <Trash2 size={16} />
+                  </button>
+                )}
+                <button 
+                  type="button" 
+                  onClick={() => setIsSplit(!isSplit)}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--accent-color)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                >
+                  <Split size={16} />
+                  {isSplit ? 'Remove Split' : 'Split Transaction'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -520,27 +547,29 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                         >
                           {splits.map((s, index) => (
                             <div key={s.id} className="split-card">
-                              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Split {index + 1} of {splits.length}</span>
-                                  <button type="button" className="delete-split-btn" onClick={() => {
-                                    if (splits.length > 2) {
-                                      setSplits(splits.filter(sp => sp.id !== s.id));
-                                      if (activeSplitIndex >= splits.length - 1) {
-                                        setActiveSplitIndex(Math.max(0, splits.length - 2));
+                              <div style={isMobile ? { paddingBottom: '12px' } : { background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+                                {!isMobile && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Split {index + 1} of {splits.length}</span>
+                                    <button type="button" className="delete-split-btn" onClick={() => {
+                                      if (splits.length > 2) {
+                                        setSplits(splits.filter(sp => sp.id !== s.id));
+                                        if (activeSplitIndex >= splits.length - 1) {
+                                          setActiveSplitIndex(Math.max(0, splits.length - 2));
+                                        }
+                                      } else if (splits.length === 2) {
+                                        setIsSplit(false);
+                                        setActiveSplitIndex(0);
+                                        setSplits([
+                                          { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
+                                          { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
+                                        ]);
                                       }
-                                    } else if (splits.length === 2) {
-                                      setIsSplit(false);
-                                      setActiveSplitIndex(0);
-                                      setSplits([
-                                        { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
-                                        { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
-                                      ]);
-                                    }
-                                  }} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', zIndex: 10, padding: '4px' }}>
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
+                                    }} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', zIndex: 10, padding: '4px' }}>
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                )}
                                 
                                 <div className="form-group" style={{ marginBottom: '12px' }}>
                                   <div className="input-with-icon">
