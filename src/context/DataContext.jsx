@@ -261,28 +261,52 @@ export function DataProvider({ children }) {
             }
             return r;
           });
+
+          // Check if this child tx is a write-off and if its amount changed
+          const oldWriteOffRecord = (parent.writeOffs || []).find(w => w.linkedTxId === savedTx.id);
+          const oldWriteOffAmount = oldWriteOffRecord ? oldWriteOffRecord.amount : 0;
+          const newWriteOffAmount = Math.abs(savedTx.amount);
+          const writeOffDiff = newWriteOffAmount - oldWriteOffAmount;
+
           const updatedWriteOffs = (parent.writeOffs || []).map(w => {
             if (w.linkedTxId === savedTx.id) {
               return {
                 ...w,
-                amount: Math.abs(savedTx.amount),
+                amount: newWriteOffAmount,
                 category: savedTx.category,
                 payee: savedTx.payee
               };
             }
             return w;
           });
+
+          let newParentAmount = parent.amount;
+          if (savedTx.isWriteOff && writeOffDiff !== 0) {
+            const signedDiff = parent.amount < 0 ? writeOffDiff : -writeOffDiff;
+            newParentAmount = parent.amount + signedDiff;
+          }
+
           const updatedShares = (parent.expenseShares || []).map(s => {
+            let shareAmount = s.amount;
+            if (savedTx.isWriteOff && oldWriteOffRecord && (s.id === oldWriteOffRecord.shareId || s.name === oldWriteOffRecord.personName)) {
+              shareAmount = Math.max(0, s.amount - writeOffDiff);
+            }
             const totalRepaid = updatedRepayments
               .filter(r => r.personName === s.name)
               .reduce((acc, r) => acc + r.amount, 0);
             const totalWrittenOff = updatedWriteOffs
               .filter(w => w.personName === s.name)
               .reduce((acc, w) => acc + w.amount, 0);
-            return { ...s, settled: (totalRepaid + totalWrittenOff) >= s.amount };
+            return {
+              ...s,
+              amount: shareAmount,
+              settled: shareAmount === 0 || (totalRepaid + totalWrittenOff) >= shareAmount
+            };
           });
+
           const updatedParent = {
             ...parent,
+            amount: newParentAmount,
             repayments: updatedRepayments,
             writeOffs: updatedWriteOffs,
             expenseShares: updatedShares,
@@ -311,18 +335,39 @@ export function DataProvider({ children }) {
         if (parentIdx !== -1) {
           const parent = updated[parentIdx];
           const updatedRepayments = (parent.repayments || []).filter(r => r.linkedTxId !== id);
+
+          const targetWriteOff = (parent.writeOffs || []).find(w => w.linkedTxId === id);
           const updatedWriteOffs = (parent.writeOffs || []).filter(w => w.linkedTxId !== id);
+
+          let newParentAmount = parent.amount;
+          if (targetWriteOff) {
+            // Restore written-off amount back to parent transaction amount
+            const signedChange = parent.amount < 0 ? targetWriteOff.amount : -targetWriteOff.amount;
+            newParentAmount = parent.amount - signedChange;
+          }
+
           const updatedShares = (parent.expenseShares || []).map(s => {
+            let shareAmount = s.amount;
+            if (targetWriteOff && (s.id === targetWriteOff.shareId || s.name === targetWriteOff.personName)) {
+              shareAmount = s.amount + targetWriteOff.amount;
+            }
+
             const totalRepaid = updatedRepayments
               .filter(r => r.personName === s.name)
               .reduce((acc, r) => acc + r.amount, 0);
             const totalWrittenOff = updatedWriteOffs
               .filter(w => w.personName === s.name)
               .reduce((acc, w) => acc + w.amount, 0);
-            return { ...s, settled: (totalRepaid + totalWrittenOff) >= s.amount };
+            return {
+              ...s,
+              amount: shareAmount,
+              settled: (totalRepaid + totalWrittenOff) >= shareAmount
+            };
           });
+
           const updatedParent = {
             ...parent,
+            amount: newParentAmount,
             repayments: updatedRepayments,
             writeOffs: updatedWriteOffs,
             expenseShares: updatedShares,
