@@ -439,6 +439,7 @@
   letter-spacing: 0.3px;
   margin-bottom: 4px;
   display: block;
+  background: transparent;
 }
 
 .es-add-repayment-btn {
