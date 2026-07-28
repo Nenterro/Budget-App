@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
-import { X, Calendar, DollarSign, Tag, User, AlignLeft, ArrowRight, ArrowRightLeft, Plus, Wallet, Split, Trash2 } from 'lucide-react';
+import { X, Calendar, DollarSign, Tag, User, AlignLeft, ArrowRight, ArrowRightLeft, Plus, Wallet, Split, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
 import ModalWrapper from './ModalWrapper';
@@ -87,9 +87,11 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   const destAccount = accounts.find(a => a.name === selectedTransferTo) || accounts[0] || {};
   const sourceCurrency = sourceAccount.currency || 'PKR';
   const destCurrency = destAccount.currency || 'PKR';
-  const isCrossCurrency = type === 2 && sourceCurrency !== destCurrency;
 
   const [activeField, setActiveField] = useState(null); // 'amount', 'category', 'payee', 'note', 'account', 'transferTo'
+  const [isCrossCurrency, setIsCrossCurrency] = useState(false);
+  
+  const [activeSplitIndex, setActiveSplitIndex] = useState(0);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   const reset = () => {
@@ -132,6 +134,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
         
         const hasSplits = initialData.splits && initialData.splits.length > 0;
         setIsSplit(hasSplits);
+        setActiveSplitIndex(0);
         if (hasSplits) {
           setSplits(initialData.splits.map(s => ({
             ...s,
@@ -475,76 +478,123 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                   style={{ width: '100%' }}
                 >
                   {isSplit ? (
-                    <div className="splits-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {splits.map((s, index) => (
-                        <div key={s.id} className="split-row" style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
-                          <button type="button" className="delete-split-btn" onClick={() => {
-                            if (splits.length > 2) {
-                              setSplits(splits.filter(sp => sp.id !== s.id));
-                            } else if (splits.length === 2) {
-                              setIsSplit(false);
-                              setSplits([
-                                { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
-                                { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
-                              ]);
-                            }
-                          }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', zIndex: 10, padding: '4px' }}>
-                            <Trash2 size={16} />
-                          </button>
-                          
-                          <div className="form-group" style={{ marginBottom: '12px', paddingRight: '24px' }}>
-                            {s.amount && <label>Split {index + 1} Amount</label>}
-                            <div className="input-with-icon">
-                              <CurrencyIcon size={16} className="input-icon" />
-                              <input 
-                                type="text" 
-                                placeholder="Split Amount" 
-                                value={s.amount}
-                                onChange={(e) => {
-                                  const val = formatAmountInput(e.target.value);
-                                  setSplits(splits.map(sp => sp.id === s.id ? { ...sp, amount: val } : sp));
-                                }}
-                              />
+                    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                      <div className="splits-carousel-viewport">
+                        <div 
+                          className="splits-carousel-track"
+                          style={{ transform: `translateX(-${activeSplitIndex * 100}%)` }}
+                        >
+                          {splits.map((s, index) => (
+                            <div key={s.id} className="split-card">
+                              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Split {index + 1} of {splits.length}</span>
+                                  <button type="button" className="delete-split-btn" onClick={() => {
+                                    if (splits.length > 2) {
+                                      setSplits(splits.filter(sp => sp.id !== s.id));
+                                      if (activeSplitIndex >= splits.length - 1) {
+                                        setActiveSplitIndex(Math.max(0, splits.length - 2));
+                                      }
+                                    } else if (splits.length === 2) {
+                                      setIsSplit(false);
+                                      setActiveSplitIndex(0);
+                                      setSplits([
+                                        { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
+                                        { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
+                                      ]);
+                                    }
+                                  }} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', zIndex: 10, padding: '4px' }}>
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                                
+                                <div className="form-group" style={{ marginBottom: '12px' }}>
+                                  <div className="input-with-icon">
+                                    <CurrencyIcon size={16} className="input-icon" />
+                                    <input 
+                                      type="text" 
+                                      placeholder="Split Amount" 
+                                      value={s.amount}
+                                      onChange={(e) => {
+                                        const val = formatAmountInput(e.target.value);
+                                        setSplits(splits.map(sp => sp.id === s.id ? { ...sp, amount: val } : sp));
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                                
+                                {isMobile ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <div onClick={() => { setActiveSplitId(s.id); setActiveField('account'); }}>
+                                      {renderTapField("Account", s.account, Wallet, 'account', true)}
+                                    </div>
+                                    <div onClick={() => { setActiveSplitId(s.id); setActiveField('category'); }}>
+                                      {renderTapField("Category", s.category, Tag, 'category', true)}
+                                    </div>
+                                    <div onClick={() => { setActiveSplitId(s.id); setActiveField('payee'); }}>
+                                      {renderTapField("Payee", s.payee, User, 'payee', true)}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                    <div className="form-group" style={{ flex: '1 1 30%' }}>
+                                      <UnifiedDropdown value={s.account} placeholder="Account" options={accounts.map(a => ({ value: a.name, label: a.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, account: val } : sp))} />
+                                    </div>
+                                    <div className="form-group" style={{ flex: '1 1 30%' }}>
+                                      <UnifiedDropdown value={s.category} placeholder="Category" options={categories.map(c => ({ value: c.name, label: c.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, category: val } : sp))} />
+                                    </div>
+                                    <div className="form-group" style={{ flex: '1 1 30%' }}>
+                                      <UnifiedDropdown value={s.payee} placeholder="Payee" options={payees.map(p => ({ value: p.name, label: p.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, payee: val } : sp))} />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          
-                          {isMobile ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              <div onClick={() => { setActiveSplitId(s.id); setActiveField('account'); }}>
-                                {renderTapField("Account", s.account, Wallet, 'account', true)}
-                              </div>
-                              <div onClick={() => { setActiveSplitId(s.id); setActiveField('category'); }}>
-                                {renderTapField("Category", s.category, Tag, 'category', true)}
-                              </div>
-                              <div onClick={() => { setActiveSplitId(s.id); setActiveField('payee'); }}>
-                                {renderTapField("Payee", s.payee, User, 'payee', true)}
-                              </div>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                              <div className="form-group" style={{ flex: '1 1 30%' }}>
-                                {s.account && <label>Account</label>}
-                                <UnifiedDropdown value={s.account} placeholder="Account" options={accounts.map(a => ({ value: a.name, label: a.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, account: val } : sp))} />
-                              </div>
-                              <div className="form-group" style={{ flex: '1 1 30%' }}>
-                                {s.category && <label>Category</label>}
-                                <UnifiedDropdown value={s.category} placeholder="Category" options={categories.map(c => ({ value: c.name, label: c.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, category: val } : sp))} />
-                              </div>
-                              <div className="form-group" style={{ flex: '1 1 30%' }}>
-                                {s.payee && <label>Payee</label>}
-                                <UnifiedDropdown value={s.payee} placeholder="Payee" options={payees.map(p => ({ value: p.name, label: p.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, payee: val } : sp))} />
-                              </div>
-                            </div>
-                          )}
+                          ))}
                         </div>
-                      ))}
-                      <button 
-                        type="button" 
-                        onClick={() => setSplits([...splits, { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }])}
-                        style={{ alignSelf: 'flex-start', background: 'rgba(99, 102, 241, 0.1)', color: 'var(--accent-color)', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
-                      >
-                        <Plus size={16} /> Add Split
-                      </button>
+                      </div>
+
+                      <div className="splits-pagination">
+                        <button 
+                          type="button" 
+                          onClick={() => setActiveSplitIndex(Math.max(0, activeSplitIndex - 1))}
+                          disabled={activeSplitIndex === 0}
+                          className="pagination-btn"
+                        >
+                          <ChevronLeft size={20} />
+                        </button>
+                        
+                        <div className="splits-dots">
+                          {splits.map((_, i) => (
+                            <div 
+                              key={i} 
+                              className={`split-dot ${i === activeSplitIndex ? 'active' : ''}`} 
+                              onClick={() => setActiveSplitIndex(i)}
+                            />
+                          ))}
+                        </div>
+
+                        <button 
+                          type="button" 
+                          onClick={() => setActiveSplitIndex(Math.min(splits.length - 1, activeSplitIndex + 1))}
+                          disabled={activeSplitIndex === splits.length - 1}
+                          className="pagination-btn"
+                        >
+                          <ChevronRight size={20} />
+                        </button>
+
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            setSplits([...splits, { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }]);
+                            setActiveSplitIndex(splits.length);
+                          }}
+                          className="add-split-btn-pagination"
+                          style={{ marginLeft: 'auto' }}
+                        >
+                          <Plus size={16} /> Add Split
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     isMobile ? (
