@@ -420,14 +420,16 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           )
           )}
 
-          <div 
+          <motion.div 
             className="dynamic-fields-wrapper"
-            style={{ 
+            animate={{ 
               height: (isSplit && type !== 2) ? 'auto' : (isMobile ? 
-                      (type === 2 ? (isCrossCurrency ? '66px' : '0px') : '116px') : 
-                      (type === 2 ? (isCrossCurrency ? '42px' : '0px') : '98px')),
-              marginTop: (type === 2 && !isCrossCurrency) ? '-16px' : '0px',
-              transition: 'height 0.35s cubic-bezier(0.4, 0, 0.2, 1), margin-top 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+                      (type === 2 ? (isCrossCurrency ? 66 : 0) : 116) : 
+                      (type === 2 ? (isCrossCurrency ? 42 : 0) : 98)),
+              marginTop: (type === 2 && !isCrossCurrency) ? -16 : 0
+            }}
+            transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+            style={{ 
               position: 'relative',
               overflow: (isSplit && type !== 2) ? 'visible' : 'hidden'
             }}
@@ -477,8 +479,16 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                   className="dynamic-fields-content"
                   style={{ width: '100%' }}
                 >
-                  {isSplit ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    {isSplit ? (
+                      <motion.div 
+                        key="split-ui"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        transition={{ duration: 0.25, ease: "easeOut" }}
+                        style={{ display: 'flex', flexDirection: 'column', width: '100%' }}
+                      >
                       <div className="splits-carousel-viewport">
                         <div 
                           className="splits-carousel-track"
@@ -595,36 +605,45 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                           <Plus size={16} /> Add Split
                         </button>
                       </div>
-                    </div>
-                  ) : (
-                    isMobile ? (
-                      <>
-                        {renderTapField("Category", category, Tag, 'category')}
-                        {renderTapField("Payee", payee, User, 'payee')}
-                      </>
+                      </motion.div>
                     ) : (
-                      <>
-                        <div className="form-group">
-                          {category && <label>Category</label>}
-                          <div className="input-with-icon" onClick={() => setActiveField('category')}>
-                            <Tag size={18} className="input-icon" />
-                            <input type="text" placeholder="Category" value={category} readOnly style={{ cursor: 'pointer' }} />
-                          </div>
-                        </div>
-                        <div className="form-group">
-                          {payee && <label>Payee</label>}
-                          <div className="input-with-icon" onClick={() => setActiveField('payee')}>
-                            <User size={18} className="input-icon" />
-                            <input type="text" placeholder="Payee" value={payee} readOnly style={{ cursor: 'pointer' }} />
-                          </div>
-                        </div>
-                      </>
-                    )
-                  )}
+                      <motion.div 
+                        key="regular-ui"
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 20 }}
+                        transition={{ duration: 0.25, ease: "easeOut" }}
+                      >
+                        {isMobile ? (
+                          <>
+                            {renderTapField("Category", category, Tag, 'category')}
+                            {renderTapField("Payee", payee, User, 'payee')}
+                          </>
+                        ) : (
+                          <>
+                            <div className="form-group">
+                              {category && <label>Category</label>}
+                              <div className="input-with-icon" onClick={() => setActiveField('category')}>
+                                <Tag size={18} className="input-icon" />
+                                <input type="text" placeholder="Category" value={category} readOnly style={{ cursor: 'pointer' }} />
+                              </div>
+                            </div>
+                            <div className="form-group">
+                              {payee && <label>Payee</label>}
+                              <div className="input-with-icon" onClick={() => setActiveField('payee')}>
+                                <User size={18} className="input-icon" />
+                                <input type="text" placeholder="Payee" value={payee} readOnly style={{ cursor: 'pointer' }} />
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </motion.div>
 
           <div className="form-group">
             {note && <label>Note (Optional)</label>}
