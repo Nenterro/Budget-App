@@ -482,7 +482,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                             if (splits.length > 1) {
                               setSplits(splits.filter(sp => sp.id !== s.id));
                             }
-                          }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: splits.length > 1 ? 1 : 0.3 }}>
+                          }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: splits.length > 1 ? 1 : 0.3, zIndex: 10, padding: '4px' }}>
                             <Trash2 size={16} />
                           </button>
                           
