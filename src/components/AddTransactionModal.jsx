@@ -362,7 +362,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           )}
 
           {/* Account Selection */}
-          {isMobile ? (
+          {(!isSplit || type === 2) && (
+            isMobile ? (
             type === 2 ? (
               <div className="form-row split-row" style={{ alignItems: 'flex-end', gap: '8px' }}>
                 <div className="form-group flex-1" style={{ minWidth: 0 }}>
@@ -413,6 +414,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                 />
               </div>
             )
+          )
           )}
 
           <div 
@@ -477,10 +479,10 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                       {splits.map((s, index) => (
                         <div key={s.id} className="split-row" style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
                           <button type="button" onClick={() => {
-                            if (splits.length > 2) {
+                            if (splits.length > 1) {
                               setSplits(splits.filter(sp => sp.id !== s.id));
                             }
-                          }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: splits.length > 2 ? 1 : 0.3 }}>
+                          }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: splits.length > 1 ? 1 : 0.3 }}>
                             <Trash2 size={16} />
                           </button>
                           
@@ -502,6 +504,9 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                           
                           {isMobile ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div onClick={() => { setActiveSplitId(s.id); setActiveField('account'); }}>
+                                {renderTapField("Account", s.account, Wallet, 'account', true)}
+                              </div>
                               <div onClick={() => { setActiveSplitId(s.id); setActiveField('category'); }}>
                                 {renderTapField("Category", s.category, Tag, 'category', true)}
                               </div>
@@ -511,11 +516,15 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                             </div>
                           ) : (
                             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                              <div className="form-group" style={{ flex: '1 1 45%' }}>
+                              <div className="form-group" style={{ flex: '1 1 30%' }}>
+                                {s.account && <label>Account</label>}
+                                <UnifiedDropdown value={s.account} placeholder="Account" options={accounts.map(a => ({ value: a.name, label: a.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, account: val } : sp))} />
+                              </div>
+                              <div className="form-group" style={{ flex: '1 1 30%' }}>
                                 {s.category && <label>Category</label>}
                                 <UnifiedDropdown value={s.category} placeholder="Category" options={categories.map(c => ({ value: c.name, label: c.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, category: val } : sp))} />
                               </div>
-                              <div className="form-group" style={{ flex: '1 1 45%' }}>
+                              <div className="form-group" style={{ flex: '1 1 30%' }}>
                                 {s.payee && <label>Payee</label>}
                                 <UnifiedDropdown value={s.payee} placeholder="Payee" options={payees.map(p => ({ value: p.name, label: p.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, payee: val } : sp))} />
                               </div>
