@@ -305,12 +305,12 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
 
           <div className="form-row split-row">
             <div className="form-group flex-2 relative">
-              <label>Amount ({sourceCurrency})</label>
+              {amount && <label>Amount ({sourceCurrency})</label>}
               {isMobile ? (
                 <div onClick={() => setActiveField('amount')} style={{ cursor: 'pointer' }}>
                   <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
                     <CurrencyIcon size={18} className="input-icon" />
-                    <input type="text" placeholder="e.g. 50+20" value={amount} readOnly />
+                    <input type="text" placeholder="Amount" value={amount} readOnly />
                   </div>
                   {showPreview && <div className="math-preview">= {formatPreview(evalResult)}</div>}
                 </div>
@@ -320,7 +320,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                     <CurrencyIcon size={18} className="input-icon" />
                     <input 
                       type="text" 
-                      placeholder="e.g. 50+20" 
+                      placeholder="Amount" 
                       value={amount}
                       onChange={(e) => setAmount(formatAmountInput(e.target.value))}
                       required
@@ -365,15 +365,15 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             type === 2 ? (
               <div className="form-row split-row" style={{ alignItems: 'flex-end', gap: '8px' }}>
                 <div className="form-group flex-1" style={{ minWidth: 0 }}>
-                  <label>From Account</label>
-                  {renderTapField('', selectedAccount, Wallet, 'account', true)}
+                  {selectedAccount && <label>From Account</label>}
+                  {renderTapField('From Account', selectedAccount, Wallet, 'account', true)}
                 </div>
                 <div style={{ paddingBottom: '16px', display: 'flex', alignItems: 'center' }}>
                   <ArrowRight size={16} style={{ color: 'var(--text-secondary)' }} />
                 </div>
                 <div className="form-group flex-1" style={{ minWidth: 0 }}>
-                  <label>Transfer To</label>
-                  {renderTapField('', selectedTransferTo, ArrowRightLeft, 'transferTo', true)}
+                  {selectedTransferTo && <label>Transfer To</label>}
+                  {renderTapField('Transfer To', selectedTransferTo, ArrowRightLeft, 'transferTo', true)}
                 </div>
               </div>
             ) : (
@@ -383,7 +383,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             type === 2 ? (
               <div className="form-row split-row" style={{ alignItems: 'flex-end', gap: '12px' }}>
                 <div className="form-group flex-1">
-                  <label>From Account</label>
+                  {selectedAccount && <label>From Account</label>}
                   <UnifiedDropdown 
                     value={selectedAccount}
                     options={accounts.map(a => ({ value: a.name, label: a.name }))}
@@ -394,7 +394,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                   <ArrowRight size={20} style={{ color: 'var(--text-secondary)' }} />
                 </div>
                 <div className="form-group flex-1">
-                  <label>Transfer To</label>
+                  {selectedTransferTo && <label>Transfer To</label>}
                   <UnifiedDropdown 
                     value={selectedTransferTo}
                     options={accounts.map(a => ({ value: a.name, label: a.name }))}
@@ -404,7 +404,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
               </div>
             ) : (
               <div className="form-group">
-                <label>Account</label>
+                {selectedAccount && <label>Account</label>}
                 <UnifiedDropdown 
                   value={selectedAccount}
                   options={accounts.map(a => ({ value: a.name, label: a.name }))}
@@ -440,15 +440,15 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                 >
                   {isCrossCurrency && (
                     <div className="form-group" style={{ marginTop: isMobile ? '16px' : '0' }}>
-                      <label>Received Amount ({destCurrency})</label>
+                      {receivedAmount && <label>Received Amount ({destCurrency})</label>}
                       {isMobile ? (
-                        renderTapField('Received', receivedAmount, DestCurrencyIcon, 'receivedAmount')
+                        renderTapField(`Received (${destCurrency})`, receivedAmount, DestCurrencyIcon, 'receivedAmount')
                       ) : (
                         <div className="input-with-icon">
                           <span className="input-icon" style={{ fontSize: '18px', fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>{getCurrencySymbol(destCurrency)}</span>
                           <input 
                             type="text" 
-                            placeholder={`e.g. converted to ${destCurrency}`}
+                            placeholder={`Received Amount (${destCurrency})`}
                             value={receivedAmount}
                             onChange={(e) => setReceivedAmount(formatAmountInput(e.target.value))}
                             required
@@ -483,12 +483,12 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                           </button>
                           
                           <div className="form-group" style={{ marginBottom: '12px', paddingRight: '24px' }}>
-                            <label>Split {index + 1} Amount</label>
+                            {s.amount && <label>Split {index + 1} Amount</label>}
                             <div className="input-with-icon">
                               <CurrencyIcon size={16} className="input-icon" />
                               <input 
                                 type="text" 
-                                placeholder="0" 
+                                placeholder="Split Amount" 
                                 value={s.amount}
                                 onChange={(e) => {
                                   const val = formatAmountInput(e.target.value);
@@ -510,12 +510,12 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                           ) : (
                             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                               <div className="form-group" style={{ flex: '1 1 45%' }}>
-                                <label>Category</label>
-                                <UnifiedDropdown value={s.category} options={categories.map(c => ({ value: c.name, label: c.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, category: val } : sp))} />
+                                {s.category && <label>Category</label>}
+                                <UnifiedDropdown value={s.category} placeholder="Category" options={categories.map(c => ({ value: c.name, label: c.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, category: val } : sp))} />
                               </div>
                               <div className="form-group" style={{ flex: '1 1 45%' }}>
-                                <label>Payee</label>
-                                <UnifiedDropdown value={s.payee} options={payees.map(p => ({ value: p.name, label: p.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, payee: val } : sp))} />
+                                {s.payee && <label>Payee</label>}
+                                <UnifiedDropdown value={s.payee} placeholder="Payee" options={payees.map(p => ({ value: p.name, label: p.name }))} onChange={(val) => setSplits(splits.map(sp => sp.id === s.id ? { ...sp, payee: val } : sp))} />
                               </div>
                             </div>
                           )}
@@ -538,17 +538,17 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                     ) : (
                       <>
                         <div className="form-group">
-                          <label>Category</label>
+                          {category && <label>Category</label>}
                           <div className="input-with-icon" onClick={() => setActiveField('category')}>
                             <Tag size={18} className="input-icon" />
-                            <input type="text" placeholder="e.g. Groceries" value={category} readOnly style={{ cursor: 'pointer' }} />
+                            <input type="text" placeholder="Category" value={category} readOnly style={{ cursor: 'pointer' }} />
                           </div>
                         </div>
                         <div className="form-group">
-                          <label>Payee</label>
+                          {payee && <label>Payee</label>}
                           <div className="input-with-icon" onClick={() => setActiveField('payee')}>
                             <User size={18} className="input-icon" />
-                            <input type="text" placeholder="e.g. Whole Foods" value={payee} readOnly style={{ cursor: 'pointer' }} />
+                            <input type="text" placeholder="Payee" value={payee} readOnly style={{ cursor: 'pointer' }} />
                           </div>
                         </div>
                       </>
@@ -560,18 +560,18 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           </div>
 
           <div className="form-group">
-            <label>Note (Optional)</label>
+            {note && <label>Note (Optional)</label>}
             {isMobile ? (
               <div onClick={() => setActiveField('note')} style={{ cursor: 'pointer' }}>
                 <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
                   <AlignLeft size={18} className="input-icon" />
-                  <input type="text" placeholder="Details about this transaction..." value={note} readOnly />
+                  <input type="text" placeholder="Note (Optional)" value={note} readOnly />
                 </div>
               </div>
             ) : (
               <div className="input-with-icon">
                 <AlignLeft size={18} className="input-icon" />
-                <input type="text" placeholder="Details about this transaction..." value={note} onChange={(e) => setNote(e.target.value)} />
+                <input type="text" placeholder="Note (Optional)" value={note} onChange={(e) => setNote(e.target.value)} />
               </div>
             )}
           </div>

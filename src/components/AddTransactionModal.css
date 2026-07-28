@@ -161,16 +161,22 @@
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  position: relative;
 }
 
-.form-group label {
-  font-size: 12px;
+.form-group > label {
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  background: var(--bg-surface);
+  padding: 0 4px;
+  font-size: 11px;
   color: var(--text-secondary);
-  font-weight: 600;
-  padding-left: 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-weight: 500;
+  text-transform: capitalize;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 4px;
 }
 
 /* Inputs */
