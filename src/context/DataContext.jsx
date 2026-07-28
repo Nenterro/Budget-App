@@ -210,10 +210,24 @@ export function DataProvider({ children }) {
   const addTransaction = async (tx) => {
     if (Array.isArray(tx)) {
       const savedTxs = await Promise.all(tx.map(t => db.saveTransaction(t)));
-      setTransactions(prev => [...savedTxs, ...prev].sort((a, b) => new Date(b.date) - new Date(a.date)));
+      setTransactions(prev => {
+        const copy = [...prev];
+        savedTxs.forEach(st => {
+          const idx = copy.findIndex(p => p.id === st.id);
+          if (idx !== -1) copy[idx] = st;
+          else copy.push(st);
+        });
+        return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
+      });
     } else {
       const savedTx = await db.saveTransaction(tx);
-      setTransactions(prev => [savedTx, ...prev].sort((a, b) => new Date(b.date) - new Date(a.date)));
+      setTransactions(prev => {
+        const copy = [...prev];
+        const idx = copy.findIndex(p => p.id === savedTx.id);
+        if (idx !== -1) copy[idx] = savedTx;
+        else copy.push(savedTx);
+        return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
+      });
     }
     syncAll();
   };
@@ -285,39 +299,41 @@ export function DataProvider({ children }) {
   };
 
   const deleteTransaction = async (id) => {
-    const txToDelete = transactions.find(t => t.id === id);
-    if (txToDelete?.parentExpenseShareTxId) {
-      const parent = transactions.find(t => t.id === txToDelete.parentExpenseShareTxId);
-      if (parent) {
-        const updatedRepayments = (parent.repayments || []).filter(r => r.linkedTxId !== id);
-        const updatedWriteOffs = (parent.writeOffs || []).filter(w => w.linkedTxId !== id);
-        const updatedShares = (parent.expenseShares || []).map(s => {
-          const totalRepaid = updatedRepayments
-            .filter(r => r.personName === s.name)
-            .reduce((acc, r) => acc + r.amount, 0);
-          const totalWrittenOff = updatedWriteOffs
-            .filter(w => w.personName === s.name)
-            .reduce((acc, w) => acc + w.amount, 0);
-          return { ...s, settled: (totalRepaid + totalWrittenOff) >= s.amount };
-        });
-        const updatedParent = {
-          ...parent,
-          repayments: updatedRepayments,
-          writeOffs: updatedWriteOffs,
-          expenseShares: updatedShares,
-          pendingSync: true,
-          updatedAt: new Date().toISOString()
-        };
-        await db.saveTransaction(updatedParent);
-        setTransactions(prev => prev.map(t => t.id === parent.id ? updatedParent : t).filter(t => t.id !== id));
-        await db.deleteTransaction(id);
-        syncAll();
-        return;
-      }
-    }
-
     await db.deleteTransaction(id);
-    setTransactions(prev => prev.filter(t => t.id !== id));
+    setTransactions(prev => {
+      const txToDelete = prev.find(t => t.id === id);
+      let updated = prev.filter(t => t.id !== id);
+
+      if (txToDelete?.parentExpenseShareTxId) {
+        const parentIdx = updated.findIndex(t => t.id === txToDelete.parentExpenseShareTxId);
+        if (parentIdx !== -1) {
+          const parent = updated[parentIdx];
+          const updatedRepayments = (parent.repayments || []).filter(r => r.linkedTxId !== id);
+          const updatedWriteOffs = (parent.writeOffs || []).filter(w => w.linkedTxId !== id);
+          const updatedShares = (parent.expenseShares || []).map(s => {
+            const totalRepaid = updatedRepayments
+              .filter(r => r.personName === s.name)
+              .reduce((acc, r) => acc + r.amount, 0);
+            const totalWrittenOff = updatedWriteOffs
+              .filter(w => w.personName === s.name)
+              .reduce((acc, w) => acc + w.amount, 0);
+            return { ...s, settled: (totalRepaid + totalWrittenOff) >= s.amount };
+          });
+          const updatedParent = {
+            ...parent,
+            repayments: updatedRepayments,
+            writeOffs: updatedWriteOffs,
+            expenseShares: updatedShares,
+            pendingSync: true,
+            updatedAt: new Date().toISOString()
+          };
+          db.saveTransaction(updatedParent);
+          updated[parentIdx] = updatedParent;
+        }
+      }
+
+      return updated.sort((a, b) => new Date(b.date) - new Date(a.date));
+    });
     syncAll();
   };
 

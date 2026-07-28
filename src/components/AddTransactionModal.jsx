@@ -276,6 +276,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       isExpenseShare: isExpenseShare && type !== 2 && finalExpenseShares.length > 0,
       expenseShares: finalExpenseShares.length > 0 ? finalExpenseShares : null,
       repayments: initialData?.repayments || [],
+      writeOffs: initialData?.writeOffs || [],
       updatedAt: new Date().toISOString(),
       pendingSync: true
     };
