@@ -61,7 +61,27 @@ export default function Transactions() {
 
   // Filter Logic
   const filteredTransactions = useMemo(() => {
-    let result = transactions;
+    let flattened = [];
+    transactions.forEach(tx => {
+      if (tx.splits && tx.splits.length > 0 && tx.type !== 2) {
+        tx.splits.forEach(s => {
+          flattened.push({
+            ...tx,
+            originalTx: tx,
+            isSplitChild: true,
+            id: `${tx.id}-${s.id}`,
+            amount: s.amount,
+            category: s.category || 'Unspecified',
+            payee: s.payee || 'Unspecified',
+            account: s.account || tx.account
+          });
+        });
+      } else {
+        flattened.push({ ...tx, originalTx: tx });
+      }
+    });
+    
+    let result = flattened;
     const now = new Date();
 
     // 1. Period Filter
@@ -218,8 +238,7 @@ export default function Transactions() {
                   return (
                     <div key={tx.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '12px' }}>
                       <div 
-                        className={`tx-row glass-panel ${openTxId === tx.id ? 'is-open' : ''}`}
-                        onClick={() => setOpenTxId(openTxId === tx.id ? null : tx.id)}
+                        className="tx-row glass-panel"
                         style={{ marginBottom: 0 }}
                       >
                         <div className="tx-icon" style={{ backgroundColor: `${color}33`, color: color }}>
@@ -229,7 +248,7 @@ export default function Transactions() {
                         <div className="tx-main">
                           <div className="tx-payee">
                             {tx.payee || 'Unspecified'}
-                            {tx.splits && tx.splits.length > 0 && <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px', color: 'var(--text-secondary)' }}>SPLIT</span>}
+                            {tx.isSplitChild && <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px', color: 'var(--text-secondary)' }}>SPLIT PART</span>}
                           </div>
                           <div className="tx-meta">
                             <span className="tx-category" style={{ color: color }}>{tx.category}</span>
@@ -253,40 +272,20 @@ export default function Transactions() {
                               className="action-btn edit" 
                               onClick={(e) => { 
                                 e.stopPropagation(); 
-                                console.log("[DEBUG] Edit button clicked! TX Data:", tx);
-                                setEditingTx(tx); 
-                                setOpenTxId(null); 
+                                setEditingTx(tx.originalTx); 
                               }} 
                               title="Edit"
                             ><Edit2 size={16} /></button>
                             <button 
                               className="action-btn delete" 
-                              onClick={(e) => { e.stopPropagation(); deleteTransaction(tx.id); }} 
+                              onClick={(e) => { e.stopPropagation(); deleteTransaction(tx.originalTx.id); }} 
                               title="Delete"
                             ><Trash2 size={16} /></button>
                           </div>
                         </div>
                       </div>
 
-                      {openTxId === tx.id && tx.splits && tx.splits.length > 0 && (
-                        <div className="splits-breakdown glass-panel" style={{ padding: '12px 16px', background: 'rgba(0,0,0,0.2)', borderTop: 'none', borderRadius: '0 0 16px 16px', marginTop: '-2px' }}>
-                          <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Split Breakdown</div>
-                          {tx.splits.map((s, idx) => {
-                            const sCol = getCategoryDetails(s.category, tx.type).color;
-                            return (
-                              <div key={s.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < tx.splits.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <span style={{ fontSize: '14px', fontWeight: 500 }}>{s.payee}</span>
-                                  <span style={{ fontSize: '12px', color: sCol }}>{s.category}</span>
-                                </div>
-                                <div className={`tx-amount ${tx.type === 0 || tx.type === 'expense' ? 'expense' : 'income'}`} style={{ fontSize: '14px' }}>
-                                  {getCurrencySymbol(accounts?.find(a => a.name === (s.account || tx.account))?.currency || tx.currency)}{formatCurrency(Math.abs(s.amount))}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+
                     </div>
                   );
                 })}

@@ -151,7 +151,25 @@ function RecentTransactions({ transactions, accounts }) {
   const { exchangeRates } = useData();
   
   const recent = useMemo(() => {
-    return [...transactions]
+    let flattened = [];
+    transactions.forEach(tx => {
+      if (tx.splits && tx.splits.length > 0 && tx.type !== 2) {
+        tx.splits.forEach(s => {
+          flattened.push({
+            ...tx,
+            id: `${tx.id}-${s.id}`,
+            amount: s.amount,
+            category: s.category || 'Unspecified',
+            payee: s.payee || 'Unspecified',
+            isSplitChild: true
+          });
+        });
+      } else {
+        flattened.push(tx);
+      }
+    });
+
+    return flattened
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 4);
   }, [transactions]);
