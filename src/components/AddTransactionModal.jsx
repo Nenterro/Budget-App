@@ -978,7 +978,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
 
           <div className="modal-actions" style={{ alignItems: 'center' }}>
             {isSplit && type !== 2 && (
-              <div style={{ marginRight: 'auto', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <div style={{ marginRight: 'auto', fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1, minWidth: 0 }}>
                 {(() => {
                    const total = evalMath(amount) || 0;
                    const splitTotal = splits.reduce((acc, s) => acc + (evalMath(s.amount) || 0), 0);
@@ -989,7 +989,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
               </div>
             )}
             {isExpenseShare && type !== 2 && (
-              <div style={{ marginRight: 'auto', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <div style={{ marginRight: 'auto', fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1, minWidth: 0 }}>
                 {(() => {
                    const total = Math.abs(evalMath(amount) || 0);
                    const othersTotal = expenseShares.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0);

@@ -237,18 +237,30 @@
 /* Actions */
 .modal-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 8px;
+}
+
+.cancel-btn, .submit-btn {
+  height: 44px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .cancel-btn {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--text-secondary);
-  padding: 12px 20px;
-  border-radius: 12px;
+  padding: 0 20px;
   font-weight: 600;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -259,11 +271,10 @@
 }
 
 .submit-btn {
-  padding: 12px 24px;
-  border-radius: 12px;
+  padding: 0 24px;
   border: none;
   font-weight: 600;
-  font-size: 15px;
+  font-size: 14px;
   cursor: pointer;
   color: white;
   transition: all 0.2s;
