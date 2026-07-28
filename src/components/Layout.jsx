@@ -151,7 +151,6 @@ export default function Layout() {
         {isAddOpen && <AddTransactionModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />}
       </AnimatePresence>
       <MoreMenuModal isOpen={isMoreOpen} onClose={() => setIsMoreOpen(false)} />
-      <PwaInstallBanner />
     </div>
   );
 }
