@@ -478,11 +478,17 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                     <div className="splits-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       {splits.map((s, index) => (
                         <div key={s.id} className="split-row" style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
-                          <button type="button" onClick={() => {
-                            if (splits.length > 1) {
+                          <button type="button" className="delete-split-btn" onClick={() => {
+                            if (splits.length > 2) {
                               setSplits(splits.filter(sp => sp.id !== s.id));
+                            } else if (splits.length === 2) {
+                              setIsSplit(false);
+                              setSplits([
+                                { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
+                                { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
+                              ]);
                             }
-                          }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: splits.length > 1 ? 1 : 0.3, zIndex: 10, padding: '4px' }}>
+                          }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', zIndex: 10, padding: '4px' }}>
                             <Trash2 size={16} />
                           </button>
                           
