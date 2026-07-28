@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
-import { X, Calendar, DollarSign, Tag, User, AlignLeft, ArrowRight, ArrowRightLeft, Plus, Wallet, Split, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Calendar, DollarSign, Tag, User, Users, AlignLeft, ArrowRight, ArrowRightLeft, Plus, Wallet, Split, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
 import ModalWrapper from './ModalWrapper';
@@ -69,6 +69,12 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   ]);
   const [activeSplitId, setActiveSplitId] = useState(null);
 
+  // Expense Sharing state
+  const [isExpenseShare, setIsExpenseShare] = useState(false);
+  const [expenseShares, setExpenseShares] = useState([
+    { id: generateId(), name: '', amount: '' }
+  ]);
+
   const handleTypeChange = (newType) => {
     setDirection(newType > type ? 1 : -1);
     setType(newType);
@@ -110,6 +116,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
       { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
     ]);
+    setIsExpenseShare(false);
+    setExpenseShares([{ id: generateId(), name: '', amount: '' }]);
   };
 
   useEffect(() => {
@@ -147,6 +155,19 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             { id: generateId(), amount: '', category: '', payee: '', account: initialData.account || (accounts.length > 0 ? accounts[0].name : '') },
             { id: generateId(), amount: '', category: '', payee: '', account: initialData.account || (accounts.length > 0 ? accounts[0].name : '') }
           ]);
+        }
+
+        // Expense Sharing
+        const hasExpenseShares = initialData.isExpenseShare && initialData.expenseShares && initialData.expenseShares.length > 0;
+        setIsExpenseShare(!!hasExpenseShares);
+        if (hasExpenseShares) {
+          setExpenseShares(initialData.expenseShares.map(s => ({
+            ...s,
+            id: s.id || generateId(),
+            amount: s.amount ? Math.abs(s.amount).toString() : '0'
+          })));
+        } else {
+          setExpenseShares([{ id: generateId(), name: '', amount: '' }]);
         }
       } else {
         reset();
@@ -216,6 +237,26 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       });
     }
 
+    // Expense sharing validation
+    let finalExpenseShares = [];
+    if (isExpenseShare && type !== 2) {
+      const othersTotal = expenseShares.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0);
+      if (othersTotal > Math.abs(dbAmt)) {
+        alert("Others' shares cannot exceed the total amount.");
+        return;
+      }
+      if (othersTotal <= 0) {
+        alert("Please enter at least one person's share amount.");
+        return;
+      }
+      finalExpenseShares = expenseShares.filter(s => s.name.trim() && evalMath(s.amount)).map(s => ({
+        id: s.id,
+        name: s.name.trim(),
+        amount: Math.abs(evalMath(s.amount) || 0),
+        settled: s.settled || false
+      }));
+    }
+
     const tx = {
       id: initialData ? initialData.id : generateId(),
       splits: finalSplits,
@@ -229,6 +270,9 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       transferTo: transferAccount,
       currency: sourceCurrency,
       receivedAmount: isCrossCurrency && receivedAmount ? Math.abs(evalMath(receivedAmount)) : null,
+      isExpenseShare: isExpenseShare && type !== 2 && finalExpenseShares.length > 0,
+      expenseShares: finalExpenseShares.length > 0 ? finalExpenseShares : null,
+      repayments: initialData?.repayments || [],
       updatedAt: new Date().toISOString(),
       pendingSync: true
     };
@@ -372,7 +416,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           </AnimatePresence>
 
           {type !== 2 && (
-            <div style={{ display: 'flex', justifyContent: isSplit ? 'space-between' : 'flex-end', alignItems: 'center', marginBottom: '8px', marginTop: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: (isSplit || isExpenseShare) ? 'space-between' : 'flex-end', alignItems: 'center', marginBottom: '8px', marginTop: '8px' }}>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 {isSplit && (
                   <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -399,24 +443,43 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                     <Trash2 size={16} />
                   </button>
                 )}
+                {isExpenseShare && (
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Shared Expense
+                  </span>
+                )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <motion.button 
-                  type="button" 
-                  whileHover={!isMobile ? { scale: 1.05 } : {}}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setIsSplit(!isSplit)}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--accent-color)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-                >
-                  <Split size={16} />
-                  {isSplit ? 'Remove Split' : 'Split Transaction'}
-                </motion.button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {!isExpenseShare && (
+                  <motion.button 
+                    type="button" 
+                    whileHover={!isMobile ? { scale: 1.05 } : {}}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => { setIsSplit(!isSplit); if (!isSplit) setIsExpenseShare(false); }}
+                    style={{ background: 'transparent', border: 'none', color: isSplit ? 'var(--accent-color)' : 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}
+                  >
+                    <Split size={16} />
+                    {isSplit ? 'Remove Split' : 'Split'}
+                  </motion.button>
+                )}
+                {!isSplit && (
+                  <motion.button 
+                    type="button" 
+                    whileHover={!isMobile ? { scale: 1.05 } : {}}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => { setIsExpenseShare(!isExpenseShare); if (!isExpenseShare) setIsSplit(false); }}
+                    style={{ background: 'transparent', border: 'none', color: isExpenseShare ? '#f59e0b' : 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}
+                  >
+                    <Users size={16} />
+                    {isExpenseShare ? 'Remove Share' : 'Share'}
+                  </motion.button>
+                )}
               </div>
             </div>
           )}
 
           {/* Account Selection */}
-          {(!isSplit || type === 2) && (
+          {((!isSplit && !isExpenseShare) || type === 2 || isExpenseShare) && (
             isMobile ? (
             type === 2 ? (
               <div className="form-row split-row" style={{ alignItems: 'flex-end', gap: '8px' }}>
@@ -474,7 +537,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           <motion.div 
             className="dynamic-fields-wrapper"
             animate={{ 
-              height: (isSplit && type !== 2) ? 'auto' : (isMobile ? 
+              height: (isSplit && type !== 2) ? 'auto' : (isExpenseShare && type !== 2) ? 'auto' : (isMobile ? 
                       (type === 2 ? (isCrossCurrency ? 66 : 0) : 104) : 
                       (type === 2 ? (isCrossCurrency ? 42 : 0) : 98)),
               marginTop: (type === 2 && !isCrossCurrency) ? -16 : 0
@@ -482,7 +545,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
             style={{ 
               position: 'relative',
-              overflow: (isSplit && type !== 2) ? 'visible' : 'hidden'
+              overflow: ((isSplit || isExpenseShare) && type !== 2) ? 'visible' : 'hidden'
             }}
           >
             <AnimatePresence initial={false} custom={direction} mode="popLayout">
@@ -665,6 +728,139 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                         </motion.button>
                       </div>
                       </motion.div>
+                    ) : isExpenseShare ? (
+                      <motion.div 
+                        key="expense-share-ui"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        transition={{ duration: 0.25, ease: "easeOut" }}
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
+                        {/* Category & Payee remain constant */}
+                        {isMobile ? (
+                          <>
+                            {renderTapField("Category", category, Tag, 'category')}
+                            {renderTapField("Payee", payee, User, 'payee')}
+                          </>
+                        ) : (
+                          <>
+                            <div className="form-group">
+                              {category && <label>Category</label>}
+                              <div className="input-with-icon" onClick={() => setActiveField('category')}>
+                                <Tag size={18} className="input-icon" />
+                                <input type="text" placeholder="Category" value={category} readOnly style={{ cursor: 'pointer' }} />
+                              </div>
+                            </div>
+                            <div className="form-group">
+                              {payee && <label>Payee</label>}
+                              <div className="input-with-icon" onClick={() => setActiveField('payee')}>
+                                <User size={18} className="input-icon" />
+                                <input type="text" placeholder="Payee" value={payee} readOnly style={{ cursor: 'pointer' }} />
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Your Share (auto-calculated) */}
+                        <div style={{ 
+                          background: 'rgba(255,255,255,0.03)', 
+                          borderRadius: '12px', 
+                          padding: '12px 16px', 
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center',
+                          marginTop: '4px'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <User size={16} style={{ color: '#10b981' }} />
+                            <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Your Share</span>
+                          </div>
+                          <span style={{ fontSize: '15px', fontWeight: 700, color: '#10b981' }}>
+                            {getCurrencySymbol(sourceCurrency)}{formatCurrency(Math.max(0, Math.abs(evalMath(amount) || 0) - expenseShares.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0)))}
+                          </span>
+                        </div>
+
+                        {/* Other people's shares */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {expenseShares.map((share, idx) => (
+                            <motion.div 
+                              key={share.id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -10 }}
+                              transition={{ duration: 0.2 }}
+                              style={{ 
+                                display: 'flex', 
+                                gap: '8px', 
+                                alignItems: 'center',
+                                background: 'rgba(255,255,255,0.02)',
+                                borderRadius: '12px',
+                                padding: '8px',
+                                border: '1px solid rgba(255,255,255,0.05)'
+                              }}
+                            >
+                              <div className="form-group" style={{ flex: 1, minWidth: 0 }}>
+                                <div className="input-with-icon">
+                                  <User size={16} className="input-icon" />
+                                  <input 
+                                    type="text" 
+                                    placeholder="Person's name" 
+                                    value={share.name}
+                                    onChange={(e) => setExpenseShares(expenseShares.map(s => s.id === share.id ? { ...s, name: e.target.value } : s))}
+                                    style={{ fontSize: '14px' }}
+                                  />
+                                </div>
+                              </div>
+                              <div className="form-group" style={{ width: isMobile ? '100px' : '120px', flexShrink: 0 }}>
+                                <div className="input-with-icon">
+                                  <CurrencyIcon size={14} className="input-icon" />
+                                  <input 
+                                    type="text" 
+                                    placeholder="Amount" 
+                                    value={share.amount}
+                                    onChange={(e) => setExpenseShares(expenseShares.map(s => s.id === share.id ? { ...s, amount: formatAmountInput(e.target.value) } : s))}
+                                    style={{ fontSize: '14px' }}
+                                  />
+                                </div>
+                              </div>
+                              {expenseShares.length > 1 && (
+                                <button 
+                                  type="button" 
+                                  onClick={() => setExpenseShares(expenseShares.filter(s => s.id !== share.id))}
+                                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </motion.div>
+                          ))}
+                        </div>
+
+                        <motion.button 
+                          type="button" 
+                          whileHover={!isMobile ? { scale: 1.02 } : {}}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => setExpenseShares([...expenseShares, { id: generateId(), name: '', amount: '' }])}
+                          style={{ 
+                            background: 'transparent', 
+                            border: '1px dashed rgba(255,255,255,0.15)', 
+                            borderRadius: '12px', 
+                            padding: '10px', 
+                            color: '#f59e0b', 
+                            fontWeight: 600, 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            gap: '6px', 
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                          }}
+                        >
+                          <Plus size={16} /> Add Person
+                        </motion.button>
+                      </motion.div>
                     ) : (
                       <motion.div 
                         key="regular-ui"
@@ -734,8 +930,23 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                 })()}
               </div>
             )}
+            {isExpenseShare && type !== 2 && (
+              <div style={{ marginRight: 'auto', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {(() => {
+                   const total = Math.abs(evalMath(amount) || 0);
+                   const othersTotal = expenseShares.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0);
+                   const yourShare = total - othersTotal;
+                   if (othersTotal > total) return <span style={{color: '#ef4444', fontWeight: 600}}>Others exceed total!</span>;
+                   if (othersTotal <= 0) return <span style={{fontWeight: 600}}>Enter shares</span>;
+                   return <span style={{color: '#f59e0b', fontWeight: 600}}>Others owe: {getCurrencySymbol(sourceCurrency)}{formatCurrency(othersTotal)}</span>;
+                })()}
+              </div>
+            )}
             <button type="button" className="cancel-btn" onClick={handleClose}>Cancel</button>
-            <button type="submit" className="submit-btn" style={{ background: 'var(--accent-color)', color: '#fff', border: 'none' }} disabled={isSplit && type !== 2 && Math.abs((evalMath(amount) || 0) - splits.reduce((acc, s) => acc + (evalMath(s.amount) || 0), 0)) > 0.01}>
+            <button type="submit" className="submit-btn" style={{ background: 'var(--accent-color)', color: '#fff', border: 'none' }} disabled={
+              (isSplit && type !== 2 && Math.abs((evalMath(amount) || 0) - splits.reduce((acc, s) => acc + (evalMath(s.amount) || 0), 0)) > 0.01) ||
+              (isExpenseShare && type !== 2 && expenseShares.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0) > Math.abs(evalMath(amount) || 0))
+            }>
               Save Transaction
             </button>
           </div>

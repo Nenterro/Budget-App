@@ -29,6 +29,7 @@ const getCategoryDetails = (category, type) => {
 };
 
 import AddTransactionModal from '../components/AddTransactionModal';
+import ExpenseSharingModal from '../components/ExpenseSharingModal';
 import UnifiedDropdown from '../components/UnifiedDropdown';
 import UnifiedCalendar from '../components/UnifiedCalendar';
 import FilterModal from '../components/FilterModal';
@@ -43,6 +44,7 @@ export default function Transactions() {
   
   const [showCustomRangeModal, setShowCustomRangeModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showExpenseSharingModal, setShowExpenseSharingModal] = useState(false);
   const [editingTx, setEditingTx] = useState(null);
   const [openTxId, setOpenTxId] = useState(null);
 
@@ -204,7 +206,16 @@ export default function Transactions() {
                 <span className="filter-badge"></span>
               )}
             </button>
-            <button className="icon-btn group-btn"><Users size={20} /></button>
+            <button 
+              className="icon-btn group-btn relative" 
+              title="Expense Sharing"
+              onClick={() => setShowExpenseSharingModal(true)}
+            >
+              <Users size={20} />
+              {transactions.some(t => t.isExpenseShare && t.expenseShares && t.expenseShares.some(s => !s.settled)) && (
+                <span className="filter-badge" style={{ background: '#f59e0b' }}></span>
+              )}
+            </button>
           </div>
 
           <div className="tx-search-bar">
@@ -250,6 +261,7 @@ export default function Transactions() {
                           <div className="tx-payee">
                             {tx.payee || 'Unspecified'}
                             {tx.isSplitChild && <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px', color: 'var(--text-secondary)' }}>SPLIT PART</span>}
+                            {tx.isExpenseShare && <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px', fontWeight: 600 }}>SHARED</span>}
                           </div>
                           <div className="tx-meta">
                             <span className="tx-category" style={{ color: color }}>{tx.category}</span>
@@ -331,6 +343,15 @@ export default function Transactions() {
               setShowFilterModal(false);
             }}
             onClose={() => setShowFilterModal(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showExpenseSharingModal && (
+          <ExpenseSharingModal 
+            isOpen={showExpenseSharingModal}
+            onClose={() => setShowExpenseSharingModal(false)}
           />
         )}
       </AnimatePresence>
