@@ -272,17 +272,18 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
 
   const renderTapField = (label, value, Icon, fieldName, compact = false) => {
     const hasValue = value && value.trim().length > 0;
-    const isStacked = compact && label;
     return (
-      <div className="tap-field" onClick={() => setActiveField(fieldName)} style={compact ? { padding: '12px 10px', gap: '8px' } : {}}>
-        <Icon size={compact ? 16 : 20} className="tap-icon" style={{ flexShrink: 0 }} />
-        <div className="tap-content" style={{ flexDirection: isStacked ? 'column' : 'row', alignItems: isStacked ? 'flex-start' : 'center', gap: isStacked ? '2px' : '8px', overflow: 'hidden' }}>
-          {label && (
-            <span className="tap-label" style={{ fontSize: compact ? '12px' : '15px', margin: 0, fontWeight: 500, whiteSpace: 'nowrap' }}>{label}:</span>
-          )}
-          <span className="tap-value" style={{ fontSize: compact ? '14px' : '15px', margin: 0, fontWeight: hasValue ? 600 : 400, color: hasValue ? 'var(--text-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
-            {hasValue ? value : 'Select...'}
-          </span>
+      <div className="form-group" style={{ minWidth: 0, flex: 1 }}>
+        {hasValue && <label>{label}</label>}
+        <div 
+          className="input-with-icon" 
+          onClick={() => setActiveField(fieldName)}
+          style={{ cursor: 'pointer', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '12px' }}
+        >
+          <Icon size={compact ? 16 : 18} className="input-icon" style={{ color: hasValue ? 'var(--text-primary)' : 'var(--text-secondary)' }} />
+          <div style={{ paddingLeft: '40px', paddingRight: '12px', height: '46px', display: 'flex', alignItems: 'center', color: hasValue ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: compact ? '13px' : '15px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+            {hasValue ? value : label}
+          </div>
         </div>
       </div>
     );
@@ -418,8 +419,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             className="dynamic-fields-wrapper"
             style={{ 
               height: (isSplit && type !== 2) ? 'auto' : (isMobile ? 
-                      (type === 2 ? (isCrossCurrency ? '100px' : '0px') : '140px') : 
-                      (type === 2 ? (isCrossCurrency ? '80px' : '0px') : '160px')),
+                      (type === 2 ? (isCrossCurrency ? '66px' : '0px') : '116px') : 
+                      (type === 2 ? (isCrossCurrency ? '42px' : '0px') : '98px')),
               transition: 'height 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
               position: 'relative',
               overflow: (isSplit && type !== 2) ? 'visible' : 'hidden'
