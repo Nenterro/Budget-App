@@ -324,7 +324,21 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
     const updatedWriteOffs = [...(tx.writeOffs || []), newWriteOffRecord];
 
+    // Reduce original transaction amount by write-off amount
+    const signedChange = tx.amount < 0 ? amount : -amount;
+    const newTxAmount = tx.amount + signedChange;
+
+    // Reduce person's share amount on original transaction by write-off amount
     const updatedShares = tx.expenseShares.map(s => {
+      if (s.id === shareId) {
+        const newShareAmount = Math.max(0, s.amount - amount);
+        const repaid = getPersonRepaid(tx, s.name);
+        return {
+          ...s,
+          amount: newShareAmount,
+          settled: newShareAmount === 0 || repaid >= newShareAmount
+        };
+      }
       const repaid = getPersonRepaid(tx, s.name);
       const writtenOff = updatedWriteOffs
         .filter(w => w.personName === s.name)
@@ -334,6 +348,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
     await updateTransaction({
       ...tx,
+      amount: newTxAmount,
       writeOffs: updatedWriteOffs,
       expenseShares: updatedShares,
       pendingSync: true,
@@ -355,7 +370,24 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
     const updatedWriteOffs = (tx.writeOffs || []).filter(w => w.id !== writeOffRecord.id);
 
+    // Restore written-off amount back to original transaction amount
+    const signedChange = tx.amount < 0 ? writeOffRecord.amount : -writeOffRecord.amount;
+    const restoredTxAmount = tx.amount - signedChange;
+
+    // Restore person's share amount on original transaction
     const updatedShares = tx.expenseShares.map(s => {
+      if (s.id === writeOffRecord.shareId || s.name === writeOffRecord.personName) {
+        const restoredShareAmount = s.amount + writeOffRecord.amount;
+        const repaid = getPersonRepaid(tx, s.name);
+        const remainingWriteOffs = updatedWriteOffs
+          .filter(w => w.personName === s.name)
+          .reduce((acc, w) => acc + w.amount, 0);
+        return {
+          ...s,
+          amount: restoredShareAmount,
+          settled: (repaid + remainingWriteOffs) >= restoredShareAmount
+        };
+      }
       const repaid = getPersonRepaid(tx, s.name);
       const writtenOff = updatedWriteOffs
         .filter(w => w.personName === s.name)
@@ -365,6 +397,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
     await updateTransaction({
       ...tx,
+      amount: restoredTxAmount,
       writeOffs: updatedWriteOffs,
       expenseShares: updatedShares,
       pendingSync: true,
