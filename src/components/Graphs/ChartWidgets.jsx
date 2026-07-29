@@ -150,7 +150,7 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
     }
     
     return { data: result, ticks: generatedTicks };
-  }, [transactions, accounts, dateRange]);
+  }, [rawTxs, accounts, dateRange]);
 
   if (data.length === 0) return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '40px' }}>No data</div>;
 
