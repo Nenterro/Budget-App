@@ -4,8 +4,10 @@ import { parseISO, differenceInDays } from 'date-fns';
 import { useAppearanceSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
 import { convertAmount } from '../../utils/exchange';
+import { getEffectiveReportingItems } from '../../utils/txAdjustments';
 
-const calculateTotals = (transactions, baseCurrency, exchangeRates, accounts) => {
+const calculateTotals = (rawTransactions, baseCurrency, exchangeRates, accounts) => {
+  const transactions = getEffectiveReportingItems(rawTransactions);
   let income = 0;
   let expense = 0;
   let investment = 0;
@@ -133,9 +135,10 @@ function StatDisplay({ value, currency, isPercentage, color, title, subtitle, mi
     </div>
   );
 }
-export function LargestExpense({ transactions, accounts, mini }) {
+export function LargestExpense({ transactions: rawTxs, accounts, mini }) {
   const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
   const largest = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     let max = null;
     transactions.forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
@@ -145,16 +148,17 @@ export function LargestExpense({ transactions, accounts, mini }) {
       }
     });
     return max;
-  }, [transactions]);
+  }, [rawTxs]);
   
   if (!largest) return <StatDisplay value={0} currency={baseCurrency} color="#ef4444" title="Largest Expense" mini={mini} />;
   const subtitle = `${largest.category || 'Uncategorized'} - ${largest.payee || 'Unknown Payee'}`;
   return <StatDisplay value={-largest.amount} currency={baseCurrency} color="#ef4444" title="Largest Expense" subtitle={subtitle} mini={mini} />;
 }
 
-export function LargestIncome({ transactions, accounts, mini }) {
+export function LargestIncome({ transactions: rawTxs, accounts, mini }) {
   const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
   const largest = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     let max = null;
     transactions.forEach(tx => {
       if (tx.type === 1 || tx.type === 'income') {
@@ -164,16 +168,17 @@ export function LargestIncome({ transactions, accounts, mini }) {
       }
     });
     return max;
-  }, [transactions]);
+  }, [rawTxs]);
   
   if (!largest) return <StatDisplay value={0} currency={baseCurrency} color="#10b981" title="Largest Income" mini={mini} />;
   const subtitle = `${largest.category || 'Uncategorized'} - ${largest.payee || 'Unknown Payee'}`;
   return <StatDisplay value={largest.amount} currency={baseCurrency} color="#10b981" title="Largest Income" subtitle={subtitle} mini={mini} />;
 }
 
-export function HighestSpendCategory({ transactions, accounts, mini }) {
+export function HighestSpendCategory({ transactions: rawTxs, accounts, mini }) {
   const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
   const highest = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     const sums = {};
     transactions.forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
@@ -190,14 +195,15 @@ export function HighestSpendCategory({ transactions, accounts, mini }) {
       }
     });
     return { name: top || 'None', amount: max };
-  }, [transactions]);
+  }, [rawTxs]);
   
   return <StatDisplay value={highest.name} color="#f59e0b" title="Top Category" subtitle={`${getCurrencySymbol(baseCurrency)}${formatCurrency(highest.amount)} total spend`} mini={mini} />;
 }
 
-export function HighestSpendPayee({ transactions, accounts, mini }) {
+export function HighestSpendPayee({ transactions: rawTxs, accounts, mini }) {
   const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
   const highest = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     const sums = {};
     transactions.forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
@@ -214,13 +220,14 @@ export function HighestSpendPayee({ transactions, accounts, mini }) {
       }
     });
     return { name: top || 'None', amount: max };
-  }, [transactions]);
+  }, [rawTxs]);
   
   return <StatDisplay value={highest.name} color="#3b82f6" title="Top Payee" subtitle={`${getCurrencySymbol(baseCurrency)}${formatCurrency(highest.amount)} total spend`} mini={mini} />;
 }
 
-export function MostActiveCategory({ transactions, mini }) {
+export function MostActiveCategory({ transactions: rawTxs, mini }) {
   const active = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     const counts = {};
     transactions.forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
@@ -237,13 +244,14 @@ export function MostActiveCategory({ transactions, mini }) {
       }
     });
     return { name: top || 'None', count: max };
-  }, [transactions]);
+  }, [rawTxs]);
   
   return <StatDisplay value={active.name} color="#f59e0b" title="Most Active Cat" subtitle={`${active.count} transactions`} mini={mini} />;
 }
 
-export function MostActivePayee({ transactions, mini }) {
+export function MostActivePayee({ transactions: rawTxs, mini }) {
   const active = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     const counts = {};
     transactions.forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
@@ -260,14 +268,15 @@ export function MostActivePayee({ transactions, mini }) {
       }
     });
     return { name: top || 'None', count: max };
-  }, [transactions]);
+  }, [rawTxs]);
   
   return <StatDisplay value={active.name} color="#3b82f6" title="Most Active Payee" subtitle={`${active.count} transactions`} mini={mini} />;
 }
 
-export function AverageExpenseSize({ transactions, accounts, mini }) {
+export function AverageExpenseSize({ transactions: rawTxs, accounts, mini }) {
   const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
   const { avg, count } = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     let sum = 0;
     let count = 0;
     transactions.forEach(tx => {
@@ -277,7 +286,7 @@ export function AverageExpenseSize({ transactions, accounts, mini }) {
       }
     });
     return { avg: count > 0 ? sum / count : 0, count };
-  }, [transactions]);
+  }, [rawTxs]);
   
   return <StatDisplay value={avg} currency={baseCurrency} color="#ef4444" title="Avg Expense" subtitle={`Based on ${count} expenses`} mini={mini} />;
 }

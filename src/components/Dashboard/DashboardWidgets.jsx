@@ -8,6 +8,7 @@ import AddStatModal from '../Stats/AddStatModal';
 import { useAppearanceSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
 import { convertAmount } from '../../utils/exchange';
+import { getEffectiveReportingItems } from '../../utils/txAdjustments';
 
 import { WIDGET_TYPES } from './AddDashboardWidgetModal';
 
@@ -196,10 +197,11 @@ function RecentTransactions({ transactions, accounts }) {
   );
 }
 
-function MiniCashFlow({ transactions, accounts }) {
+function MiniCashFlow({ transactions: rawTxs, accounts }) {
   const { baseCurrency } = useAppearanceSettings();
   const { exchangeRates } = useData();
   const { income, expense } = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     let inc = 0, exp = 0;
     transactions.forEach(tx => {
       let txCurrency = tx.currency;
@@ -216,7 +218,7 @@ function MiniCashFlow({ transactions, accounts }) {
       else if (tx.type === 0 || tx.type === 'expense') exp += amt;
     });
     return { income: inc, expense: exp };
-  }, [transactions, baseCurrency, exchangeRates, accounts]);
+  }, [rawTxs, baseCurrency, exchangeRates, accounts]);
 
   const total = income + expense;
   const incomePercent = total > 0 ? (income / total) * 100 : 50;
@@ -234,11 +236,12 @@ function MiniCashFlow({ transactions, accounts }) {
   );
 }
 
-function TopCategories({ transactions, accounts }) {
+function TopCategories({ transactions: rawTxs, accounts }) {
   const { baseCurrency } = useAppearanceSettings();
   const { exchangeRates } = useData();
   
   const topCategories = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     const sums = {};
     let totalExpense = 0;
     
@@ -265,7 +268,7 @@ function TopCategories({ transactions, accounts }) {
       .map(cat => ({ name: cat, amount: sums[cat], percent: maxAmount > 0 ? (sums[cat] / maxAmount) * 100 : 0 }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 4);
-  }, [transactions, baseCurrency, exchangeRates, accounts]);
+  }, [rawTxs, baseCurrency, exchangeRates, accounts]);
 
   if (topCategories.length === 0) return <div style={{ color: 'var(--text-secondary)' }}>No expenses found.</div>;
 
@@ -286,11 +289,12 @@ function TopCategories({ transactions, accounts }) {
   );
 }
 
-function TopPayees({ transactions, accounts }) {
+function TopPayees({ transactions: rawTxs, accounts }) {
   const { baseCurrency } = useAppearanceSettings();
   const { exchangeRates } = useData();
   
   const topPayees = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     const sums = {};
     let totalExpense = 0;
     
@@ -317,7 +321,7 @@ function TopPayees({ transactions, accounts }) {
       .map(payee => ({ name: payee, amount: sums[payee], percent: maxAmount > 0 ? (sums[payee] / maxAmount) * 100 : 0 }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 4);
-  }, [transactions, baseCurrency, exchangeRates, accounts]);
+  }, [rawTxs, baseCurrency, exchangeRates, accounts]);
 
   if (topPayees.length === 0) return <div style={{ color: 'var(--text-secondary)' }}>No expenses found.</div>;
 
@@ -338,11 +342,12 @@ function TopPayees({ transactions, accounts }) {
   );
 }
 
-export function SevenDayExpenseChart({ transactions, accounts }) {
+export function SevenDayExpenseChart({ transactions: rawTxs, accounts }) {
   const { baseCurrency } = useAppearanceSettings();
   const { exchangeRates } = useData();
   
   const chartData = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     const data = [];
     const today = startOfDay(new Date());
     
@@ -360,11 +365,9 @@ export function SevenDayExpenseChart({ transactions, accounts }) {
     // Accumulate expenses
     transactions.forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
-        const txDate = startOfDay(parseISO(tx.date)).getTime();
-        
-        // Find if this transaction falls in our 7-day window
-        const dayEntry = data.find(d => d.dateObj.getTime() === txDate);
-        if (dayEntry) {
+        const txDate = startOfDay(parseISO(tx.date));
+        const dayMatch = data.find(d => d.dateObj.getTime() === txDate.getTime());
+        if (dayMatch) {
           let txCurrency = tx.currency;
           if (!txCurrency) {
             const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
@@ -374,13 +377,13 @@ export function SevenDayExpenseChart({ transactions, accounts }) {
           if (txCurrency !== baseCurrency && exchangeRates) {
             amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
           }
-          dayEntry.expense += amt;
+          dayMatch.expense += amt;
         }
       }
     });
 
     return data;
-  }, [transactions, baseCurrency, exchangeRates, accounts]);
+  }, [rawTxs, baseCurrency, exchangeRates, accounts]);
 
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {

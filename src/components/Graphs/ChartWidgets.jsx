@@ -8,6 +8,7 @@ import { formatCurrency } from '../../utils/format';
 import { useAppearanceSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
 import { convertAmount } from '../../utils/exchange';
+import { getEffectiveReportingItems } from '../../utils/txAdjustments';
 
 const formatCompactCurrency = (amount, currencyCode) => {
   return new Intl.NumberFormat('en-US', {
@@ -56,11 +57,12 @@ const CustomTooltip = ({ active, payload, label, formatter, labelFormatter }) =>
 import { AreaChart, Area } from 'recharts'; // Make sure AreaChart and Area are available
 
 // 1. Balance Over Time (Area Chart)
-export function BalanceOverTime({ transactions, accounts, dateRange }) {
+export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
   const { baseCurrency } = useAppearanceSettings();
   const { exchangeRates } = useData();
   
   const { data, ticks } = useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTxs);
     if (!transactions || transactions.length === 0) return { data: [], ticks: [] };
     
     const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -208,8 +210,9 @@ export function BalanceOverTime({ transactions, accounts, dateRange }) {
 }
 
 // Helper for monthly bar charts
-const useMonthlyData = (transactions, filterFn, baseCurrency, exchangeRates, accounts) => {
+const useMonthlyData = (rawTransactions, filterFn, baseCurrency, exchangeRates, accounts) => {
   return useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTransactions);
     const twelveMonthsAgo = subMonths(new Date(), 12);
     
     // Initialize last 12 months with 0
@@ -241,7 +244,7 @@ const useMonthlyData = (transactions, filterFn, baseCurrency, exchangeRates, acc
       name: key,
       amount: months[key]
     }));
-  }, [transactions, filterFn, baseCurrency, exchangeRates, accounts]);
+  }, [rawTransactions, filterFn, baseCurrency, exchangeRates, accounts]);
 };
 
 // 2. Spending Per Month
@@ -321,8 +324,9 @@ export function InvestmentPerMonth({ transactions, accounts }) {
 }
 
 // Helper for pie charts
-const usePieData = (transactions, filterFn, groupKey, baseCurrency, exchangeRates, accounts) => {
+const usePieData = (rawTransactions, filterFn, groupKey, baseCurrency, exchangeRates, accounts) => {
   return useMemo(() => {
+    const transactions = getEffectiveReportingItems(rawTransactions);
     const grouped = {};
     transactions.forEach(tx => {
       if (filterFn(tx)) {
@@ -346,7 +350,7 @@ const usePieData = (transactions, filterFn, groupKey, baseCurrency, exchangeRate
       .map(key => ({ name: key, value: grouped[key] }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10); // Top 10 only
-  }, [transactions, filterFn, groupKey, baseCurrency, exchangeRates, accounts]);
+  }, [rawTransactions, filterFn, groupKey, baseCurrency, exchangeRates, accounts]);
 };
 
 const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
