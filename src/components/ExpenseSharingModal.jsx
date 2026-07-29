@@ -23,7 +23,7 @@ function evalMath(input) {
 }
 
 export default function ExpenseSharingModal({ isOpen, onClose }) {
-  const { transactions, updateTransaction, addTransaction, deleteTransaction, categories, payees, accounts } = useData();
+  const { transactions, updateTransaction, addTransaction, deleteTransaction, saveTransactionsBatch, categories, payees, accounts } = useData();
   
   const [activeTab, setActiveTab] = useState('unsettled'); // 'unsettled' | 'settled'
   const [selectedTxId, setSelectedTxId] = useState(null);
@@ -170,16 +170,16 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       return { ...s, settled: (repaid + writtenOff) >= s.amount };
     });
 
-    await updateTransaction({
+    const updatedParentTx = {
       ...tx,
       amount: newTxAmount,
       writeOffs: updatedWriteOffs,
       expenseShares: updatedShares,
       pendingSync: true,
       updatedAt: new Date().toISOString()
-    });
+    };
 
-    await addTransaction(writeOffTx);
+    await saveTransactionsBatch([updatedParentTx, writeOffTx]);
 
     setWritingOffFor(null);
     setWriteOffAmount('');
@@ -188,10 +188,6 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   };
 
   const handleDeleteWriteOff = async (tx, writeOffRecord) => {
-    if (writeOffRecord.linkedTxId) {
-      await deleteTransaction(writeOffRecord.linkedTxId);
-    }
-
     const updatedWriteOffs = (tx.writeOffs || []).filter(w => w.id !== writeOffRecord.id);
 
     // Restore written-off amount back to original transaction amount
@@ -219,14 +215,16 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       return { ...s, settled: (repaid + writtenOff) >= s.amount };
     });
 
-    await updateTransaction({
+    const updatedParentTx = {
       ...tx,
       amount: restoredTxAmount,
       writeOffs: updatedWriteOffs,
       expenseShares: updatedShares,
       pendingSync: true,
       updatedAt: new Date().toISOString()
-    });
+    };
+
+    await saveTransactionsBatch([updatedParentTx], writeOffRecord.linkedTxId ? [writeOffRecord.linkedTxId] : []);
   };
 
   const handleAddRepayment = async (tx) => {
@@ -243,6 +241,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     );
 
     let updatedRepayments = [];
+    let childTxToSave = null;
+
     if (existingIndex !== -1) {
       const existing = tx.repayments[existingIndex];
       const mergedAmount = existing.amount + amount;
@@ -257,17 +257,17 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       if (existing.linkedTxId) {
         const linkedTx = transactions.find(t => t.id === existing.linkedTxId);
         if (linkedTx) {
-          await updateTransaction({
+          childTxToSave = {
             ...linkedTx,
             amount: mergedAmount,
             updatedAt: new Date().toISOString(),
             pendingSync: true
-          });
+          };
         }
       }
     } else {
       const linkedTxId = generateId();
-      const newIncomeTx = {
+      childTxToSave = {
         id: linkedTxId,
         type: 1, // Income
         amount: amount,
@@ -282,8 +282,6 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
         updatedAt: new Date().toISOString(),
         pendingSync: true
       };
-
-      await addTransaction(newIncomeTx);
 
       const newRepayment = {
         id: generateId(),
@@ -305,13 +303,18 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       return { ...s, settled: (repaid + writtenOff) >= s.amount };
     });
 
-    await updateTransaction({
+    const updatedParentTx = {
       ...tx,
       repayments: updatedRepayments,
       expenseShares: updatedShares,
       pendingSync: true,
       updatedAt: new Date().toISOString()
-    });
+    };
+
+    const batchToSave = [updatedParentTx];
+    if (childTxToSave) batchToSave.push(childTxToSave);
+
+    await saveTransactionsBatch(batchToSave);
 
     setRepayPerson('');
     setRepayAmount('');
@@ -345,10 +348,11 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       return r;
     });
 
+    let childTxToSave = null;
     if (rep.linkedTxId) {
       const linkedTx = transactions.find(t => t.id === rep.linkedTxId);
       if (linkedTx) {
-        await updateTransaction({
+        childTxToSave = {
           ...linkedTx,
           payee: editPerson,
           amount: newAmt,
@@ -357,7 +361,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
           currency: accounts.find(a => a.name === editAccount)?.currency || tx.currency,
           updatedAt: new Date().toISOString(),
           pendingSync: true
-        });
+        };
       }
     }
 
@@ -369,22 +373,23 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       return { ...s, settled: (repaid + writtenOff) >= s.amount };
     });
 
-    await updateTransaction({
+    const updatedParentTx = {
       ...tx,
       repayments: updatedRepayments,
       expenseShares: updatedShares,
       pendingSync: true,
       updatedAt: new Date().toISOString()
-    });
+    };
+
+    const batchToSave = [updatedParentTx];
+    if (childTxToSave) batchToSave.push(childTxToSave);
+
+    await saveTransactionsBatch(batchToSave);
 
     setEditingRepayment(null);
   };
 
   const handleDeleteRepayment = async (tx, rep) => {
-    if (rep.linkedTxId) {
-      await deleteTransaction(rep.linkedTxId);
-    }
-
     const updatedRepayments = (tx.repayments || []).filter(r => r.id !== rep.id);
 
     const updatedShares = tx.expenseShares.map(s => {
@@ -395,13 +400,15 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       return { ...s, settled: (repaid + writtenOff) >= s.amount };
     });
 
-    await updateTransaction({
+    const updatedParentTx = {
       ...tx,
       repayments: updatedRepayments,
       expenseShares: updatedShares,
       pendingSync: true,
       updatedAt: new Date().toISOString()
-    });
+    };
+
+    await saveTransactionsBatch([updatedParentTx], rep.linkedTxId ? [rep.linkedTxId] : []);
   };
 
   const formatDateShort = (isoString) => {

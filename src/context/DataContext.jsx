@@ -428,10 +428,30 @@ export function DataProvider({ children }) {
     }
   };
 
+  const saveTransactionsBatch = async (txsToSave = [], idsToDelete = []) => {
+    if (idsToDelete.length > 0) {
+      await Promise.all(idsToDelete.map(id => db.deleteTransaction(id)));
+    }
+    let savedList = [];
+    if (txsToSave.length > 0) {
+      savedList = await Promise.all(txsToSave.map(t => db.saveTransaction(t)));
+    }
+    setTransactions(prev => {
+      let copy = prev.filter(t => !idsToDelete.includes(t.id));
+      savedList.forEach(st => {
+        const idx = copy.findIndex(p => p.id === st.id);
+        if (idx !== -1) copy[idx] = st;
+        else copy.push(st);
+      });
+      return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
+    });
+    syncAll().catch(e => console.error("Background sync error:", e));
+  };
+
   return (
     <DataContext.Provider value={{ 
       transactions, accounts, categories, payees, budgets, exchangeRates, setExchangeRates, isLoading, loadData,
-      addTransaction, updateTransaction, deleteTransaction,
+      addTransaction, updateTransaction, deleteTransaction, saveTransactionsBatch,
       saveAccount: async (item) => {
         const isNew = !item.id;
         await updateDataItem(db.accountsStore, item, setAccounts);
