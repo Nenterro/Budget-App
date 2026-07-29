@@ -5,6 +5,7 @@ import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, 
 import AddTransactionModal from './AddTransactionModal';
 import MoreMenuModal from './MoreMenuModal';
 import PwaInstallBanner from './PwaInstallPrompt';
+import PullToRefresh from './PullToRefresh';
 import './Layout.css';
 
 const NAV_ITEMS = [
@@ -134,6 +135,7 @@ export default function Layout() {
 
   return (
     <div className="app-container">
+      <PullToRefresh />
       <GradientDef />
       <Sidebar isPinned={isSidebarPinned} togglePin={() => setIsSidebarPinned(!isSidebarPinned)} onOpenAdd={() => setIsAddOpen(true)} />
       <div className="main-wrapper">
