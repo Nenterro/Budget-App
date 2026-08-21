@@ -23,7 +23,7 @@ const slideVariants = {
   })
 };
 
-export default function UnifiedCalendar({ value, onChange, onClose, mode = 'single' }) {
+export default function UnifiedCalendar({ value, onChange, onClose, mode = 'single', zIndex }) {
   const getInitialDate = () => {
     if (mode === 'range') {
       return value?.start ? new Date(value.start) : new Date();
@@ -104,15 +104,14 @@ export default function UnifiedCalendar({ value, onChange, onClose, mode = 'sing
   };
 
   return (
-    <ModalWrapper onClose={onClose}>
+    <ModalWrapper onClose={onClose} zIndex={zIndex}>
       <div 
-        className="unified-calendar glass-panel" 
+        className={`unified-calendar glass-panel ${mode === 'range' ? 'range-mode' : ''}`}
         onClick={e => e.stopPropagation()} 
         style={{ 
           display: 'flex', 
           padding: 0, 
-          overflow: 'hidden', 
-          maxWidth: mode === 'range' ? '500px' : '340px' 
+          overflow: 'hidden'
         }}
       >
         {mode === 'range' && (

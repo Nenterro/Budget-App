@@ -8,6 +8,40 @@ const SALT = new TextEncoder().encode("BUDGET_APP_E2EE_SALT_V1");
 
 let cryptoKey = null; // Stored in memory
 
+// Where the PIN is cached between launches.
+//
+// Remembering it in localStorage is convenient — the app unlocks itself and
+// syncs without asking — but it also means the key to the "end-to-end
+// encrypted" data sits in plain text next to the data it protects. Anyone with
+// the unlocked device, or any script running on the page, can read it.
+//
+// Remembering stays the default so existing devices keep working, but it is now
+// a choice. With it off the PIN lives in sessionStorage only: unlocked once per
+// tab/session, gone when the app is closed.
+const REMEMBER_KEY = 'BUDGET_REMEMBER_PIN';
+const PIN_KEY = 'BUDGET_E2EE_PIN';
+
+export function isPinRemembered() {
+  return localStorage.getItem(REMEMBER_KEY) !== '0';
+}
+
+export function setPinRemembered(remember) {
+  localStorage.setItem(REMEMBER_KEY, remember ? '1' : '0');
+  const pin = localStorage.getItem(PIN_KEY) || sessionStorage.getItem(PIN_KEY);
+  if (!pin) return;
+  // Move the already-cached PIN to wherever it now belongs, so the switch takes
+  // effect immediately rather than at the next unlock.
+  sessionStorage.setItem(PIN_KEY, pin);
+  if (remember) localStorage.setItem(PIN_KEY, pin);
+  else localStorage.removeItem(PIN_KEY);
+}
+
+function cachePin(pin) {
+  sessionStorage.setItem(PIN_KEY, pin);
+  if (isPinRemembered()) localStorage.setItem(PIN_KEY, pin);
+  else localStorage.removeItem(PIN_KEY);
+}
+
 // Derive AES-GCM key from PIN
 export async function deriveKey(pin) {
   const enc = new TextEncoder();
@@ -32,8 +66,7 @@ export async function deriveKey(pin) {
     ["encrypt", "decrypt"]
   );
   
-  localStorage.setItem('BUDGET_E2EE_PIN', pin);
-  sessionStorage.setItem('BUDGET_E2EE_PIN', pin);
+  cachePin(pin);
 }
 
 export function isUnlocked() {
@@ -42,13 +75,13 @@ export function isUnlocked() {
 
 // Check if a PIN is cached on this device (without deriving or verifying)
 export function hasCachedPin() {
-  return !!(localStorage.getItem('BUDGET_E2EE_PIN') || sessionStorage.getItem('BUDGET_E2EE_PIN'));
+  return !!(localStorage.getItem(PIN_KEY) || sessionStorage.getItem(PIN_KEY));
 }
 
 // Restore session from cached PIN — just derives the key, no verification.
 // Verification happens naturally when syncAll tries to decrypt records.
 export async function tryRestoreSession() {
-  const pin = localStorage.getItem('BUDGET_E2EE_PIN') || sessionStorage.getItem('BUDGET_E2EE_PIN');
+  const pin = localStorage.getItem(PIN_KEY) || sessionStorage.getItem(PIN_KEY);
   if (pin && !cryptoKey) {
     await deriveKey(pin);
     return true;
@@ -58,8 +91,8 @@ export async function tryRestoreSession() {
 
 export function lockSession() {
   cryptoKey = null;
-  localStorage.removeItem('BUDGET_E2EE_PIN');
-  sessionStorage.removeItem('BUDGET_E2EE_PIN');
+  localStorage.removeItem(PIN_KEY);
+  sessionStorage.removeItem(PIN_KEY);
 }
 
 export async function encryptPayload(payload) {

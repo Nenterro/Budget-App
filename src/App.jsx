@@ -1,19 +1,35 @@
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
-import Graphs from './pages/Graphs';
-import Stats from './pages/Stats';
 import Transactions from './pages/Transactions';
-import Budgets from './pages/Budgets';
-import Settings from './pages/Settings';
-import ManageData from './pages/ManageData';
-import SyncSettings from './pages/SyncSettings';
-import AppearanceSettings, { applyTheme } from './pages/AppearanceSettings';
-import CurrencySettings from './pages/CurrencySettings';
-import SecuritySettings from './pages/SecuritySettings';
 import Login from './pages/Login';
 import ProtectedRoute from './components/ProtectedRoute';
+import { applyTheme } from './utils/theme';
+
+// Loaded on demand. The chart pages pull in recharts and the settings screens
+// are rarely the first thing opened, so keeping them out of the initial bundle
+// gets the app on screen sooner.
+const Graphs = lazy(() => import('./pages/Graphs'));
+const Stats = lazy(() => import('./pages/Stats'));
+const Budgets = lazy(() => import('./pages/Budgets'));
+const Settings = lazy(() => import('./pages/Settings'));
+const ManageData = lazy(() => import('./pages/ManageData'));
+const SyncSettings = lazy(() => import('./pages/SyncSettings'));
+const AppearanceSettings = lazy(() => import('./pages/AppearanceSettings'));
+const CurrencySettings = lazy(() => import('./pages/CurrencySettings'));
+const SecuritySettings = lazy(() => import('./pages/SecuritySettings'));
+
+function RouteFallback() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
+      <div
+        className="spinner"
+        style={{ borderColor: 'var(--border-color)', borderTopColor: 'var(--accent-color)', width: '32px', height: '32px', borderWidth: '3px' }}
+      />
+    </div>
+  );
+}
 
 import { SettingsProvider, useAppearanceSettings } from './context/SettingsContext';
 import { AuthProvider } from './context/AuthContext';
@@ -52,7 +68,9 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={
             <ProtectedRoute>
-              <Layout />
+              <Suspense fallback={<RouteFallback />}>
+                <Layout />
+              </Suspense>
             </ProtectedRoute>
           }>
             <Route index element={<Dashboard />} />

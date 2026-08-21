@@ -11,6 +11,16 @@ export default function PullToRefresh() {
   
   const startYRef = useRef(0);
   const isPullingRef = useRef(false);
+  // The handlers used to read pullDistance/isRefreshing straight from state,
+  // which put both in the effect's dependency array — so all three touch
+  // listeners were torn down and re-attached on every frame of a drag.
+  const pullDistanceRef = useRef(0);
+  const isRefreshingRef = useRef(false);
+
+  const updatePull = (dist) => {
+    pullDistanceRef.current = dist;
+    setPullDistance(dist);
+  };
 
   useEffect(() => {
     const mainContentEl = document.querySelector('.main-content') || window;
@@ -27,12 +37,12 @@ export default function PullToRefresh() {
     };
 
     const handleTouchMove = (e) => {
-      if (!isPullingRef.current || isRefreshing) return;
+      if (!isPullingRef.current || isRefreshingRef.current) return;
 
       const scrollTop = mainContentEl.scrollTop !== undefined ? mainContentEl.scrollTop : window.scrollY;
       if (scrollTop > 0) {
         isPullingRef.current = false;
-        setPullDistance(0);
+        updatePull(0);
         return;
       }
 
@@ -42,25 +52,26 @@ export default function PullToRefresh() {
       if (diffY > 0) {
         // Resistance formula for smooth pulling feel
         const dist = Math.min(100, Math.pow(diffY, 0.85) * 1.8);
-        setPullDistance(dist);
+        updatePull(dist);
       } else {
-        setPullDistance(0);
+        updatePull(0);
       }
     };
 
     const handleTouchEnd = () => {
-      if (!isPullingRef.current || isRefreshing) return;
+      if (!isPullingRef.current || isRefreshingRef.current) return;
 
-      if (pullDistance >= PULL_THRESHOLD) {
+      if (pullDistanceRef.current >= PULL_THRESHOLD) {
+        isRefreshingRef.current = true;
         setIsRefreshing(true);
-        setPullDistance(PULL_THRESHOLD);
+        updatePull(PULL_THRESHOLD);
         
         // Full app & session refresh
         setTimeout(() => {
           window.location.reload();
         }, 400);
       } else {
-        setPullDistance(0);
+        updatePull(0);
       }
 
       isPullingRef.current = false;
@@ -77,7 +88,7 @@ export default function PullToRefresh() {
       targetEl.removeEventListener('touchmove', handleTouchMove);
       targetEl.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [pullDistance, isRefreshing]);
+  }, []);
 
   if (pullDistance <= 0 && !isRefreshing) return null;
 

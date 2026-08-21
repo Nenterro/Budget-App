@@ -1,15 +1,15 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
-import { 
+import {
   Search, Filter, Users, Plus, Edit2, Trash2, Settings,
-  ShoppingBag, Tv, Coffee, Car, Home, Receipt, ArrowRightLeft, Box 
+  ShoppingBag, Tv, Coffee, Car, Home, Receipt, ArrowRightLeft, Box
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
-import { 
-  format, isToday, isYesterday, startOfMonth, subMonths, endOfMonth, 
-  subDays, startOfYear, isAfter, isBefore, parseISO 
+import {
+  format, isToday, isYesterday, startOfMonth, subMonths, endOfMonth,
+  subDays, startOfYear, isAfter, isBefore, parseISO
 } from 'date-fns';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import './Transactions.css';
@@ -28,20 +28,27 @@ const getCategoryDetails = (category, type) => {
   return { icon: Box, color: '#6366f1' };
 };
 
-import AddTransactionModal from '../components/AddTransactionModal';
-import ExpenseSharingModal from '../components/ExpenseSharingModal';
+// Shares the lazily loaded chunk with the one Layout mounts for the FAB.
+const AddTransactionModal = lazy(() => import('../components/AddTransactionModal'));
+// Opened from a button, so there is no reason for it to be in the bundle that
+// renders the transaction list.
+const ExpenseSharingModal = lazy(() => import('../components/ExpenseSharingModal'));
 import UnifiedDropdown from '../components/UnifiedDropdown';
 import UnifiedCalendar from '../components/UnifiedCalendar';
 import FilterModal from '../components/FilterModal';
-import { usePageSettings } from '../context/SettingsContext';
+import { usePageSettings, useAppearanceSettings } from '../context/SettingsContext';
 
 export default function Transactions() {
-  const { transactions, deleteTransaction, accounts } = useData();
+  const { transactions, deleteTransaction, accounts, categories, payees } = useData();
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Independent Page Filter state
-  const { selectedPeriod, setSelectedPeriod, customRange, setCustomRange, filterState, setFilterState } = usePageSettings('transactions');
-  
+  const { selectedPeriod, setSelectedPeriod, customRange, setCustomPeriodRange, filterState, setFilterState } = usePageSettings('transactions');
+
+  const { baseCurrency } = useAppearanceSettings();
+  // Shown on the filter modal's amount fields instead of a hardcoded $.
+  const filterCurrencySymbol = getCurrencySymbol(baseCurrency);
+
   const [showCustomRangeModal, setShowCustomRangeModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showExpenseSharingModal, setShowExpenseSharingModal] = useState(false);
@@ -82,7 +89,7 @@ export default function Transactions() {
         flattened.push({ ...tx, originalTx: tx });
       }
     });
-    
+
     let result = flattened;
     const now = new Date();
 
@@ -103,16 +110,22 @@ export default function Transactions() {
         end.setHours(23, 59, 59, 999);
       }
 
-      result = result.filter(tx => {
-        const d = parseISO(tx.date);
-        return isAfter(d, start) && isBefore(d, end);
-      });
+      // `start` is undefined when the period is Custom Range but no range has
+      // been picked yet; comparing against it filtered every transaction away
+      // and left the list empty. Boundaries are inclusive so a transaction
+      // dated on the first or last day of the range is kept.
+      if (start) {
+        result = result.filter(tx => {
+          const d = parseISO(tx.date);
+          return d >= start && d <= end;
+        });
+      }
     }
 
     // 2. Search Filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(tx => 
+      result = result.filter(tx =>
         (tx.payee && tx.payee.toLowerCase().includes(q)) ||
         (tx.category && tx.category.toLowerCase().includes(q)) ||
         (tx.account && tx.account.toLowerCase().includes(q)) ||
@@ -130,13 +143,15 @@ export default function Transactions() {
     if (filterState.excludedAccounts.size > 0) {
       result = result.filter(tx => !filterState.excludedAccounts.has(tx.account));
     }
+    // Magnitude, not signed value: expenses are stored negative, so a signed
+    // comparison against "min 100" silently excluded every expense there is.
     if (filterState.minAmount !== '' && filterState.minAmount !== null) {
-      const min = parseFloat(filterState.minAmount);
-      result = result.filter(tx => tx.amount >= min);
+      const min = Math.abs(parseFloat(filterState.minAmount));
+      if (!isNaN(min)) result = result.filter(tx => Math.abs(tx.amount) >= min);
     }
     if (filterState.maxAmount !== '' && filterState.maxAmount !== null) {
-      const max = parseFloat(filterState.maxAmount);
-      result = result.filter(tx => tx.amount <= max);
+      const max = Math.abs(parseFloat(filterState.maxAmount));
+      if (!isNaN(max)) result = result.filter(tx => Math.abs(tx.amount) <= max);
     }
 
     return result;
@@ -165,10 +180,10 @@ export default function Transactions() {
     return format(d, 'EEEE, MMM d, yyyy');
   };
 
-  const hasActiveFilters = filterState.excludedCategories.size > 0 || 
-    filterState.excludedPayees.size > 0 || 
-    filterState.excludedAccounts.size > 0 || 
-    filterState.minAmount || 
+  const hasActiveFilters = filterState.excludedCategories.size > 0 ||
+    filterState.excludedPayees.size > 0 ||
+    filterState.excludedAccounts.size > 0 ||
+    filterState.minAmount ||
     filterState.maxAmount;
 
   return (
@@ -176,15 +191,15 @@ export default function Transactions() {
       {/* Header */}
       <div className="tx-header">
         <h1 className="page-title desktop-only" style={{ margin: 0 }}>Transactions</h1>
-        
+
         <div className="tx-header-actions">
           <div className="tx-controls">
             <NavLink to="/" className="mobile-only icon-btn" title="Home" style={{ textDecoration: 'none' }}>
               <Home size={20} />
             </NavLink>
             <div style={{ flex: '1 1 auto', minWidth: '160px', maxWidth: '250px', marginRight: 'auto' }}>
-              <UnifiedDropdown 
-                value={selectedPeriod} 
+              <UnifiedDropdown
+                value={selectedPeriod}
                 onChange={(val) => {
                   if (val === 'Custom Range') {
                     setShowCustomRangeModal(true);
@@ -196,9 +211,9 @@ export default function Transactions() {
               />
             </div>
 
-            <button 
+            <button
               className={`icon-btn relative ${hasActiveFilters ? 'active-filter' : ''}`}
-              title="Filter" 
+              title="Filter"
               onClick={() => setShowFilterModal(true)}
             >
               <Filter size={20} />
@@ -206,8 +221,8 @@ export default function Transactions() {
                 <span className="filter-badge"></span>
               )}
             </button>
-            <button 
-              className="icon-btn group-btn relative" 
+            <button
+              className="icon-btn group-btn relative"
               title="Expense Sharing"
               onClick={() => setShowExpenseSharingModal(true)}
             >
@@ -220,9 +235,9 @@ export default function Transactions() {
 
           <div className="tx-search-bar">
             <Search size={18} className="search-icon" />
-            <input 
-              type="text" 
-              placeholder="Search transactions..." 
+            <input
+              type="text"
+              placeholder="Search transactions..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -241,14 +256,14 @@ export default function Transactions() {
           groupedTransactions.map(group => (
             <div key={group.dateString} className="tx-group">
               <h3 className="tx-date-header">{formatDateHeader(group.dateString)}</h3>
-              
+
               <div className="tx-group-items">
                 {group.transactions.map(tx => {
                   const { icon: Icon, color } = getCategoryDetails(tx.category, tx.type);
 
                   return (
                     <div key={tx.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '12px' }}>
-                      <div 
+                      <div
                         className={`tx-row glass-panel ${openTxId === tx.id ? 'is-open' : ''}`}
                         onClick={() => setOpenTxId(openTxId === tx.id ? null : tx.id)}
                         style={{ marginBottom: 0 }}
@@ -256,7 +271,7 @@ export default function Transactions() {
                         <div className="tx-icon" style={{ backgroundColor: `${color}33`, color: color }}>
                           <Icon size={18} />
                         </div>
-                        
+
                         <div className="tx-main">
                           <div className="tx-payee">
                             {tx.payee || 'Unspecified'}
@@ -281,17 +296,17 @@ export default function Transactions() {
                             )}
                           </div>
                           <div className="tx-actions">
-                            <button 
-                              className="action-btn edit" 
-                              onClick={(e) => { 
-                                e.stopPropagation(); 
-                                setEditingTx(tx.originalTx); 
-                              }} 
+                            <button
+                              className="action-btn edit"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingTx(tx.originalTx);
+                              }}
                               title="Edit"
                             ><Edit2 size={16} /></button>
-                            <button 
-                              className="action-btn delete" 
-                              onClick={(e) => { e.stopPropagation(); deleteTransaction(tx.originalTx.id); }} 
+                            <button
+                              className="action-btn delete"
+                              onClick={(e) => { e.stopPropagation(); deleteTransaction(tx.originalTx.id); }}
                               title="Delete"
                             ><Trash2 size={16} /></button>
                           </div>
@@ -311,23 +326,22 @@ export default function Transactions() {
         <ErrorBoundary fallback={<div>Something went wrong loading the form.</div>}>
           <AnimatePresence>
             {!!editingTx && (
-              <AddTransactionModal 
-                isOpen={!!editingTx} 
-                onClose={() => setEditingTx(null)} 
-                initialData={editingTx} 
-              />
+              <Suspense fallback={null}>
+                <AddTransactionModal
+                  isOpen={!!editingTx}
+                  onClose={() => setEditingTx(null)}
+                  initialData={editingTx}
+                />
+              </Suspense>
             )}
           </AnimatePresence>
         </ErrorBoundary>
       <AnimatePresence>
         {showCustomRangeModal && (
-          <UnifiedCalendar 
+          <UnifiedCalendar
             mode="range"
             value={customRange}
-            onChange={(range) => {
-              setCustomRange(range);
-              setSelectedPeriod('Custom Range');
-            }}
+            onChange={(range) => setCustomPeriodRange(range)}
             onClose={() => setShowCustomRangeModal(false)}
           />
         )}
@@ -335,8 +349,13 @@ export default function Transactions() {
 
       <AnimatePresence>
         {showFilterModal && (
-          <FilterModal 
+          <FilterModal
+            title="Filter Transactions"
             transactions={transactions}
+            categories={categories}
+            payees={payees}
+            accounts={accounts}
+            currencySymbol={filterCurrencySymbol}
             initialState={filterState}
             onApply={(newState) => {
               setFilterState(newState);
@@ -349,10 +368,12 @@ export default function Transactions() {
 
       <AnimatePresence>
         {showExpenseSharingModal && (
-          <ExpenseSharingModal 
-            isOpen={showExpenseSharingModal}
-            onClose={() => setShowExpenseSharingModal(false)}
-          />
+          <Suspense fallback={null}>
+            <ExpenseSharingModal
+              isOpen={showExpenseSharingModal}
+              onClose={() => setShowExpenseSharingModal(false)}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
     </div>

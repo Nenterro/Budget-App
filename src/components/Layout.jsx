@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal, Wallet } from 'lucide-react';
-import AddTransactionModal from './AddTransactionModal';
+// Rendered only once the user taps Add, so it does not belong in the chunk
+// that paints the shell.
+const AddTransactionModal = lazy(() => import('./AddTransactionModal'));
 import MoreMenuModal from './MoreMenuModal';
 import PwaInstallBanner from './PwaInstallPrompt';
 import PullToRefresh from './PullToRefresh';
@@ -120,8 +122,22 @@ function BottomNav({ onOpenAdd, onOpenMore }) {
   );
 }
 
+const SIDEBAR_PIN_KEY = 'SIDEBAR_PINNED';
+
 export default function Layout() {
-  const [isSidebarPinned, setIsSidebarPinned] = useState(true);
+  // Persisted, so unpinning the sidebar is a preference rather than something
+  // that has to be redone on every visit.
+  const [isSidebarPinned, setIsSidebarPinned] = useState(
+    () => localStorage.getItem(SIDEBAR_PIN_KEY) !== '0'
+  );
+
+  const toggleSidebarPin = () => {
+    setIsSidebarPinned(prev => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_PIN_KEY, next ? '1' : '0');
+      return next;
+    });
+  };
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
 
@@ -137,7 +153,7 @@ export default function Layout() {
     <div className="app-container">
       <PullToRefresh />
       <GradientDef />
-      <Sidebar isPinned={isSidebarPinned} togglePin={() => setIsSidebarPinned(!isSidebarPinned)} onOpenAdd={() => setIsAddOpen(true)} />
+      <Sidebar isPinned={isSidebarPinned} togglePin={toggleSidebarPin} onOpenAdd={() => setIsAddOpen(true)} />
       <div className="main-wrapper">
         <main className="main-content">
           <div key={location.pathname} className="page-transition-wrapper">
@@ -150,7 +166,11 @@ export default function Layout() {
       </div>
       
       <AnimatePresence>
-        {isAddOpen && <AddTransactionModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />}
+        {isAddOpen && (
+          <Suspense fallback={null}>
+            <AddTransactionModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />
+          </Suspense>
+        )}
       </AnimatePresence>
       <MoreMenuModal isOpen={isMoreOpen} onClose={() => setIsMoreOpen(false)} />
     </div>

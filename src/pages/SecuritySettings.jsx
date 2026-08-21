@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Lock, Unlock, Key, AlertTriangle, Edit2, X } from 'lucide-react';
+import { ArrowLeft, Lock, Unlock, Key, AlertTriangle, Edit2, X, Smartphone } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useSecuritySettings } from '../context/SettingsContext';
 import { useData } from '../context/DataContext';
-import { deriveKey, lockSession, isUnlocked, verifyPinWithData } from '../utils/crypto';
+import { deriveKey, lockSession, isUnlocked, verifyPinWithData, isPinRemembered, setPinRemembered } from '../utils/crypto';
 import * as db from '../store/db';
 import { syncAll, pb } from '../store/sync';
 import PinPad from '../components/PinPad';
@@ -20,6 +20,13 @@ export default function SecuritySettings() {
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [rememberPin, setRememberPin] = useState(isPinRemembered);
+
+  const handleToggleRememberPin = () => {
+    const next = !rememberPin;
+    setPinRemembered(next);
+    setRememberPin(next);
+  };
 
   const markAllPending = async () => {
     const stores = [db.transactionsStore, db.accountsStore, db.categoriesStore, db.payeesStore, db.settingsStore, db.budgetsStore];
@@ -58,6 +65,11 @@ export default function SecuritySettings() {
 
       setIsProcessing(true);
       try {
+        // Pull everything down while the old key is still loaded. Re-keying (or
+        // dropping the key) only rewrites what is on THIS device — anything
+        // still sitting encrypted on the server would otherwise be left behind
+        // with a key nothing can produce any more.
+        await syncAll();
         await setE2EE(false);
         lockSession();
         await markAllPending();
@@ -95,6 +107,9 @@ export default function SecuritySettings() {
 
         setIsProcessing(true);
         try {
+          // Same reason as disabling: fetch and decrypt everything with the old
+          // key before the new one replaces it, so no record is stranded.
+          await syncAll();
           await deriveKey(enteredPin);
           await markAllPending();
           await syncAll();
@@ -242,6 +257,41 @@ export default function SecuritySettings() {
             </div>
           )}
         </div>
+
+        {isE2eeEnabled && (
+          <div className="data-item-list" style={{ marginTop: '12px' }}>
+            <div className="data-item-card" onClick={handleToggleRememberPin} style={{ cursor: 'pointer' }}>
+              <div className="item-info">
+                <div className="item-icon-wrap" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: rememberPin ? 'var(--text-secondary)' : '#10b981' }}>
+                  <Smartphone size={20} />
+                </div>
+                <div className="item-details">
+                  <span className="item-name">Remember PIN on this device</span>
+                  <span className="item-currency">
+                    {rememberPin
+                      ? 'The app unlocks itself on launch. Your PIN is stored on this device in plain text — anyone who can use the device can read it.'
+                      : 'You will be asked for your PIN each time the app is opened. Nothing is left on the device.'}
+                  </span>
+                </div>
+              </div>
+              <div className="item-actions">
+                <span
+                  role="switch"
+                  aria-checked={rememberPin}
+                  style={{
+                    width: '44px', height: '26px', borderRadius: '13px', flexShrink: 0,
+                    background: rememberPin ? 'var(--accent-color)' : 'rgba(255,255,255,0.15)',
+                    display: 'flex', alignItems: 'center',
+                    justifyContent: rememberPin ? 'flex-end' : 'flex-start',
+                    padding: '3px', transition: 'all 0.2s ease'
+                  }}
+                >
+                  <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#fff', display: 'block' }} />
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {!isE2eeEnabled && (
           <div style={{ marginTop: '16px', padding: '16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '16px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>

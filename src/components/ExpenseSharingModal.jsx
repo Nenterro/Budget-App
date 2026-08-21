@@ -7,20 +7,10 @@ import UnifiedCalendar from './UnifiedCalendar';
 import { useData } from '../context/DataContext';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
 import { formatAmountInput } from '../utils/format';
+import { evalMath } from '../utils/math';
 import { generateId } from '../store/db';
 import { format, parseISO } from 'date-fns';
 import './ExpenseSharingModal.css';
-
-function evalMath(input) {
-  try {
-    const clean = String(input).replace(/,/g, '');
-    if (!/^[0-9+\-*/. ()]+$/.test(clean)) return null;
-    const result = new Function(`return ${clean}`)();
-    return isNaN(result) || !isFinite(result) ? null : result;
-  } catch (e) {
-    return null;
-  }
-}
 
 export default function ExpenseSharingModal({ isOpen, onClose }) {
   const { transactions, updateTransaction, addTransaction, deleteTransaction, saveTransactionsBatch, categories, payees, accounts } = useData();
@@ -72,18 +62,35 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       .reduce((acc, w) => acc + (w.amount || 0), 0);
   };
 
+  // `share.amount` is already net of anything written off — confirming a
+  // write-off subtracts from it and deleting one adds it back. Subtracting the
+  // write-off again here made a *partial* write-off zero out the whole
+  // remaining balance, so the person looked settled and the expense jumped to
+  // the Settled tab while money was still owed.
   const getPersonPending = (tx, personName) => {
     const share = tx.expenseShares.find(s => s.name === personName);
     if (!share) return 0;
-    const totalCovered = getPersonRepaid(tx, personName) + getPersonWrittenOff(tx, personName);
-    return Math.max(0, share.amount - totalCovered);
+    return Math.max(0, share.amount - getPersonRepaid(tx, personName));
   };
 
+  const getSharePending = (tx, share) =>
+    Math.max(0, share.amount - getPersonRepaid(tx, share.name));
+
+  // Shared by every handler that has to recompute the settled flags after a
+  // change, so they can't drift apart again.
+  const recomputeShares = (shares, repayments) => shares.map(s => {
+    const repaid = (repayments || [])
+      .filter(r => r.personName === s.name)
+      .reduce((acc, r) => acc + (r.amount || 0), 0);
+    return { ...s, settled: s.amount <= 0 || repaid >= s.amount };
+  });
+
+  // Derived from the amounts themselves rather than the stored `settled` flag.
+  // The flag is a cache; trusting it meant a row whose flag had gone stale (an
+  // edited repayment, an older record written before the write-off maths was
+  // fixed) kept an expense parked in the wrong tab.
   const getTotalPending = (tx) => {
-    return tx.expenseShares.reduce((acc, share) => {
-      if (share.settled) return acc;
-      return acc + getPersonPending(tx, share.name);
-    }, 0);
+    return tx.expenseShares.reduce((acc, share) => acc + getSharePending(tx, share), 0);
   };
 
   const unsettledExpenses = useMemo(() => {
@@ -100,6 +107,21 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     });
   }, [allSharedExpenses]);
 
+  // The write-off form defaults to the "Bad Debt" category and the person's own
+  // name as payee. Neither is necessarily a saved category/payee, and a
+  // dropdown whose value isn't among its options renders as the placeholder —
+  // so the form looked empty and confirming appeared to do nothing. Fold the
+  // current value in as an option when it isn't already there.
+  const withCurrentValue = (items, current) => {
+    const options = items.map(i => ({ value: i.name, label: i.name }));
+    if (current && !options.some(o => o.value === current)) {
+      options.unshift({ value: current, label: current });
+    }
+    return options;
+  };
+  const writeOffCategoryOptions = withCurrentValue(categories, writeOffCategory);
+  const writeOffPayeeOptions = withCurrentValue(payees, writeOffPayee);
+
   const displayedExpenses = activeTab === 'unsettled' ? unsettledExpenses : settledExpenses;
   const selectedTx = useMemo(() => transactions.find(t => t.id === selectedTxId), [transactions, selectedTxId]);
 
@@ -108,15 +130,22 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   const handleStartWriteOff = (tx, share) => {
     const pending = getPersonPending(tx, share.name);
     setWritingOffFor({ txId: tx.id, shareId: share.id });
-    setWriteOffAmount(pending.toString());
+    setWriteOffAmount(String(Math.round(pending * 100) / 100));
     setWriteOffCategory('Bad Debt');
     setWriteOffPayee(share.name);
   };
 
   const handleConfirmWriteOff = async (tx, shareId) => {
     const share = tx.expenseShares.find(s => s.id === shareId);
-    const amount = evalMath(writeOffAmount);
-    if (!share || !amount || amount <= 0) return;
+    const requested = evalMath(writeOffAmount);
+    if (!share || !requested || requested <= 0) return;
+
+    // Never write off more than is actually outstanding: the surplus used to be
+    // subtracted from the parent transaction anyway, quietly shrinking the
+    // expense below what was really spent.
+    const pending = getPersonPending(tx, share.name);
+    if (pending <= 0) return;
+    const amount = Math.min(requested, pending);
 
     const writeOffTxId = generateId();
     const writeOffTx = {
@@ -153,22 +182,10 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     const newTxAmount = tx.amount + signedChange;
 
     // Reduce person's share amount on original transaction by write-off amount
-    const updatedShares = tx.expenseShares.map(s => {
-      if (s.id === shareId) {
-        const newShareAmount = Math.max(0, s.amount - amount);
-        const repaid = getPersonRepaid(tx, s.name);
-        return {
-          ...s,
-          amount: newShareAmount,
-          settled: newShareAmount === 0 || repaid >= newShareAmount
-        };
-      }
-      const repaid = getPersonRepaid(tx, s.name);
-      const writtenOff = updatedWriteOffs
-        .filter(w => w.personName === s.name)
-        .reduce((acc, w) => acc + w.amount, 0);
-      return { ...s, settled: (repaid + writtenOff) >= s.amount };
-    });
+    const updatedShares = recomputeShares(
+      tx.expenseShares.map(s => (s.id === shareId ? { ...s, amount: Math.max(0, s.amount - amount) } : s)),
+      tx.repayments
+    );
 
     const updatedParentTx = {
       ...tx,
@@ -194,26 +211,22 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     const signedChange = tx.amount < 0 ? writeOffRecord.amount : -writeOffRecord.amount;
     const restoredTxAmount = tx.amount - signedChange;
 
-    // Restore person's share amount on original transaction
-    const updatedShares = tx.expenseShares.map(s => {
-      if (s.id === writeOffRecord.shareId || s.name === writeOffRecord.personName) {
-        const restoredShareAmount = s.amount + writeOffRecord.amount;
-        const repaid = getPersonRepaid(tx, s.name);
-        const remainingWriteOffs = updatedWriteOffs
-          .filter(w => w.personName === s.name)
-          .reduce((acc, w) => acc + w.amount, 0);
-        return {
-          ...s,
-          amount: restoredShareAmount,
-          settled: (repaid + remainingWriteOffs) >= restoredShareAmount
-        };
-      }
-      const repaid = getPersonRepaid(tx, s.name);
-      const writtenOff = updatedWriteOffs
-        .filter(w => w.personName === s.name)
-        .reduce((acc, w) => acc + w.amount, 0);
-      return { ...s, settled: (repaid + writtenOff) >= s.amount };
-    });
+    // Restore person's share amount on original transaction. Match on shareId
+    // first and only fall back to the name, so two people with the same name
+    // don't both get the amount added back.
+    let restored = false;
+    const updatedShares = recomputeShares(
+      tx.expenseShares.map(s => {
+        if (restored) return s;
+        const isTarget = writeOffRecord.shareId
+          ? s.id === writeOffRecord.shareId
+          : s.name === writeOffRecord.personName;
+        if (!isTarget) return s;
+        restored = true;
+        return { ...s, amount: s.amount + writeOffRecord.amount };
+      }),
+      tx.repayments
+    );
 
     const updatedParentTx = {
       ...tx,
@@ -295,13 +308,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       updatedRepayments = [...(tx.repayments || []), newRepayment];
     }
     
-    const updatedShares = tx.expenseShares.map(s => {
-      const repaid = updatedRepayments
-        .filter(r => r.personName === s.name)
-        .reduce((acc, r) => acc + r.amount, 0);
-      const writtenOff = getPersonWrittenOff(tx, s.name);
-      return { ...s, settled: (repaid + writtenOff) >= s.amount };
-    });
+    const updatedShares = recomputeShares(tx.expenseShares, updatedRepayments);
 
     const updatedParentTx = {
       ...tx,
@@ -365,13 +372,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       }
     }
 
-    const updatedShares = tx.expenseShares.map(s => {
-      const repaid = updatedRepayments
-        .filter(r => r.personName === s.name)
-        .reduce((acc, r) => acc + r.amount, 0);
-      const writtenOff = getPersonWrittenOff(tx, s.name);
-      return { ...s, settled: (repaid + writtenOff) >= s.amount };
-    });
+    const updatedShares = recomputeShares(tx.expenseShares, updatedRepayments);
 
     const updatedParentTx = {
       ...tx,
@@ -392,13 +393,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   const handleDeleteRepayment = async (tx, rep) => {
     const updatedRepayments = (tx.repayments || []).filter(r => r.id !== rep.id);
 
-    const updatedShares = tx.expenseShares.map(s => {
-      const repaid = updatedRepayments
-        .filter(r => r.personName === s.name)
-        .reduce((acc, r) => acc + r.amount, 0);
-      const writtenOff = getPersonWrittenOff(tx, s.name);
-      return { ...s, settled: (repaid + writtenOff) >= s.amount };
-    });
+    const updatedShares = recomputeShares(tx.expenseShares, updatedRepayments);
 
     const updatedParentTx = {
       ...tx,
@@ -467,7 +462,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                   displayedExpenses.map(tx => {
                     const totalPending = getTotalPending(tx);
                     const currency = getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency);
-                    const allSettled = tx.expenseShares.every(s => s.settled);
+                    const allSettled = getTotalPending(tx) <= 0;
 
                     return (
                       <motion.div 
@@ -528,7 +523,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                 const totalPending = getTotalPending(tx);
                 const totalOwed = tx.expenseShares.reduce((acc, s) => acc + s.amount, 0);
                 const currency = getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency);
-                const allSettled = tx.expenseShares.every(s => s.settled);
+                const allSettled = getTotalPending(tx) <= 0;
                 const txWriteOffs = getWriteOffs(tx);
 
                 return (
@@ -580,17 +575,18 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                         </div>
 
                         {tx.expenseShares.map(share => {
-                          const pending = getPersonPending(tx, share.name);
+                          const pending = getSharePending(tx, share);
                           const repaid = getPersonRepaid(tx, share.name);
                           const writtenOff = getPersonWrittenOff(tx, share.name);
                           const isWritingOff = writingOffFor?.txId === tx.id && writingOffFor?.shareId === share.id;
+                          const isSettled = pending <= 0;
 
                           return (
-                            <div key={share.id} className={`es-person-row ${share.settled ? 'settled' : ''}`}>
+                            <div key={share.id} className={`es-person-row ${isSettled ? 'settled' : ''}`}>
                               <div className="es-person-info">
-                                <User size={14} style={{ color: share.settled ? '#10b981' : '#f59e0b' }} />
+                                <User size={14} style={{ color: isSettled ? '#10b981' : '#f59e0b' }} />
                                 <span className="es-person-name">{share.name}</span>
-                                {share.settled && <span className="es-badge settled-badge">{writtenOff > 0 && repaid === 0 ? 'Written Off' : 'Settled'}</span>}
+                                {isSettled && <span className="es-badge settled-badge">{writtenOff > 0 && repaid === 0 ? 'Written Off' : 'Settled'}</span>}
                               </div>
                               <div className="es-person-amounts">
                                 {pending > 0 ? (
@@ -653,7 +649,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           <UnifiedDropdown
                                             value={writeOffCategory}
                                             placeholder="Category"
-                                            options={categories.map(c => ({ value: c.name, label: c.name }))}
+                                            options={writeOffCategoryOptions}
                                             onChange={setWriteOffCategory}
                                           />
                                         </div>
@@ -663,7 +659,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                           <UnifiedDropdown
                                             value={writeOffPayee}
                                             placeholder="Payee"
-                                            options={payees.map(p => ({ value: p.name, label: p.name }))}
+                                            options={writeOffPayeeOptions}
                                             onChange={setWriteOffPayee}
                                           />
                                         </div>
@@ -843,11 +839,11 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                           className="es-add-repayment-btn-primary"
                           onClick={() => {
                             setAddingRepaymentFor(tx.id);
-                            const firstUnsettled = tx.expenseShares.find(s => !s.settled);
+                            const firstUnsettled = tx.expenseShares.find(s => getSharePending(tx, s) > 0);
                             if (firstUnsettled) {
                               setRepayPerson(firstUnsettled.name);
-                              const pending = getPersonPending(tx, firstUnsettled.name);
-                              setRepayAmount(pending.toString());
+                              const pending = getSharePending(tx, firstUnsettled);
+                              setRepayAmount(String(Math.round(pending * 100) / 100));
                             } else {
                               setRepayPerson('');
                               setRepayAmount('');
@@ -891,12 +887,12 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                   value={repayPerson}
                                   placeholder="Person"
                                   options={tx.expenseShares
-                                    .filter(s => !s.settled)
+                                    .filter(s => getSharePending(tx, s) > 0)
                                     .map(s => ({ value: s.name, label: s.name }))}
                                   onChange={(val) => {
                                     setRepayPerson(val);
                                     const pending = getPersonPending(tx, val);
-                                    setRepayAmount(pending.toString());
+                                    setRepayAmount(String(Math.round(pending * 100) / 100));
                                   }}
                                 />
                               </div>

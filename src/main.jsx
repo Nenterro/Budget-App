@@ -6,6 +6,11 @@ import App from './App.jsx'
 import { DataProvider } from './context/DataContext'
 import { SettingsProvider } from './context/SettingsContext'
 import { AuthProvider } from './context/AuthContext'
+import { restoreTheme } from './utils/theme'
+
+// Before the first paint, so the saved accent colour is in place rather than
+// flashing the default while settings load out of IndexedDB.
+restoreTheme()
 
 class ErrorBoundary extends React.Component {
   constructor(props) {

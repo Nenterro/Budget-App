@@ -17,6 +17,11 @@
 .tx-form-modal {
   width: 100%;
   max-width: 440px;
+  /* Split mode and share mode add a whole carousel to the form, which on a
+     phone made the panel taller than the screen with nothing to scroll. The
+     panel is now capped to the viewport and the form scrolls inside it, so the
+     header and the Save button stay reachable at any height. */
+  max-height: calc(100dvh - 48px);
   background: rgba(30, 30, 40, 0.9);
   border-radius: 24px;
   padding: 24px;
@@ -28,6 +33,10 @@
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative; /* For popped overlay */
   overflow: hidden; /* For popped overlay sliding in */
+}
+
+.tx-form-modal .modal-header {
+  flex-shrink: 0;
 }
 
 @keyframes slideUp {
@@ -69,6 +78,24 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* min-height:0 is what actually lets a flex child shrink and scroll. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room for the floating field labels that sit above their inputs. */
+  padding: 10px 4px 2px 4px;
+  margin: -10px -4px -2px -4px;
+}
+
+/* The Save/Cancel row stays pinned under the scrolling form. */
+.tx-form .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: linear-gradient(to top, rgba(30, 30, 40, 0.98) 65%, rgba(30, 30, 40, 0));
+  padding-top: 12px;
+  padding-bottom: 2px;
+  margin-bottom: -2px;
 }
 
 /* Type Selector */
@@ -582,4 +609,27 @@
 
 .add-split-btn-pagination:hover {
   background: rgba(99, 102, 241, 0.2);
+}
+
+@media (max-width: 767px) {
+  .tx-form-modal {
+    max-height: calc(100dvh - 32px);
+    padding: 18px 16px;
+    gap: 14px;
+  }
+
+  .tx-form-modal .modal-header h2 {
+    font-size: 19px;
+  }
+
+  /* Full-width buttons read better than two small ones on a phone. */
+  .modal-actions {
+    gap: 10px;
+  }
+
+  .modal-actions .cancel-btn,
+  .modal-actions .submit-btn {
+    flex: 1;
+    padding: 0 12px;
+  }
 }

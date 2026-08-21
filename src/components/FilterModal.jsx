@@ -26,10 +26,41 @@ const slideVariants = {
 const TAB_ORDER = ['Amount', 'Category', 'Payee', 'Account'];
 const AMOUNT_HEIGHT = 260;
 const LIST_HEIGHT = 400;
+// Space taken by the header, tab strip and action row. The body is given a
+// fixed pixel height so the slide animation has a stable box, so on a short
+// screen it has to be measured against the viewport rather than hardcoded —
+// otherwise "Apply Filters" ends up below the fold.
+const CHROME_HEIGHT = 210;
+
+function useBodyHeight(activeTab) {
+  const preferred = activeTab === 'Amount' ? AMOUNT_HEIGHT : LIST_HEIGHT;
+  const [available, setAvailable] = useState(() => window.innerHeight);
+
+  useEffect(() => {
+    const onResize = () => setAvailable(window.innerHeight);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  return Math.max(180, Math.min(preferred, available - CHROME_HEIGHT));
+}
+
+// The amount fields show the user's own currency rather than a fixed $.
+function AmountIcon({ symbol }) {
+  if (!symbol) return <DollarSign size={18} className="input-icon" />;
+  return (
+    <span
+      className="input-icon"
+      style={{ fontSize: '16px', fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      {symbol}
+    </span>
+  );
+}
 
 function FilterListTab({ title, allItems, excludedSet, setExcludedSet }) {
   const [query, setQuery] = useState('');
-  
+
   const filteredItems = useMemo(() => {
     return allItems.filter(item => item.toLowerCase().includes(query.toLowerCase()));
   }, [allItems, query]);
@@ -64,7 +95,7 @@ function FilterListTab({ title, allItems, excludedSet, setExcludedSet }) {
 
   const handleMouseDown = (item) => {
     dragState.current = { isDragging: true, toggledItems: new Set([item]) };
-    
+
     setExcludedSet(prev => {
       const next = new Set(prev);
       if (next.has(item)) next.delete(item);
@@ -76,9 +107,9 @@ function FilterListTab({ title, allItems, excludedSet, setExcludedSet }) {
   const handleMouseEnter = (item) => {
     if (!dragState.current.isDragging) return;
     if (dragState.current.toggledItems.has(item)) return; // Already inverted this item during this drag
-    
+
     dragState.current.toggledItems.add(item);
-    
+
     setExcludedSet(prev => {
       const next = new Set(prev);
       if (next.has(item)) next.delete(item);
@@ -94,15 +125,15 @@ function FilterListTab({ title, allItems, excludedSet, setExcludedSet }) {
       <div className="filter-list-header">
         <div className="search-box">
           <Search size={16} className="search-icon" />
-          <input 
-            type="text" 
-            placeholder={`Search ${title}...`} 
+          <input
+            type="text"
+            placeholder={`Search ${title}...`}
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
         </div>
       </div>
-      
+
       <div className="filter-list-actions">
         <span className="count-label">{title} ({selectedCount}/{allItems.length})</span>
         <div className="action-buttons">
@@ -118,8 +149,8 @@ function FilterListTab({ title, allItems, excludedSet, setExcludedSet }) {
           filteredItems.map(item => {
             const isSelected = !excludedSet.has(item);
             return (
-              <button 
-                key={item} 
+              <button
+                key={item}
                 className={`filter-item ${isSelected ? 'selected' : ''}`}
                 onMouseDown={() => handleMouseDown(item)}
                 onMouseEnter={() => handleMouseEnter(item)}
@@ -138,7 +169,20 @@ function FilterListTab({ title, allItems, excludedSet, setExcludedSet }) {
   );
 }
 
-export default function FilterModal({ transactions, initialState, onApply, onClose }) {
+export default function FilterModal({
+  transactions,
+  initialState,
+  onApply,
+  onClose,
+  title = 'Filter',
+  // The full lists from the data stores. Deriving options from transactions
+  // alone meant a category or account you had just created was missing from
+  // the filter until something actually used it.
+  categories = [],
+  payees = [],
+  accounts = [],
+  currencySymbol = ''
+}) {
   const [activeTab, setActiveTab] = useState('Amount');
   const [direction, setDirection] = useState(0);
 
@@ -148,16 +192,34 @@ export default function FilterModal({ transactions, initialState, onApply, onClo
     setDirection(newIndex > oldIndex ? 1 : -1);
     setActiveTab(tabId);
   };
-  
+
   const [excludedCategories, setExcludedCategories] = useState(new Set(initialState.excludedCategories));
   const [excludedPayees, setExcludedPayees] = useState(new Set(initialState.excludedPayees));
   const [excludedAccounts, setExcludedAccounts] = useState(new Set(initialState.excludedAccounts));
   const [minAmount, setMinAmount] = useState(initialState.minAmount || '');
   const [maxAmount, setMaxAmount] = useState(initialState.maxAmount || '');
 
-  const allCategories = useMemo(() => [...new Set(transactions.map(t => t.category).filter(Boolean))].sort(), [transactions]);
-  const allPayees = useMemo(() => [...new Set(transactions.map(t => t.payee).filter(Boolean))].sort(), [transactions]);
-  const allAccounts = useMemo(() => [...new Set(transactions.map(t => t.account).filter(Boolean))].sort(), [transactions]);
+  // Names in use plus names that exist but are not used yet, so nothing is
+  // silently unfilterable. Values only present on transactions (imported data,
+  // "Unspecified", "Transfer") still appear.
+  const mergeNames = (defined, used) =>
+    [...new Set([...defined.map(d => d.name).filter(Boolean), ...used.filter(Boolean)])]
+      .sort((a, b) => a.localeCompare(b));
+
+  const allCategories = useMemo(
+    () => mergeNames(categories, transactions.map(t => t.category)),
+    [categories, transactions]
+  );
+  const allPayees = useMemo(
+    () => mergeNames(payees, transactions.map(t => t.payee)),
+    [payees, transactions]
+  );
+  const allAccounts = useMemo(
+    () => mergeNames(accounts, transactions.map(t => t.account)),
+    [accounts, transactions]
+  );
+
+  const bodyHeight = useBodyHeight(activeTab);
 
   const handleResetAll = () => {
     setExcludedCategories(new Set());
@@ -186,12 +248,12 @@ export default function FilterModal({ transactions, initialState, onApply, onClo
 
   return (
     <ModalWrapper onClose={onClose} zIndex={2000}>
-      <div 
-        className="filter-modal" 
+      <div
+        className="filter-modal"
         onClick={e => e.stopPropagation()}
       >
         <div className="filter-header">
-          <h2>Filter Dashboard</h2>
+          <h2>{title}</h2>
           <button className="reset-btn" onClick={handleResetAll}>
             <RefreshCw size={16} /> Reset All
           </button>
@@ -199,7 +261,7 @@ export default function FilterModal({ transactions, initialState, onApply, onClo
 
         <div className="filter-tabs">
           {tabs.map(tab => (
-            <button 
+            <button
               key={tab.id}
               className={`filter-tab ${activeTab === tab.id ? 'active' : ''}`}
               onClick={() => handleTabChange(tab.id)}
@@ -210,10 +272,10 @@ export default function FilterModal({ transactions, initialState, onApply, onClo
           ))}
         </div>
 
-        <div 
+        <div
           className="filter-body"
           style={{
-            height: `${activeTab === 'Amount' ? AMOUNT_HEIGHT : LIST_HEIGHT}px`,
+            height: `${bodyHeight}px`,
             transition: 'height 0.25s ease-in-out',
             overflow: 'hidden',
             position: 'relative'
@@ -232,29 +294,36 @@ export default function FilterModal({ transactions, initialState, onApply, onClo
                 transition={{ type: "tween", ease: "easeInOut", duration: 0.25 }}
                 style={{ width: '100%' }}
               >
-                <p className="tab-description">Filter by the raw transaction value.</p>
+                <p className="tab-description">
+                  Filter by amount size. Expenses and income are both matched on
+                  their magnitude, so 500 means &ldquo;500 either way&rdquo;.
+                </p>
                 <div className="amount-inputs">
                   <div className="form-group">
                     <label>Min Amount</label>
                     <div className="input-with-icon">
-                      <DollarSign size={18} className="input-icon" />
-                      <input 
-                        type="number" 
-                        placeholder="0" 
-                        value={minAmount} 
-                        onChange={e => setMinAmount(e.target.value)} 
+                      <AmountIcon symbol={currencySymbol} />
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        placeholder="0"
+                        value={minAmount}
+                        onChange={e => setMinAmount(e.target.value)}
                       />
                     </div>
                   </div>
                   <div className="form-group">
                     <label>Max Amount</label>
                     <div className="input-with-icon">
-                      <DollarSign size={18} className="input-icon" />
-                      <input 
-                        type="number" 
-                        placeholder="10000" 
-                        value={maxAmount} 
-                        onChange={e => setMaxAmount(e.target.value)} 
+                      <AmountIcon symbol={currencySymbol} />
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        placeholder="10000"
+                        value={maxAmount}
+                        onChange={e => setMaxAmount(e.target.value)}
                       />
                     </div>
                   </div>
@@ -273,10 +342,10 @@ export default function FilterModal({ transactions, initialState, onApply, onClo
                 transition={{ type: "tween", ease: "easeInOut", duration: 0.25 }}
                 style={{ width: '100%' }}
               >
-                <FilterListTab 
-                  title="Categories" 
-                  allItems={allCategories} 
-                  excludedSet={excludedCategories} 
+                <FilterListTab
+                  title="Categories"
+                  allItems={allCategories}
+                  excludedSet={excludedCategories}
                   setExcludedSet={setExcludedCategories}
                 />
               </motion.div>
@@ -293,11 +362,11 @@ export default function FilterModal({ transactions, initialState, onApply, onClo
                 transition={{ type: "tween", ease: "easeInOut", duration: 0.25 }}
                 style={{ width: '100%' }}
               >
-                <FilterListTab 
-                  title="Payees" 
-                  allItems={allPayees} 
-                  excludedSet={excludedPayees} 
-                  setExcludedSet={setExcludedPayees} 
+                <FilterListTab
+                  title="Payees"
+                  allItems={allPayees}
+                  excludedSet={excludedPayees}
+                  setExcludedSet={setExcludedPayees}
                 />
               </motion.div>
             )}
@@ -313,11 +382,11 @@ export default function FilterModal({ transactions, initialState, onApply, onClo
                 transition={{ type: "tween", ease: "easeInOut", duration: 0.25 }}
                 style={{ width: '100%' }}
               >
-                <FilterListTab 
-                  title="Accounts" 
-                  allItems={allAccounts} 
-                  excludedSet={excludedAccounts} 
-                  setExcludedSet={setExcludedAccounts} 
+                <FilterListTab
+                  title="Accounts"
+                  allItems={allAccounts}
+                  excludedSet={excludedAccounts}
+                  setExcludedSet={setExcludedAccounts}
                 />
               </motion.div>
             )}

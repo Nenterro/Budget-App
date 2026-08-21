@@ -2,15 +2,15 @@ import PocketBase from 'pocketbase';
 import * as db from './db';
 import { encryptPayload, decryptPayload, isUnlocked } from '../utils/crypto';
 
-const PB_URLS = [
+export const PB_URLS = [
   'https://huz-budget.duckdns.org:8888',
   'https://huz-budget.duckdns.org',
   'http://192.168.18.49:8090'
 ];
 
-export const pb = new PocketBase();
+export const pb = new PocketBase('https://huz-budget.duckdns.org:8888');
 
-async function checkUrl(url) {
+export async function checkUrl(url) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -22,7 +22,19 @@ async function checkUrl(url) {
   }
 }
 
-export async function connectPocketBase() {
+// AuthContext and DataContext both need a reachable server at boot. Without
+// this the two probes ran side by side, each walking the URL list with its own
+// 5s timeouts.
+let connectInFlight = null;
+
+export function connectPocketBase() {
+  if (!connectInFlight) {
+    connectInFlight = resolvePocketBaseUrl().finally(() => { connectInFlight = null; });
+  }
+  return connectInFlight;
+}
+
+async function resolvePocketBaseUrl() {
   const savedUrl = localStorage.getItem('PB_URL');
   
   // Try saved URL first if it exists
@@ -41,7 +53,10 @@ export async function connectPocketBase() {
     }
   }
 
-  pb.baseUrl = ''; // Offline
+  // Nothing answered. Keep a usable default on the client so later retries have
+  // somewhere to go, but still report the failure - an empty baseUrl makes
+  // PocketBase fall back to the page origin, which silently 404s every request.
+  pb.baseUrl = PB_URLS[0];
   return null;
 }
 
@@ -228,6 +243,9 @@ async function syncDataStore(store, collectionName) {
     }
 
     // ── PHASE 2: Push local pending items ──
+    // Anything written here is newer than the PHASE 1 snapshot, so PHASE 3
+    // must not judge it against that snapshot.
+    const justSynced = new Set();
     const localItems = [];
     await store.iterate((value) => {
       if (value && value.pendingSync) localItems.push(value);
@@ -235,14 +253,21 @@ async function syncDataStore(store, collectionName) {
 
     for (const item of localItems) {
       if (item.deleted) {
-        try {
-          if (item.id && item.id.length === 15) {
+        // The tombstone is only dropped once the server has actually accepted
+        // the delete (or confirmed the record was never there). Removing it
+        // regardless meant a delete made while offline was forgotten, and the
+        // next successful pull brought the transaction straight back.
+        let confirmed = true;
+        if (item.id && item.id.length === 15) {
+          try {
             await pb.collection(collectionName).delete(item.id);
+          } catch (err) {
+            // 404 means it is already gone remotely — that counts as done.
+            confirmed = err?.status === 404;
+            if (!confirmed) console.warn(`PB Delete Error [${collectionName}]:`, err);
           }
-        } catch (err) {
-          console.warn(`PB Delete Error [${collectionName}]:`, err);
         }
-        await store.removeItem(item.id);
+        if (confirmed) await store.removeItem(item.id);
         continue;
       }
 
@@ -313,19 +338,33 @@ async function syncDataStore(store, collectionName) {
         }
         item.pendingSync = false;
         await store.setItem(item.id, item);
+        justSynced.add(item.id);
       } catch (err) {
         console.error(`PB Push Error [${collectionName}]:`, err);
       }
     }
 
     // ── PHASE 3: Clean up local records deleted remotely ──
+    //
+    // `remoteIds` is the PHASE 1 snapshot, taken before anything was pushed.
+    // Records created during PHASE 2 carry a fresh PocketBase id and are no
+    // longer pendingSync, so without excluding them this step deleted the very
+    // transaction that had just been saved — which is why a new transaction
+    // vanished until the next refresh pulled it back down.
     const remoteIds = new Set(remoteItems.map(r => r.id));
+    const staleKeys = [];
     await store.iterate((value, key) => {
-      // If the local record has a valid PB ID, is not pending sync, and doesn't exist remotely → delete locally
-      if (key && key.length === 15 && !value.pendingSync && !remoteIds.has(key)) {
-        store.removeItem(key);
-      }
+      if (!key || key.length !== 15) return;
+      if (!value || value.pendingSync) return;
+      if (justSynced.has(key)) return;
+      if (remoteIds.has(key)) return;
+      staleKeys.push(key);
     });
+    // Removals are awaited rather than fired off inside iterate, so the store
+    // is settled before callers reload from it.
+    for (const key of staleKeys) {
+      await store.removeItem(key);
+    }
   } catch (error) {
     console.error(`Sync Error [${collectionName}]:`, error);
   }
@@ -344,8 +383,37 @@ export async function syncSettings() {
   await syncSettingsStore();
 }
 
-// Full sync of all stores
-export async function syncAll() {
+// Full sync of all stores.
+//
+// Runs are serialised: two overlapping passes each take their own PHASE 1
+// snapshot of the server, and the older snapshot then makes PHASE 3 delete
+// records the newer pass had only just created. A queued follow-up run is
+// collapsed into a single one, so a burst of saves costs at most one extra pass.
+let syncInFlight = null;
+let syncQueued = false;
+
+export function syncAll() {
+  if (syncInFlight) {
+    syncQueued = true;
+    return syncInFlight;
+  }
+  syncInFlight = (async () => {
+    try {
+      // Keep draining while callers keep asking. The flag is cleared before
+      // each pass so a request made *during* that pass still earns another one.
+      do {
+        syncQueued = false;
+        await runSyncAll();
+      } while (syncQueued);
+    } finally {
+      syncInFlight = null;
+      syncQueued = false;
+    }
+  })();
+  return syncInFlight;
+}
+
+async function runSyncAll() {
   if (!pb.baseUrl) {
     const connected = await connectPocketBase();
     if (!connected) return;

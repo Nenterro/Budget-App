@@ -29,6 +29,10 @@ export async function fetchExchangeRates(baseCurrency = 'PKR') {
     for (const key in rawRates) {
       rates[key.toUpperCase()] = rawRates[key];
     }
+    // The API does not always echo the base currency back. Without it
+    // convertAmount bails out and silently returns unconverted figures.
+    const baseCode = baseCurrency.toUpperCase();
+    if (!rates[baseCode]) rates[baseCode] = 1;
     
     const cacheData = { base_code: baseCurrency, rates };
     

@@ -8,24 +8,29 @@ import UnifiedDropdown from '../components/UnifiedDropdown';
 import UnifiedCalendar from '../components/UnifiedCalendar';
 import FilterModal from '../components/FilterModal';
 import { useData } from '../context/DataContext';
-import { usePageSettings } from '../context/SettingsContext';
+import { getCurrencySymbol } from '../utils/format';
+import { usePageSettings, useAppearanceSettings } from '../context/SettingsContext';
 import { format, startOfMonth, subMonths, endOfMonth, subDays, startOfYear, isAfter, isBefore, parseISO } from 'date-fns';
 import './Graphs.css';
 import '../pages/Transactions.css'; // Reuse top bar styles
 
 const PERIODS = ['All Time', 'This Month', 'Last Month', 'Last 3 Months', 'This Year', 'Custom Range'];
 export default function Graphs() {
-  const { transactions, accounts } = useData();
+  const { transactions, accounts, categories, payees } = useData();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   // Independent Page Filter state
-  const { 
-    selectedPeriod, setSelectedPeriod, 
-    customRange, setCustomRange, 
+  const {
+    selectedPeriod, setSelectedPeriod,
+    customRange, setCustomPeriodRange,
     filterState, setFilterState,
     activeGraphs, setActiveGraphs
   } = usePageSettings('graphs');
-  
+
+  const { baseCurrency } = useAppearanceSettings();
+  // Shown on the filter modal's amount fields instead of a hardcoded $.
+  const filterCurrencySymbol = getCurrencySymbol(baseCurrency);
+
   const [showCustomRangeModal, setShowCustomRangeModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
@@ -42,13 +47,15 @@ export default function Graphs() {
     if (filterState.excludedAccounts.size > 0) {
       advancedResult = advancedResult.filter(tx => !filterState.excludedAccounts.has(tx.account));
     }
+    // Magnitude, not signed value: expenses are stored negative, so a signed
+    // comparison against "min 100" silently excluded every expense there is.
     if (filterState.minAmount !== '' && filterState.minAmount !== null) {
-      const min = parseFloat(filterState.minAmount);
-      advancedResult = advancedResult.filter(tx => tx.amount >= min);
+      const min = Math.abs(parseFloat(filterState.minAmount));
+      if (!isNaN(min)) advancedResult = advancedResult.filter(tx => Math.abs(tx.amount) >= min);
     }
     if (filterState.maxAmount !== '' && filterState.maxAmount !== null) {
-      const max = parseFloat(filterState.maxAmount);
-      advancedResult = advancedResult.filter(tx => tx.amount <= max);
+      const max = Math.abs(parseFloat(filterState.maxAmount));
+      if (!isNaN(max)) advancedResult = advancedResult.filter(tx => Math.abs(tx.amount) <= max);
     }
 
     let fullyResult = advancedResult;
@@ -70,13 +77,19 @@ export default function Graphs() {
         end = new Date(customRange.end);
         end.setHours(23, 59, 59, 999);
       }
-      
-      computedRange = { start, end };
 
-      fullyResult = advancedResult.filter(tx => {
-        const d = parseISO(tx.date);
-        return isAfter(d, start) && isBefore(d, end);
-      });
+      computedRange = start ? { start, end } : { start: null, end: null };
+
+      // `start` is undefined when the period is Custom Range but no range has
+      // been picked yet; comparing against it filtered every transaction away
+      // and left the page blank. Boundaries are inclusive so a transaction
+      // dated on the first or last day of the range is kept.
+      if (start) {
+        fullyResult = advancedResult.filter(tx => {
+          const d = parseISO(tx.date);
+          return d >= start && d <= end;
+        });
+      }
     }
 
     return { fullyFiltered: fullyResult, advancedFiltered: advancedResult, currentRange: computedRange };
@@ -96,25 +109,25 @@ export default function Graphs() {
     setActiveGraphs(activeGraphs.filter(w => w.id !== id));
   };
 
-  const hasActiveFilters = filterState.excludedCategories.size > 0 || 
-    filterState.excludedPayees.size > 0 || 
-    filterState.excludedAccounts.size > 0 || 
-    filterState.minAmount || 
+  const hasActiveFilters = filterState.excludedCategories.size > 0 ||
+    filterState.excludedPayees.size > 0 ||
+    filterState.excludedAccounts.size > 0 ||
+    filterState.minAmount ||
     filterState.maxAmount;
 
   return (
     <div className="page-container tx-page">
       <div className="tx-header">
         <h1 className="page-title desktop-only" style={{ margin: 0 }}>Graphs</h1>
-        
+
         <div className="tx-header-actions">
           <div className="tx-controls">
             <NavLink to="/" className="mobile-only icon-btn" title="Home" style={{ textDecoration: 'none' }}>
               <Home size={20} />
             </NavLink>
             <div style={{ flex: '1 1 auto', minWidth: '160px', maxWidth: '250px', marginRight: 'auto' }}>
-              <UnifiedDropdown 
-                value={selectedPeriod} 
+              <UnifiedDropdown
+                value={selectedPeriod}
                 onChange={(val) => {
                   if (val === 'Custom Range') {
                     setShowCustomRangeModal(true);
@@ -126,9 +139,9 @@ export default function Graphs() {
               />
             </div>
 
-            <button 
+            <button
               className={`icon-btn relative ${hasActiveFilters ? 'active-filter' : ''}`}
-              title="Filter" 
+              title="Filter"
               onClick={() => setShowFilterModal(true)}
             >
               <Filter size={20} />
@@ -142,9 +155,9 @@ export default function Graphs() {
 
       <div className="graphs-dashboard">
         {activeGraphs.map((graph) => (
-          <ChartCard 
-            key={graph.id} 
-            graph={graph} 
+          <ChartCard
+            key={graph.id}
+            graph={graph}
             onRemove={() => handleRemoveGraph(graph.id)}
             transactions={fullyFiltered}
             advancedFilteredTransactions={advancedFiltered}
@@ -164,22 +177,19 @@ export default function Graphs() {
 
       <AnimatePresence>
         {isAddModalOpen && (
-          <AddGraphModal 
-            onClose={() => setIsAddModalOpen(false)} 
-            onAdd={handleAddGraph} 
+          <AddGraphModal
+            onClose={() => setIsAddModalOpen(false)}
+            onAdd={handleAddGraph}
           />
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {showCustomRangeModal && (
-          <UnifiedCalendar 
+          <UnifiedCalendar
             mode="range"
             value={customRange}
-            onChange={(range) => {
-              setCustomRange(range);
-              setSelectedPeriod('Custom Range');
-            }}
+            onChange={(range) => setCustomPeriodRange(range)}
             onClose={() => setShowCustomRangeModal(false)}
           />
         )}
@@ -187,8 +197,13 @@ export default function Graphs() {
 
       <AnimatePresence>
         {showFilterModal && (
-          <FilterModal 
+          <FilterModal
+            title="Filter Graphs"
             transactions={transactions}
+            categories={categories}
+            payees={payees}
+            accounts={accounts}
+            currencySymbol={filterCurrencySymbol}
             initialState={filterState}
             onApply={(newState) => {
               setFilterState(newState);

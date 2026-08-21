@@ -6,6 +6,9 @@
  *    - User's personal share (Total - Others' Shares) hits the primary selected Category and Payee.
  *    - Pending participant shares hit Category "Loan" with Payee = Participant Name.
  *    - Repaid / settled participant shares cancel out to $0 and are excluded from stats & charts.
+ *    - Written-off amounts are already removed from share.amount, so they are
+ *      not subtracted a second time here; the Bad Debt transaction created
+ *      alongside the write-off carries that portion instead.
  * 2. Child Repayment Transactions (isRepayment = true):
  *    - Excluded from income reporting since the corresponding loan expense is also neutralized ($0 net effect).
  */
@@ -49,11 +52,12 @@ export function getEffectiveReportingItems(transactions = []) {
           .filter(r => r.personName === share.name)
           .reduce((acc, r) => acc + (r.amount || 0), 0);
 
-        const totalWrittenOff = (tx.writeOffs || [])
-          .filter(w => w.personName === share.name)
-          .reduce((acc, w) => acc + (w.amount || 0), 0);
-
-        const pendingAmount = Math.max(0, share.amount - totalRepaid - totalWrittenOff);
+        // Writing off already reduces `share.amount` (and the parent's total by
+        // the same figure, with a matching Bad Debt transaction taking its
+        // place). Subtracting the write-off again here understated the
+        // outstanding loan in stats, charts and widgets — a partial write-off
+        // made the whole remaining loan disappear from reporting.
+        const pendingAmount = Math.max(0, share.amount - totalRepaid);
 
         // Only report UNSETTLED / PENDING loan portions under "Loan" category & Participant Payee
         // Repaid / settled loans (pendingAmount === 0) are excluded (cancel out to $0)

@@ -1,7 +1,9 @@
 .expense-sharing-modal {
   width: 100%;
   max-width: 620px;
-  max-height: 85vh;
+  /* dvh, not vh: on mobile Safari/Chrome vh counts the area behind the
+     collapsible browser chrome, so an "85vh" panel still ran off the screen. */
+  max-height: calc(100dvh - 48px);
   height: auto;
   display: flex;
   flex-direction: column;
@@ -14,14 +16,18 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Fills the capped modal so the inner list is what scrolls, not the page. */
+  flex: 1;
+  max-height: 100%;
 }
 
 .es-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 60vh;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 4px;
   margin-top: 12px;
 }
@@ -30,8 +36,9 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-height: 60vh;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 4px;
 }
 
@@ -759,7 +766,7 @@
 @media (max-width: 767px) {
   .expense-sharing-modal {
     padding: 16px;
-    max-height: 90vh;
+    max-height: calc(100dvh - 24px);
   }
   
   .es-form-row {

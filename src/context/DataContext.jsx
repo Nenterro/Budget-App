@@ -1,10 +1,11 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Shield, AlertTriangle } from 'lucide-react';
 import * as db from '../store/db';
 import { pb, syncAll, syncSettings, setupRealtimeSync, connectPocketBase } from '../store/sync';
 import { isUnlocked, tryRestoreSession, deriveKey, verifyPinWithData, hasCachedPin } from '../utils/crypto';
 import PinPad from '../components/PinPad';
-import { useSecuritySettings } from './SettingsContext';
+import { useSecuritySettings, useSettingsMaintenance } from './SettingsContext';
+import { useAuth } from './AuthContext';
 
 const DataContext = createContext(null);
 
@@ -40,19 +41,47 @@ export function DataProvider({ children }) {
 
   const [unlocked, setUnlocked] = useState(false);
   const [needsPin, setNeedsPin] = useState(false);
+  // False until init() has worked out whether this account already has
+  // encrypted data. Until then we cannot tell "no PIN set up yet" apart from
+  // "a PIN exists, we just have not read the settings yet".
+  const [securityResolved, setSecurityResolved] = useState(false);
+  // What the app is actually doing about syncing:
+  //   pending    — still working it out
+  //   synced     — authenticated, pushing and pulling
+  //   guest      — local-only session, sync deliberately off
+  //   signed-out — no PocketBase session on this device
+  //   offline    — no PocketBase server reachable
+  //   locked     — encrypted account waiting on its PIN
+  const [syncStatus, setSyncStatus] = useState({ mode: 'pending', lastSyncAt: null, error: null });
   const [pinInput, setPinInput] = useState('');
+  // Held so a subscription started by a later unlock can be torn down. Without
+  // it, unlocking added a second full set of collection subscriptions on top of
+  // whatever init() had already opened.
+  const realtimeUnsubRef = useRef(null);
 
   const { isE2eeEnabled, hasPromptedE2ee, setE2EE, dismissE2EEPrompt, reloadSettings } = useSecuritySettings();
+  const { user } = useAuth();
+  const { renameInFilters } = useSettingsMaintenance();
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [onboardingPin, setOnboardingPin] = useState('');
   const [onboardingConfirmPin, setOnboardingConfirmPin] = useState('');
   const [isProcessingOnboarding, setIsProcessingOnboarding] = useState(false);
 
+  // Offering "set up a PIN" before init() has resolved is what produced the
+  // double prompt on a new device: local settings still held their defaults, so
+  // this fired immediately, and moments later init() found remote encrypted
+  // data and raised the unlock prompt on top of it.
   useEffect(() => {
+    if (!securityResolved) return;
     if (pb.authStore.isValid && !isE2eeEnabled && !hasPromptedE2ee && !needsPin && !unlocked && onboardingStep === 0) {
       setOnboardingStep(1);
     }
-  }, [pb.authStore.isValid, isE2eeEnabled, hasPromptedE2ee, needsPin, unlocked, onboardingStep]);
+  }, [securityResolved, isE2eeEnabled, hasPromptedE2ee, needsPin, unlocked, onboardingStep]);
+
+  // If an unlock prompt appears, any setup flow already on screen is wrong.
+  useEffect(() => {
+    if (needsPin && onboardingStep > 0) setOnboardingStep(0);
+  }, [needsPin, onboardingStep]);
 
   const handleSkipOnboarding = async () => {
     await dismissE2EEPrompt();
@@ -111,17 +140,54 @@ export function DataProvider({ children }) {
   // 5. If E2EE: try restore cached PIN → if no cached PIN, prompt user
   // 6. After unlock: full syncAll → loadData
   // 7. Setup realtime subscriptions
+  //
+  // Keyed on the signed-in user id, so signing in re-runs the whole thing.
+  // It used to run once on mount only: DataProvider mounts above the router,
+  // so on a fresh login it had already bailed out at the "no valid session"
+  // check and nothing re-triggered it — the app sat empty until a manual
+  // refresh remounted the provider.
+  const authUserId = user?.id || null;
+
   useEffect(() => {
-    let unsub = null;
     let isMounted = true;
 
+    const subscribe = () => {
+      if (realtimeUnsubRef.current) realtimeUnsubRef.current();
+      realtimeUnsubRef.current = setupRealtimeSync((collection) => {
+        loadData();
+        if (collection === 'settings' && reloadSettings) reloadSettings();
+      });
+    };
+
+    // Wrapper so every exit path — including the early returns for no server
+    // and no session — marks the security state as resolved exactly once.
     async function init() {
+      try {
+        await initInner();
+      } finally {
+        if (isMounted) setSecurityResolved(true);
+      }
+    }
+
+    async function initInner() {
       // Load whatever local data exists first (may be empty on fresh device)
       await loadData();
       setIsLoading(false);
 
       const activeUrl = await connectPocketBase();
-      if (!activeUrl || !pb.authStore.isValid) return;
+      if (!activeUrl) {
+        if (isMounted) setSyncStatus({ mode: 'offline', lastSyncAt: null, error: 'No PocketBase server reachable' });
+        return;
+      }
+      if (!pb.authStore.isValid) {
+        // Guest sessions are local by design; anything else means the session
+        // did not carry into this context and data will not leave the device.
+        if (isMounted) {
+          const guest = localStorage.getItem('BUDGET_GUEST_SESSION') === '1';
+          setSyncStatus({ mode: guest ? 'guest' : 'signed-out', lastSyncAt: null, error: null });
+        }
+        return;
+      }
 
       // Step 1: Sync settings from PocketBase FIRST
       await syncSettings();
@@ -179,32 +245,48 @@ export function DataProvider({ children }) {
           // Full sync now that we can decrypt
           await syncAll();
           await loadData();
-          unsub = setupRealtimeSync((collection) => {
-            loadData();
-            if (collection === 'settings' && reloadSettings) reloadSettings();
-          });
+          if (isMounted) setSyncStatus({ mode: 'synced', lastSyncAt: Date.now(), error: null });
+          subscribe();
         } else if (isMounted) {
           // No cached PIN — prompt user
           setNeedsPin(true);
+          setSyncStatus({ mode: 'locked', lastSyncAt: null, error: null });
         }
       } else {
         // No E2EE — just sync everything
         await syncAll();
         await loadData();
-        unsub = setupRealtimeSync((collection) => {
-          loadData();
-          if (collection === 'settings' && reloadSettings) reloadSettings();
-        });
+        if (isMounted) setSyncStatus({ mode: 'synced', lastSyncAt: Date.now(), error: null });
+        subscribe();
       }
     }
 
+    setSecurityResolved(false);
     init();
 
     return () => {
       isMounted = false;
-      if (unsub) unsub();
+      if (realtimeUnsubRef.current) {
+        realtimeUnsubRef.current();
+        realtimeUnsubRef.current = null;
+      }
     };
-  }, [loadData, reloadSettings]);
+  }, [authUserId, loadData, reloadSettings]);
+
+  // Local writes are already reflected in state optimistically, so a mutation
+  // should not block the caller on a network round trip. Sync runs in the
+  // background and reloads from the local store when it settles; updates from
+  // other devices arrive through setupRealtimeSync regardless.
+  const syncInBackground = useCallback(() => {
+    if (!pb.authStore.isValid) return; // guest / signed out: nothing to push
+    syncAll()
+      .then(() => loadData())
+      .then(() => setSyncStatus((prev) => ({ ...prev, mode: 'synced', lastSyncAt: Date.now(), error: null })))
+      .catch((err) => {
+        console.warn('Background sync failed:', err);
+        setSyncStatus((prev) => ({ ...prev, error: err.message }));
+      });
+  }, [loadData]);
 
 
   const addTransaction = async (tx) => {
@@ -229,8 +311,7 @@ export function DataProvider({ children }) {
         return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
       });
     }
-    await syncAll();
-    await loadData();
+    syncInBackground();
   };
 
   const updateTransaction = async (tx) => {
@@ -294,13 +375,12 @@ export function DataProvider({ children }) {
             const totalRepaid = updatedRepayments
               .filter(r => r.personName === s.name)
               .reduce((acc, r) => acc + r.amount, 0);
-            const totalWrittenOff = updatedWriteOffs
-              .filter(w => w.personName === s.name)
-              .reduce((acc, w) => acc + w.amount, 0);
+            // A write-off already came off `amount` above, so counting it again
+            // here settled the whole remaining balance off a partial write-off.
             return {
               ...s,
               amount: shareAmount,
-              settled: shareAmount === 0 || (totalRepaid + totalWrittenOff) >= shareAmount
+              settled: shareAmount === 0 || totalRepaid >= shareAmount
             };
           });
 
@@ -320,8 +400,7 @@ export function DataProvider({ children }) {
 
       return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
-    await syncAll();
-    await loadData();
+    syncInBackground();
   };
 
   const deleteTransaction = async (id) => {
@@ -355,13 +434,11 @@ export function DataProvider({ children }) {
             const totalRepaid = updatedRepayments
               .filter(r => r.personName === s.name)
               .reduce((acc, r) => acc + r.amount, 0);
-            const totalWrittenOff = updatedWriteOffs
-              .filter(w => w.personName === s.name)
-              .reduce((acc, w) => acc + w.amount, 0);
+            // See updateTransaction: `amount` is already net of write-offs.
             return {
               ...s,
               amount: shareAmount,
-              settled: (totalRepaid + totalWrittenOff) >= shareAmount
+              settled: shareAmount === 0 || totalRepaid >= shareAmount
             };
           });
 
@@ -381,11 +458,16 @@ export function DataProvider({ children }) {
 
       return updated.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
-    await syncAll();
-    await loadData();
+    syncInBackground();
   };
 
-  const updateDataItem = async (store, item, setType) => {
+  // Transactions store category/payee/account by NAME. Renaming one therefore
+  // has to rewrite every transaction that referenced the old name, or the whole
+  // history silently detaches from the thing it belonged to.
+  const updateDataItem = async (store, item, setType, refKind, currentList) => {
+    const previous = item.id && currentList ? currentList.find(p => p.id === item.id) : null;
+    const renamedFrom = previous && previous.name && previous.name !== item.name ? previous.name : null;
+
     const saved = await db.saveItem(store, item);
     setType(prev => {
       const idx = prev.findIndex(p => p.id === saved.id);
@@ -396,14 +478,26 @@ export function DataProvider({ children }) {
       }
       return [...prev, saved];
     });
-    syncAll();
+
+    if (renamedFrom && refKind) {
+      const touched = await db.renameReferences(refKind, renamedFrom, saved.name);
+      // Saved filter exclusions reference the name too.
+      await renameInFilters(refKind, renamedFrom, saved.name);
+      if (touched > 0) await loadData();
+    }
+
+    syncInBackground();
+    return saved;
   };
 
   const deleteDataItem = async (store, id, setType) => {
     await db.deleteItem(store, id);
     setType(prev => prev.filter(p => p.id !== id));
-    syncAll();
+    syncInBackground();
   };
+
+  // Exposed so the UI can warn before a delete strands existing transactions.
+  const countReferences = (kind, name) => db.countReferences(kind, name);
 
   const handlePinSubmit = async (enteredPin) => {
     if (enteredPin.length === 4) {
@@ -421,7 +515,9 @@ export function DataProvider({ children }) {
       await syncAll();
       if (reloadSettings) await reloadSettings();
       await loadData();
-      setupRealtimeSync((collection) => {
+      setSyncStatus({ mode: 'synced', lastSyncAt: Date.now(), error: null });
+      if (realtimeUnsubRef.current) realtimeUnsubRef.current();
+      realtimeUnsubRef.current = setupRealtimeSync((collection) => {
         loadData();
         if (collection === 'settings' && reloadSettings) reloadSettings();
       });
@@ -445,16 +541,18 @@ export function DataProvider({ children }) {
       });
       return copy.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
-    syncAll().catch(e => console.error("Background sync error:", e));
+    syncInBackground();
   };
 
   return (
     <DataContext.Provider value={{ 
       transactions, accounts, categories, payees, budgets, exchangeRates, setExchangeRates, isLoading, loadData,
+      syncStatus,
       addTransaction, updateTransaction, deleteTransaction, saveTransactionsBatch,
+      countReferences,
       saveAccount: async (item) => {
         const isNew = !item.id;
-        await updateDataItem(db.accountsStore, item, setAccounts);
+        await updateDataItem(db.accountsStore, item, setAccounts, 'account', accounts);
         if (isNew) {
           const hasInvestments = categories.some(c => c.name.toLowerCase() === 'investments');
           if (!hasInvestments) {
@@ -463,9 +561,9 @@ export function DataProvider({ children }) {
         }
       },
       deleteAccount: (id) => deleteDataItem(db.accountsStore, id, setAccounts),
-      saveCategory: (item) => updateDataItem(db.categoriesStore, item, setCategories),
+      saveCategory: (item) => updateDataItem(db.categoriesStore, item, setCategories, 'category', categories),
       deleteCategory: (id) => deleteDataItem(db.categoriesStore, id, setCategories),
-      savePayee: (item) => updateDataItem(db.payeesStore, item, setPayees),
+      savePayee: (item) => updateDataItem(db.payeesStore, item, setPayees, 'payee', payees),
       deletePayee: (id) => deleteDataItem(db.payeesStore, id, setPayees),
       saveBudget: (item) => updateDataItem(db.budgetsStore, item, setBudgets),
       deleteBudget: (id) => deleteDataItem(db.budgetsStore, id, setBudgets),

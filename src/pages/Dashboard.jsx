@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useData } from '../context/DataContext';
 import { Filter, Settings, Plus, Edit2, Trash2 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
@@ -7,9 +7,11 @@ import UnifiedDropdown from '../components/UnifiedDropdown';
 import UnifiedCalendar from '../components/UnifiedCalendar';
 import FilterModal from '../components/FilterModal';
 import { usePageSettings, useAppearanceSettings } from '../context/SettingsContext';
-import DashboardWidgetCard from '../components/Dashboard/DashboardWidgets';
+// The widget cards pull in recharts (~400 kB). Loading them on demand lets the
+// balance header and the rest of the page paint without waiting on it.
+const DashboardWidgetCard = lazy(() => import('../components/Dashboard/DashboardWidgets'));
 import AddDashboardWidgetModal, { WIDGET_TYPES } from '../components/Dashboard/AddDashboardWidgetModal';
-import { EditItemModal } from './ManageData';
+import EditItemModal from '../components/EditItemModal';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
 import { startOfMonth, subMonths, endOfMonth, subDays, startOfYear, isAfter, isBefore, parseISO } from 'date-fns';
 import './Dashboard.css';
@@ -18,18 +20,18 @@ import '../pages/Transactions.css'; // For top header styles
 const PERIODS = ['All Time', 'This Month', 'Last Month', 'Last 3 Months', 'This Year', 'Custom Range'];
 
 export default function Dashboard() {
-  const { transactions, accounts, saveAccount, deleteAccount, categories, budgets } = useData();
+  const { transactions, accounts, saveAccount, deleteAccount, categories, payees, budgets } = useData();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
 
   // Independent Page Filter state
-  const { 
-    selectedPeriod, setSelectedPeriod, 
-    customRange, setCustomRange, 
+  const {
+    selectedPeriod, setSelectedPeriod,
+    customRange, setCustomPeriodRange,
     filterState, setFilterState,
     activeWidgets, setWidgets
   } = usePageSettings('dashboard');
-  
+
   const [showCustomRangeModal, setShowCustomRangeModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
@@ -47,13 +49,15 @@ export default function Dashboard() {
     if (filterState.excludedAccounts.size > 0) {
       advancedResult = advancedResult.filter(tx => !filterState.excludedAccounts.has(tx.account));
     }
+    // Magnitude, not signed value: expenses are stored negative, so a signed
+    // comparison against "min 100" silently excluded every expense there is.
     if (filterState.minAmount !== '' && filterState.minAmount !== null) {
-      const min = parseFloat(filterState.minAmount);
-      advancedResult = advancedResult.filter(tx => tx.amount >= min);
+      const min = Math.abs(parseFloat(filterState.minAmount));
+      if (!isNaN(min)) advancedResult = advancedResult.filter(tx => Math.abs(tx.amount) >= min);
     }
     if (filterState.maxAmount !== '' && filterState.maxAmount !== null) {
-      const max = parseFloat(filterState.maxAmount);
-      advancedResult = advancedResult.filter(tx => tx.amount <= max);
+      const max = Math.abs(parseFloat(filterState.maxAmount));
+      if (!isNaN(max)) advancedResult = advancedResult.filter(tx => Math.abs(tx.amount) <= max);
     }
 
     let fullyResult = advancedResult;
@@ -75,18 +79,26 @@ export default function Dashboard() {
         end = new Date(customRange.end);
         end.setHours(23, 59, 59, 999);
       }
-      computedRange = { start, end };
+      computedRange = start ? { start, end } : { start: null, end: null };
 
-      fullyResult = advancedResult.filter(tx => {
-        const d = parseISO(tx.date);
-        return isAfter(d, start) && isBefore(d, end);
-      });
+      // `start` is undefined when the period is Custom Range but no range has
+      // been picked yet; comparing against it filtered every transaction away
+      // and left the page blank. Boundaries are inclusive so a transaction
+      // dated on the first or last day of the range is kept.
+      if (start) {
+        fullyResult = advancedResult.filter(tx => {
+          const d = parseISO(tx.date);
+          return d >= start && d <= end;
+        });
+      }
     }
     return { fullyFiltered: fullyResult, advancedFiltered: advancedResult, currentRange: computedRange };
   }, [transactions, selectedPeriod, filterState, customRange]);
 
   const { baseCurrency, displayMode } = useAppearanceSettings();
   const { exchangeRates } = useData();
+  // Shown on the filter modal's amount fields instead of a hardcoded $.
+  const filterCurrencySymbol = getCurrencySymbol(baseCurrency);
 
   // Balances calculation (Stock metric up to currentRange.end)
   const { totalBalance, accountBalances, splitBalances } = useMemo(() => {
@@ -99,12 +111,12 @@ export default function Dashboard() {
         const cur = acc.currency || 'USD';
         const initBal = Number(acc.initialBalance) || 0;
         accBalances[acc.name] = { ...acc, currentBalance: initBal };
-        
+
         const rate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
         const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
         const converted = (initBal / rate) * baseRate;
         total += converted;
-        
+
         if (!split[cur]) split[cur] = 0;
         split[cur] += initBal;
       });
@@ -123,10 +135,10 @@ export default function Dashboard() {
             const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
             const converted = (s.amount / rate) * baseRate;
             total += converted;
-            
+
             if (!split[cur]) split[cur] = 0;
             split[cur] += s.amount;
-            
+
             if (accBalances[s.account]) {
               accBalances[s.account].currentBalance += s.amount;
             }
@@ -134,38 +146,38 @@ export default function Dashboard() {
         } else {
           const acc = accounts?.find(a => a.name === tx.account);
           const cur = acc ? (acc.currency || 'USD') : 'USD';
-          
+
           if (tx.type !== 2) { // Income/Expense
             const rate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
             const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
             const converted = (tx.amount / rate) * baseRate;
             total += converted;
-            
+
             if (!split[cur]) split[cur] = 0;
             split[cur] += tx.amount;
           } else if (tx.type === 2) { // Transfer
             const destAcc = accounts?.find(a => a.name === tx.transferTo);
             const destCur = destAcc ? (destAcc.currency || 'USD') : 'USD';
             const destAmt = tx.receivedAmount || Math.abs(tx.amount);
-            
+
             const srcRate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
             const destRate = exchangeRates && exchangeRates[destCur] ? exchangeRates[destCur] : 1;
             const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
-            
+
             total += (tx.amount / srcRate) * baseRate; // source amount (negative)
             total += (destAmt / destRate) * baseRate; // destination amount (positive)
-            
+
             if (!split[cur]) split[cur] = 0;
             split[cur] += tx.amount;
-            
+
             if (!split[destCur]) split[destCur] = 0;
             split[destCur] += destAmt;
-            
+
             if (accBalances[tx.transferTo]) {
               accBalances[tx.transferTo].currentBalance += destAmt;
             }
           }
-          
+
           if (accBalances[tx.account]) {
             accBalances[tx.account].currentBalance += tx.amount;
           }
@@ -192,10 +204,10 @@ export default function Dashboard() {
     setWidgets(activeWidgets.filter(w => w.id !== id));
   };
 
-  const hasActiveFilters = filterState.excludedCategories.size > 0 || 
-    filterState.excludedPayees.size > 0 || 
-    filterState.excludedAccounts.size > 0 || 
-    filterState.minAmount || 
+  const hasActiveFilters = filterState.excludedCategories.size > 0 ||
+    filterState.excludedPayees.size > 0 ||
+    filterState.excludedAccounts.size > 0 ||
+    filterState.minAmount ||
     filterState.maxAmount;
 
   return (
@@ -205,8 +217,8 @@ export default function Dashboard() {
         <div className="tx-header-actions">
           <div className="tx-controls">
             <div style={{ flex: '1 1 auto', minWidth: '160px', maxWidth: '250px', marginRight: 'auto' }}>
-              <UnifiedDropdown 
-                value={selectedPeriod} 
+              <UnifiedDropdown
+                value={selectedPeriod}
                 onChange={(val) => {
                   if (val === 'Custom Range') setShowCustomRangeModal(true);
                   else setSelectedPeriod(val);
@@ -214,9 +226,9 @@ export default function Dashboard() {
                 options={PERIODS.map(p => ({ label: p, value: p }))}
               />
             </div>
-            <button 
+            <button
               className={`icon-btn relative ${hasActiveFilters ? 'active-filter' : ''}`}
-              title="Filter" 
+              title="Filter"
               onClick={() => setShowFilterModal(true)}
             >
               <Filter size={20} />
@@ -279,18 +291,20 @@ export default function Dashboard() {
 
         {/* Widgets Grid */}
         <div className="dashboard-widgets-grid">
-          {activeWidgets.map(widget => (
-            <DashboardWidgetCard 
-              key={widget.id} 
-              widget={widget} 
-              onUpdate={handleUpdateWidget}
-              onRemove={() => handleRemoveWidget(widget.id)}
-              transactions={fullyFiltered}
-              advancedFilteredTransactions={advancedFiltered}
-              accounts={accounts}
-              dateRange={currentRange}
-            />
-          ))}
+          <Suspense fallback={null}>
+            {activeWidgets.map(widget => (
+              <DashboardWidgetCard
+                key={widget.id}
+                widget={widget}
+                onUpdate={handleUpdateWidget}
+                onRemove={() => handleRemoveWidget(widget.id)}
+                transactions={fullyFiltered}
+                advancedFilteredTransactions={advancedFiltered}
+                accounts={accounts}
+                dateRange={currentRange}
+              />
+            ))}
+          </Suspense>
           {activeWidgets.length < WIDGET_TYPES.length && (
             <div className="add-widget-card" onClick={() => setIsAddModalOpen(true)}>
               <div className="add-icon-circle" style={{ color: 'var(--primary-color)' }}><Plus size={32} /></div>
@@ -303,14 +317,20 @@ export default function Dashboard() {
       <AnimatePresence>
         {showCustomRangeModal && (
           <UnifiedCalendar
-            initialRange={customRange}
-            onSave={(range) => { setCustomRange(range); setSelectedPeriod('Custom Range'); setShowCustomRangeModal(false); }}
+            mode="range"
+            value={customRange}
+            onChange={(range) => setCustomPeriodRange(range)}
             onClose={() => setShowCustomRangeModal(false)}
           />
         )}
         {showFilterModal && (
           <FilterModal
+            title="Filter Home"
             transactions={transactions}
+            categories={categories}
+            payees={payees}
+            accounts={accounts}
+            currencySymbol={filterCurrencySymbol}
             initialState={filterState}
             onApply={(newState) => {
               setFilterState(newState);
@@ -327,11 +347,11 @@ export default function Dashboard() {
           />
         )}
         {editingAccount && (
-          <EditItemModal 
-            item={editingAccount} 
+          <EditItemModal
+            item={editingAccount}
             type="Account"
             onSave={saveAccount}
-            onClose={() => setEditingAccount(null)} 
+            onClose={() => setEditingAccount(null)}
           />
         )}
       </AnimatePresence>

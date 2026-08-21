@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
 import { X, Calendar, DollarSign, Tag, User, Users, AlignLeft, ArrowRight, ArrowRightLeft, Plus, Wallet, Split, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -6,6 +6,7 @@ import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
 import ModalWrapper from './ModalWrapper';
 import { formatAmountInput, formatCurrency, getCurrencySymbol } from '../utils/format';
+import { evalMath } from '../utils/math';
 import { generateId } from '../store/db';
 import './AddTransactionModal.css';
 
@@ -27,18 +28,6 @@ const slideVariants = {
     top: 0, left: 0, right: 0
   })
 };
-
-function evalMath(input) {
-  try {
-    const clean = String(input).replace(/,/g, '');
-    if (!/^[0-9+\-*/. ()]+$/.test(clean)) return null;
-    // eslint-disable-next-line no-new-func
-    const result = new Function(`return ${clean}`)();
-    return isNaN(result) || !isFinite(result) ? null : result;
-  } catch (e) {
-    return null;
-  }
-}
 
 function formatPreview(num) {
   if (num === null) return '';
@@ -97,26 +86,35 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   const [activeField, setActiveField] = useState(null); // 'amount', 'category', 'payee', 'note', 'account', 'transferTo'
   const [isCrossCurrency, setIsCrossCurrency] = useState(false);
   
+  // Saving a new payee or category reloads every store, which hands back fresh
+  // array objects for `accounts` too. The init effect below used to depend on
+  // that array, so a brand-new payee re-ran it and reset the half-filled form.
+  // It reads accounts through this ref instead, and only re-runs when the modal
+  // opens or the transaction being edited changes.
+  const accountsRef = useRef(accounts);
+  accountsRef.current = accounts;
+
   const [activeSplitIndex, setActiveSplitIndex] = useState(0);
   const [activePersonIndex, setActivePersonIndex] = useState(0);
   const [touchStart, setTouchStart] = useState(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   const reset = () => {
+    const accts = accountsRef.current;
     setType(0);
     setAmount('');
     setCategory('');
     setPayee('');
     setNote('');
     setDate(new Date().toISOString().substring(0,10));
-    setSelectedAccount(accounts.length > 0 ? accounts[0].name : '');
-    setSelectedTransferTo(accounts.length > 1 ? accounts[1].name : (accounts.length > 0 ? accounts[0].name : ''));
+    setSelectedAccount(accts.length > 0 ? accts[0].name : '');
+    setSelectedTransferTo(accts.length > 1 ? accts[1].name : (accts.length > 0 ? accts[0].name : ''));
     setReceivedAmount('');
     setIsSplit(false);
     setActiveSplitIndex(0);
     setSplits([
-      { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' },
-      { id: generateId(), amount: '', category: '', payee: '', account: accounts.length > 0 ? accounts[0].name : '' }
+      { id: generateId(), amount: '', category: '', payee: '', account: accts.length > 0 ? accts[0].name : '' },
+      { id: generateId(), amount: '', category: '', payee: '', account: accts.length > 0 ? accts[0].name : '' }
     ]);
     setIsExpenseShare(false);
     setActivePersonIndex(0);
@@ -136,9 +134,9 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
         setPayee(isTransfer ? '' : (initialData.payee || ''));
         setNote(initialData.note || '');
         setDate(initialData.date ? String(initialData.date).substring(0,10) : new Date().toISOString().substring(0,10));
-        setSelectedAccount(initialData.account || (accounts.length > 0 ? accounts[0].name : ''));
+        setSelectedAccount(initialData.account || (accountsRef.current.length > 0 ? accountsRef.current[0].name : ''));
         if (isTransfer) {
-           setSelectedTransferTo(initialData.transferTo || initialData.transferAccount || (accounts.length > 1 ? accounts[1].name : ''));
+           setSelectedTransferTo(initialData.transferTo || initialData.transferAccount || (accountsRef.current.length > 1 ? accountsRef.current[1].name : ''));
            setReceivedAmount(initialData.receivedAmount ? Math.abs(initialData.receivedAmount).toString() : '');
         } else {
            setReceivedAmount('');
@@ -155,8 +153,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
           })));
         } else {
           setSplits([
-            { id: generateId(), amount: '', category: '', payee: '', account: initialData.account || (accounts.length > 0 ? accounts[0].name : '') },
-            { id: generateId(), amount: '', category: '', payee: '', account: initialData.account || (accounts.length > 0 ? accounts[0].name : '') }
+            { id: generateId(), amount: '', category: '', payee: '', account: initialData.account || (accountsRef.current.length > 0 ? accountsRef.current[0].name : '') },
+            { id: generateId(), amount: '', category: '', payee: '', account: initialData.account || (accountsRef.current.length > 0 ? accountsRef.current[0].name : '') }
           ]);
         }
 
@@ -177,19 +175,20 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, initialData, accounts]);
+  }, [isOpen, initialData?.id]);
+
+  // Accounts may still be loading when the modal opens. Fill in a default once
+  // they arrive, without touching anything the user has already typed.
+  useEffect(() => {
+    if (!isOpen || accounts.length === 0) return;
+    setSelectedAccount(prev => prev || accounts[0].name);
+    setSelectedTransferTo(prev => prev || (accounts.length > 1 ? accounts[1].name : accounts[0].name));
+  }, [isOpen, accounts]);
 
   const evalResult = evalMath(amount);
   const showPreview = amount.match(/[+\-*/]/) && evalResult !== null;
 
-  console.log("[DEBUG] AddTransactionModal Rendering. isOpen:", isOpen, "initialData:", initialData);
-
-  if (!isOpen) {
-    console.log("[DEBUG] AddTransactionModal is not open. Returning null.");
-    return null;
-  }
-
-  console.log("[DEBUG] AddTransactionModal returning JSX! type:", type, "amount:", amount, "category:", category);
+  if (!isOpen) return null;
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
@@ -370,7 +369,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
     <ModalWrapper onClose={handleClose}>
       <div className="modal-content tx-form-modal glass-panel" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>New Transaction</h2>
+          <h2>{initialData ? 'Edit Transaction' : 'New Transaction'}</h2>
           <button className="close-btn" onClick={handleClose} type="button"><X size={24} /></button>
         </div>
         

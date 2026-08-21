@@ -106,6 +106,116 @@ export async function deleteItem(store, id) {
   }
 }
 
+// --- Renaming / reference integrity ---
+//
+// Transactions reference categories, payees and accounts by NAME, not by id.
+// Renaming one used to leave every existing transaction pointing at a name that
+// no longer exists, quietly detaching all its history. These helpers rewrite
+// those references so a rename stays a rename.
+
+// Every place a name of each kind can appear on a transaction.
+function rewriteTransactionRefs(tx, kind, oldName, newName) {
+  let changed = false;
+  const swap = (value) => {
+    if (value === oldName) {
+      changed = true;
+      return newName;
+    }
+    return value;
+  };
+
+  if (kind === 'category') {
+    tx.category = swap(tx.category);
+    if (Array.isArray(tx.splits)) {
+      tx.splits = tx.splits.map(s => ({ ...s, category: swap(s.category) }));
+    }
+    if (Array.isArray(tx.writeOffs)) {
+      tx.writeOffs = tx.writeOffs.map(w => ({ ...w, category: swap(w.category) }));
+    }
+  }
+
+  if (kind === 'payee') {
+    tx.payee = swap(tx.payee);
+    if (Array.isArray(tx.splits)) {
+      tx.splits = tx.splits.map(s => ({ ...s, payee: swap(s.payee) }));
+    }
+    if (Array.isArray(tx.writeOffs)) {
+      tx.writeOffs = tx.writeOffs.map(w => ({ ...w, payee: swap(w.payee) }));
+    }
+  }
+
+  if (kind === 'account') {
+    tx.account = swap(tx.account);
+    tx.transferTo = swap(tx.transferTo);
+    if (Array.isArray(tx.splits)) {
+      tx.splits = tx.splits.map(s => ({ ...s, account: swap(s.account) }));
+    }
+    if (Array.isArray(tx.repayments)) {
+      tx.repayments = tx.repayments.map(r => ({ ...r, account: swap(r.account) }));
+    }
+    // Transfers carry the destination in their generated payee label.
+    if (typeof tx.payee === 'string' && tx.payee === `Transfer to ${oldName}`) {
+      tx.payee = `Transfer to ${newName}`;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+export async function renameReferences(kind, oldName, newName) {
+  if (!oldName || !newName || oldName === newName) return 0;
+  let touched = 0;
+
+  const pending = [];
+  await transactionsStore.iterate((value, key) => {
+    if (!value) return;
+    const copy = { ...value };
+    if (rewriteTransactionRefs(copy, kind, oldName, newName)) {
+      copy.pendingSync = true;
+      copy.updatedAt = new Date().toISOString();
+      pending.push([key, copy]);
+    }
+  });
+  for (const [key, value] of pending) {
+    await transactionsStore.setItem(key, value);
+    touched++;
+  }
+
+  // Budgets are keyed by category name for the same reason.
+  if (kind === 'category') {
+    const budgetUpdates = [];
+    await budgetsStore.iterate((value, key) => {
+      if (value && value.category === oldName) {
+        budgetUpdates.push([key, { ...value, category: newName, pendingSync: true, updatedAt: new Date().toISOString() }]);
+      }
+    });
+    for (const [key, value] of budgetUpdates) {
+      await budgetsStore.setItem(key, value);
+      touched++;
+    }
+  }
+
+  return touched;
+}
+
+// A value nothing will ever legitimately equal, so rewriteTransactionRefs can
+// be reused purely as a "does this name appear anywhere?" probe.
+const REFERENCE_PROBE = '__ref_probe__';
+
+// How many transactions still point at this name — used to warn before a
+// delete that would orphan history.
+export async function countReferences(kind, name) {
+  if (!name) return 0;
+  let count = 0;
+  await transactionsStore.iterate((value) => {
+    if (!value || value.deleted) return;
+    const probe = { ...value };
+    if (rewriteTransactionRefs(probe, kind, name, REFERENCE_PROBE)) count++;
+  });
+  return count;
+}
+
 // --- Import / Export ---
 export async function exportData() {
   const data = { transactions: [], categories: [], accounts: [], payees: [], budgets: [] };

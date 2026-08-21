@@ -1,11 +1,19 @@
 import { startOfMonth, format, parseISO } from 'date-fns';
 import { convertAmount } from './exchange';
+import { getEffectiveReportingItems } from './txAdjustments';
 
 export function getMonthString(date = new Date()) {
   return format(startOfMonth(date), 'yyyy-MM');
 }
 
-export function calculateBudgets(transactions, accounts, categories, budgets, exchangeRates, baseCurrency, targetMonthStr) {
+export function calculateBudgets(rawTransactions, accounts, categories, budgets, exchangeRates, baseCurrency, targetMonthStr) {
+  // Budget activity is measured the same way Stats and Graphs measure spending:
+  // a shared expense charges only YOUR portion to its category, with the part
+  // other people still owe reported under "Loan". Feeding raw transactions in
+  // here charged the whole shared amount to the category, so the Budgets page
+  // and the Stats page disagreed about the same expense.
+  const transactions = getEffectiveReportingItems(rawTransactions || []);
+
   // 1. Group transactions by month and category
   const activityByMonthCat = {}; // { '2026-07': { 'Groceries': -150 } }
   

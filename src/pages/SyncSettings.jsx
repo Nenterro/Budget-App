@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Cloud, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { pb, syncAll, connectPocketBase } from '../store/sync';
+import { pb, syncAll, connectPocketBase, checkUrl, PB_URLS } from '../store/sync';
 import { useData } from '../context/DataContext';
 import './ManageData.css';
 
@@ -26,22 +26,27 @@ export default function SyncSettings() {
     }
   };
 
+  const [saveError, setSaveError] = useState('');
+
+  // The URL used to be written to localStorage and pb.baseUrl before it was
+  // checked, so a typo left the whole app pointed at a host that answers
+  // nothing — with no obvious way back. Verify first, commit only on success.
   const handleSave = async (e) => {
     e.preventDefault();
     const formattedUrl = url.trim().replace(/\/$/, '');
+    setSaveError('');
+    setStatus('Detecting...');
+
+    const reachable = await checkUrl(formattedUrl);
+    if (!reachable) {
+      setStatus('Offline');
+      setSaveError('That server did not respond, so it was not saved. Check the address and try again.');
+      return;
+    }
+
     localStorage.setItem('PB_URL', formattedUrl);
     pb.baseUrl = formattedUrl;
-    setStatus('Detecting...');
-    try {
-      const res = await fetch(`${formattedUrl}/api/health`, { method: 'GET' });
-      if (res.ok) {
-        setStatus('Connected');
-      } else {
-        setStatus('Offline');
-      }
-    } catch(err) {
-      setStatus('Offline');
-    }
+    setStatus('Connected');
   };
 
   const { loadData } = useData();
@@ -90,11 +95,27 @@ export default function SyncSettings() {
               placeholder="https://huz-budget.duckdns.org:8888"
               required 
             />
+            {saveError && (
+              <small style={{ color: '#ef4444', marginTop: '8px', display: 'block', lineHeight: '1.5' }}>
+                {saveError}
+              </small>
+            )}
+            {/* Listed straight from the auto-detect list so the hints cannot
+                drift out of step with the addresses the app actually tries. */}
             <small style={{ color: 'var(--text-muted)', marginTop: '8px', display: 'block', lineHeight: '1.5' }}>
-              Options:<br/>
-              • <b>Internet:</b> https://huz-budget.duckdns.org:8888<br/>
-              • <b>Tailscale:</b> http://100.97.146.42:8090<br/>
-              • <b>LAN:</b> http://192.168.18.40:8090
+              Auto-detected in this order:<br/>
+              {PB_URLS.map(option => (
+                <span key={option} style={{ display: 'block' }}>
+                  •{' '}
+                  <button
+                    type="button"
+                    onClick={() => setUrl(option)}
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent-color)', cursor: 'pointer', font: 'inherit', textDecoration: 'underline' }}
+                  >
+                    {option}
+                  </button>
+                </span>
+              ))}
             </small>
           </div>
           <button type="submit" className="submit-btn bg-primary" style={{ marginTop: '8px' }}>

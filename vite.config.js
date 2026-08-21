@@ -32,4 +32,21 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        // Everything shipped as one ~1.1 MB chunk, so the first paint waited on
+        // the charting library even on pages that draw no charts. Splitting the
+        // three heavyweight vendors out lets them cache independently of app
+        // code, which also means a normal app update no longer re-downloads
+        // them.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          charts: ['recharts'],
+          motion: ['framer-motion'],
+        }
+      }
+    },
+    chunkSizeWarningLimit: 700
+  },
 })

@@ -1,7 +1,9 @@
 .filter-modal {
   width: 100%;
   max-width: 500px;
-  max-height: 85vh;
+  /* dvh: vh includes the area behind the mobile browser chrome, so 85vh could
+     still exceed what is actually visible. */
+  max-height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -307,5 +309,16 @@
 
   .amount-tab {
     padding-bottom: 48px;
+  }
+}
+
+/* The tab body is a fixed 400px (see FilterModal.jsx) so the slide animation
+   has a stable box to animate inside. On a short screen that pushed Apply off
+   the bottom of a modal that could not scroll — let the panel scroll there. */
+@media (max-height: 760px) {
+  .filter-modal {
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }

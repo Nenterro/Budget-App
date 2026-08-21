@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local debug scratch files. These held a real PocketBase test login, so keep
+# them out of the repo.
+test.json
+test_login.json
+test_account*.json
