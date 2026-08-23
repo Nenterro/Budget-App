@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Hash } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
@@ -93,6 +93,44 @@ export default function UnifiedCalendar({ value, onChange, onClose, mode = 'sing
     }
   };
 
+  // The grid's height is measured, not calculated.
+  //
+  // It used to be `21 + rows * 36 + (rows - 1) * 8 + 16`, which hardcoded a
+  // 36px day cell. Cells are actually `aspect-ratio: 1` in a 7-column grid, so
+  // their height follows the calendar's width — widen the calendar and the
+  // arithmetic silently under-reports, and `overflow: hidden` lops the last
+  // row of dates off. Measuring works at any width, in either mode.
+  const [gridHeight, setGridHeight] = useState(null);
+  const observerRef = useRef(null);
+  const observedRef = useRef(null);
+
+  const attachGrid = useCallback((el) => {
+    // React detaches the outgoing month AFTER the incoming one has mounted, so
+    // a null here would otherwise tear down the observer we just attached to
+    // the new grid. Ignore detach; the next mount rebinds.
+    if (!el || observedRef.current === el) return;
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observedRef.current = el;
+    // A zero reading (element not laid out yet) must not become the height, or
+    // the whole grid collapses to nothing. Falling back to `auto` costs only
+    // the height animation.
+    const measure = () => {
+      const measured = el.scrollHeight;
+      if (measured > 0) setGridHeight(measured);
+    };
+    measure();
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    observerRef.current = observer;
+  }, []);
+
+  useEffect(() => () => {
+    if (observerRef.current) observerRef.current.disconnect();
+  }, []);
+
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
   const formatDateForSidebar = (dateStr) => {
@@ -135,12 +173,12 @@ export default function UnifiedCalendar({ value, onChange, onClose, mode = 'sing
           </div>
 
           {(() => {
-            const numRows = totalCells / 7;
-            const gridHeight = 21 + numRows * 36 + (numRows - 1) * 8 + 16;
             return (
               <div 
                 style={{ 
-                  height: `${gridHeight}px`,
+                  // 'auto' until the first measurement lands, so nothing is
+                  // ever clipped on the initial render.
+                  height: gridHeight === null ? 'auto' : `${gridHeight}px`,
                   transition: 'height 0.25s ease-in-out',
                   overflow: 'hidden',
                   position: 'relative' 
@@ -157,6 +195,7 @@ export default function UnifiedCalendar({ value, onChange, onClose, mode = 'sing
                     exit="exit"
                     transition={{ type: "tween", ease: "easeInOut", duration: 0.25 }}
                     style={{ width: '100%' }}
+                    ref={attachGrid}
                   >
                     {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
                       <div key={day} className="cal-day-name">{day}</div>

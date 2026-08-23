@@ -1,17 +1,26 @@
+/* Single-date picker: deliberately compact. This is the one embedded in the
+   Add Transaction form, where a wide calendar just crowds the modal. */
 .unified-calendar {
   width: 100%;
-  max-width: 440px;
+  max-width: 340px;
   background: rgba(30, 30, 40, 0.95);
   border-radius: 24px;
   padding: 24px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  transition: all 0.2s ease;
+  /* A six-row month must never push the Done button off a short screen. */
+  max-height: calc(100dvh - 48px);
 }
 
+/* Range mode carries a start/end sidebar, so it needs the extra width. */
 .unified-calendar.range-mode {
   max-width: 620px;
+}
+
+.unified-calendar .calendar-main {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 @keyframes scaleIn {
@@ -44,6 +53,7 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -58,8 +68,6 @@
   grid-template-columns: repeat(7, 1fr);
   gap: 8px;
 }
-
-
 
 .cal-day-name {
   text-align: center;
@@ -83,7 +91,8 @@
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  padding: 0;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -92,9 +101,7 @@
   }
 }
 
-.cal-day.empty {
-  cursor: default;
-}
+.cal-day.empty { cursor: default; }
 
 .cal-day.today {
   color: var(--accent-color);
@@ -135,6 +142,7 @@
   box-shadow: 0 4px 12px var(--accent-glow);
 }
 
+/* ── Range-mode sidebar ─────────────────────────────────────────────────── */
 .calendar-sidebar {
   width: 200px;
   background: rgba(0, 0, 0, 0.25);
@@ -208,161 +216,82 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Mobile ─────────────────────────────────────────────────────────────
+   The range sidebar stacks above the grid rather than stealing width from
+   it, so the day cells stay large enough to tap. */
 @media (max-width: 600px) {
   .unified-calendar {
+    max-height: calc(100dvh - 32px);
+  }
+
+  .unified-calendar.range-mode {
     flex-direction: column !important;
-    max-width: 380px !important;
+    max-width: 380px;
   }
-  .calendar-sidebar {
-    width: 100% !important;
-    flex-direction: row !important;
-    justify-content: space-between !important;
-    border-right: none !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-    padding: 16px 24px !important;
-    gap: 16px !important;
+
+  .range-mode .calendar-sidebar {
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 14px 20px;
+    gap: 16px;
   }
-  .sidebar-group {
-    align-items: center;
+
+  .range-mode .sidebar-group { align-items: center; }
+  .range-mode .sidebar-value { font-size: 22px; }
+
+  .calendar-actions {
+    margin-top: 16px;
   }
-  .calendar-main {
-    padding: 16px !important;
+
+  /* Cancel also matches the global `.cancel-btn { height: 44px }` from the
+     transaction modal's stylesheet, so pin both to the same height rather than
+     letting one be padding-sized and the other fixed. */
+  .calendar-actions button {
+    flex: 1;
+    min-height: 44px;
+    padding: 12px 16px;
+    font-size: 15px;
+    border-radius: 12px;
   }
 }
 
-/* Desktop Dynamic Scaling */
+/* ── Larger screens ─────────────────────────────────────────────────────
+   Only range mode grows. The single-date picker stays compact — it is used
+   inside other modals, where a 500px calendar looks wrong. */
 @media (min-width: 769px) {
-  .unified-calendar {
-    max-width: 500px;
-  }
-
   .unified-calendar.range-mode {
     max-width: 720px;
   }
 
-  .calendar-sidebar {
+  .range-mode .calendar-sidebar {
     width: 220px;
     padding: 32px 24px;
     gap: 36px;
   }
 
-  .sidebar-label {
-    font-size: 14px;
-  }
-
-  .sidebar-value {
-    font-size: 32px;
-  }
-
-  .calendar-main {
-    padding: 28px 32px;
-  }
-
-  .calendar-header h3 {
-    font-size: 19px;
-  }
-
-  .cal-nav-btn {
-    width: 38px;
-    height: 38px;
-  }
-
-  .calendar-grid {
-    gap: 10px;
-  }
-
-  .cal-day-name {
-    font-size: 14px;
-    margin-bottom: 10px;
-  }
-
-  .cal-day {
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  .calendar-actions button {
-    padding: 10px 22px;
-    font-size: 15px;
-    border-radius: 10px;
-  }
+  .range-mode .sidebar-label { font-size: 14px; }
+  .range-mode .sidebar-value { font-size: 32px; }
+  .range-mode .calendar-grid { gap: 10px; }
+  .range-mode .cal-day { font-size: 15px; font-weight: 600; }
+  .range-mode .cal-day-name { font-size: 14px; }
 }
 
 @media (min-width: 1200px) {
-  .unified-calendar {
-    max-width: 540px;
-  }
-
   .unified-calendar.range-mode {
     max-width: 800px;
   }
 
-  .calendar-sidebar {
+  .range-mode .calendar-sidebar {
     width: 250px;
     padding: 36px 28px;
     gap: 40px;
   }
 
-  .sidebar-label {
-    font-size: 14px;
-  }
-
-  .sidebar-value {
-    font-size: 36px;
-  }
-
-  .calendar-main {
-    padding: 32px 36px;
-  }
-
-  .calendar-header h3 {
-    font-size: 21px;
-  }
-
-  .cal-nav-btn {
-    width: 42px;
-    height: 42px;
-  }
-
-  .calendar-grid {
-    gap: 12px;
-  }
-
-  .cal-day-name {
-    font-size: 15px;
-    margin-bottom: 12px;
-  }
-
-  .cal-day {
-    font-size: 16px;
-    font-weight: 600;
-  }
-}
-
-
-/* The month grid grows to six rows in some months; on a short screen that used
-   to push the Done button off the bottom with no way to scroll to it. */
-.unified-calendar {
-  max-height: calc(100dvh - 48px);
-}
-
-.unified-calendar .calendar-main {
-  min-height: 0;
-  overflow-y: auto;
-}
-
-@media (max-width: 600px) {
-  .unified-calendar {
-    max-height: calc(100dvh - 32px);
-  }
-  .calendar-actions {
-    margin-top: 16px !important;
-    padding-top: 16px !important;
-  }
-  .calendar-actions button {
-    flex: 1;
-    padding: 12px 16px;
-    font-size: 15px;
-    border-radius: 12px;
-  }
+  .range-mode .sidebar-value { font-size: 36px; }
+  .range-mode .calendar-grid { gap: 12px; }
+  .range-mode .cal-day { font-size: 16px; }
 }
