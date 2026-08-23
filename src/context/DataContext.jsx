@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Shield, AlertTriangle } from 'lucide-react';
 import * as db from '../store/db';
-import { pb, syncAll, syncSettings, setupRealtimeSync, connectPocketBase } from '../store/sync';
+import { pb, syncAll, syncSettings, setupRealtimeSync, connectPocketBase, startAutoSync, onSyncStateChange } from '../store/sync';
 import { isUnlocked, tryRestoreSession, deriveKey, verifyPinWithData, hasCachedPin } from '../utils/crypto';
 import PinPad from '../components/PinPad';
 import { useSecuritySettings, useSettingsMaintenance } from './SettingsContext';
@@ -45,14 +45,12 @@ export function DataProvider({ children }) {
   // encrypted data. Until then we cannot tell "no PIN set up yet" apart from
   // "a PIN exists, we just have not read the settings yet".
   const [securityResolved, setSecurityResolved] = useState(false);
-  // What the app is actually doing about syncing:
-  //   pending    — still working it out
-  //   synced     — authenticated, pushing and pulling
-  //   guest      — local-only session, sync deliberately off
-  //   signed-out — no PocketBase session on this device
-  //   offline    — no PocketBase server reachable
-  //   locked     — encrypted account waiting on its PIN
-  const [syncStatus, setSyncStatus] = useState({ mode: 'pending', lastSyncAt: null, error: null });
+  // Mirrored from the sync engine rather than tracked separately here, so what
+  // the UI shows is what the engine actually did — including realtime health
+  // and push failures, which previously only reached the console.
+  const [syncStatus, setSyncStatus] = useState({ mode: 'pending', realtime: 'off', lastSyncAt: null, lastError: null });
+
+  useEffect(() => onSyncStateChange(setSyncStatus), []);
   const [pinInput, setPinInput] = useState('');
   // Held so a subscription started by a later unlock can be torn down. Without
   // it, unlocking added a second full set of collection subscriptions on top of
@@ -151,13 +149,7 @@ export function DataProvider({ children }) {
   useEffect(() => {
     let isMounted = true;
 
-    const subscribe = () => {
-      if (realtimeUnsubRef.current) realtimeUnsubRef.current();
-      realtimeUnsubRef.current = setupRealtimeSync((collection) => {
-        loadData();
-        if (collection === 'settings' && reloadSettings) reloadSettings();
-      });
-    };
+    const subscribe = () => { subscribeRealtimeRef.current(); };
 
     // Wrapper so every exit path — including the early returns for no server
     // and no session — marks the security state as resolved exactly once.
@@ -175,17 +167,12 @@ export function DataProvider({ children }) {
       setIsLoading(false);
 
       const activeUrl = await connectPocketBase();
-      if (!activeUrl) {
-        if (isMounted) setSyncStatus({ mode: 'offline', lastSyncAt: null, error: 'No PocketBase server reachable' });
-        return;
-      }
+      if (!activeUrl) return;
+      // Guest sessions are local by design; anything else means the session did
+      // not carry into this context and data will not leave the device. Either
+      // way the sync engine reports it.
       if (!pb.authStore.isValid) {
-        // Guest sessions are local by design; anything else means the session
-        // did not carry into this context and data will not leave the device.
-        if (isMounted) {
-          const guest = localStorage.getItem('BUDGET_GUEST_SESSION') === '1';
-          setSyncStatus({ mode: guest ? 'guest' : 'signed-out', lastSyncAt: null, error: null });
-        }
+        await syncAll();
         return;
       }
 
@@ -245,38 +232,61 @@ export function DataProvider({ children }) {
           // Full sync now that we can decrypt
           await syncAll();
           await loadData();
-          if (isMounted) setSyncStatus({ mode: 'synced', lastSyncAt: Date.now(), error: null });
           subscribe();
         } else if (isMounted) {
           // No cached PIN — prompt user
           setNeedsPin(true);
-          setSyncStatus({ mode: 'locked', lastSyncAt: null, error: null });
         }
       } else {
         // No E2EE — just sync everything
         await syncAll();
         await loadData();
-        if (isMounted) setSyncStatus({ mode: 'synced', lastSyncAt: Date.now(), error: null });
         subscribe();
       }
     }
 
     setSecurityResolved(false);
-    init();
+    // An unhandled rejection in here used to abandon the rest of startup
+    // silently: no sync, no realtime, no explanation.
+    init().catch(err => console.error('Startup sync failed:', err));
 
     return () => {
       isMounted = false;
-      if (realtimeUnsubRef.current) {
-        realtimeUnsubRef.current();
-        realtimeUnsubRef.current = null;
-      }
+      const previous = realtimeUnsubRef.current;
+      realtimeUnsubRef.current = null;
+      if (previous) previous();
     };
   }, [authUserId, loadData, reloadSettings]);
+
+  // Keeps devices converging without depending on the realtime stream: on
+  // return to the app, on focus, on regaining network, on a login, and on a
+  // slow poll while the app is on screen. This is what makes a change made on
+  // one device turn up on another that was simply sitting there.
+  useEffect(() => {
+    if (!authUserId) return undefined;
+    return startAutoSync({ onSynced: () => loadData() });
+  }, [authUserId, loadData]);
 
   // Local writes are already reflected in state optimistically, so a mutation
   // should not block the caller on a network round trip. Sync runs in the
   // background and reloads from the local store when it settles; updates from
   // other devices arrive through setupRealtimeSync regardless.
+  // Tearing the old subscriptions down is asynchronous, so it has to finish
+  // before new ones are opened — otherwise the teardown lands afterwards and
+  // takes the fresh subscriptions with it.
+  const subscribeRealtimeRef = useRef(null);
+
+  const subscribeRealtime = useCallback(async () => {
+    const previous = realtimeUnsubRef.current;
+    realtimeUnsubRef.current = null;
+    if (previous) await previous();
+    realtimeUnsubRef.current = setupRealtimeSync((collection) => {
+      loadData();
+      if (collection === 'settings' && reloadSettings) reloadSettings();
+    });
+  }, [loadData, reloadSettings]);
+  subscribeRealtimeRef.current = subscribeRealtime;
+
   const syncInBackground = useCallback(() => {
     if (!pb.authStore.isValid) return; // guest / signed out: nothing to push
     syncAll()
@@ -515,12 +525,7 @@ export function DataProvider({ children }) {
       await syncAll();
       if (reloadSettings) await reloadSettings();
       await loadData();
-      setSyncStatus({ mode: 'synced', lastSyncAt: Date.now(), error: null });
-      if (realtimeUnsubRef.current) realtimeUnsubRef.current();
-      realtimeUnsubRef.current = setupRealtimeSync((collection) => {
-        loadData();
-        if (collection === 'settings' && reloadSettings) reloadSettings();
-      });
+      await subscribeRealtime();
     }
   };
 

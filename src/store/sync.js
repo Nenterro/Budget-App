@@ -60,6 +60,46 @@ async function resolvePocketBaseUrl() {
   return null;
 }
 
+// ─── Observable sync state ───
+//
+// Sync used to fail silently: a dead realtime connection or a rejected push
+// only ever reached console.warn, so from the outside "my other device never
+// updated" was indistinguishable from "nothing changed". Everything now reports
+// into one place that the UI can render.
+//
+//   mode      pending | synced | syncing | offline | signed-out | guest | error
+//   realtime  off | connecting | live | failed
+const syncListeners = new Set();
+
+let syncState = {
+  mode: 'pending',
+  realtime: 'off',
+  lastSyncAt: null,
+  lastError: null,
+  lastTrigger: null
+};
+
+export function getSyncState() {
+  return syncState;
+}
+
+export function onSyncStateChange(listener) {
+  syncListeners.add(listener);
+  listener(syncState);
+  return () => syncListeners.delete(listener);
+}
+
+function setSyncState(patch) {
+  syncState = { ...syncState, ...patch };
+  for (const listener of syncListeners) {
+    try {
+      listener(syncState);
+    } catch (e) {
+      // A broken listener must not take the sync engine down with it.
+    }
+  }
+}
+
 // ─── Settings ID Mapping ───
 // Local settings use a fixed key 'appsettings1234' (14 chars).
 // PocketBase auto-generates 15-char IDs. We store the mapping so
@@ -416,19 +456,90 @@ export function syncAll() {
 async function runSyncAll() {
   if (!pb.baseUrl) {
     const connected = await connectPocketBase();
-    if (!connected) return;
+    if (!connected) {
+      setSyncState({ mode: 'offline', lastError: 'No PocketBase server reachable' });
+      return;
+    }
   }
-  if (!pb.authStore.isValid) return;
+  if (!pb.authStore.isValid) {
+    const guest = typeof localStorage !== 'undefined' && localStorage.getItem('BUDGET_GUEST_SESSION') === '1';
+    setSyncState({ mode: guest ? 'guest' : 'signed-out' });
+    return;
+  }
+
+  setSyncState({ mode: 'syncing' });
+
+  // A push that the server rejects has to be visible, not just logged.
+  const failures = [];
+  const track = (name, promise) => promise.catch(err => {
+    failures.push(`${name}: ${err?.message || err}`);
+  });
 
   // Settings first, then data stores in parallel
-  await syncSettingsStore();
+  await track('settings', syncSettingsStore());
   await Promise.all([
-    syncDataStore(db.transactionsStore, 'transactions'),
-    syncDataStore(db.accountsStore, 'accounts'),
-    syncDataStore(db.categoriesStore, 'categories'),
-    syncDataStore(db.payeesStore, 'payees'),
-    syncDataStore(db.budgetsStore, 'budgets')
+    track('transactions', syncDataStore(db.transactionsStore, 'transactions')),
+    track('accounts', syncDataStore(db.accountsStore, 'accounts')),
+    track('categories', syncDataStore(db.categoriesStore, 'categories')),
+    track('payees', syncDataStore(db.payeesStore, 'payees')),
+    track('budgets', syncDataStore(db.budgetsStore, 'budgets'))
   ]);
+
+  if (failures.length) {
+    setSyncState({ mode: 'error', lastError: failures.join('; ') });
+  } else {
+    setSyncState({ mode: 'synced', lastSyncAt: Date.now(), lastError: null });
+  }
+}
+
+// ─── Automatic sync ───
+//
+// Realtime is an optimisation, not a guarantee. An EventSource does not survive
+// a backgrounded PWA, a screen lock or a network switch, and the 0.21.x SDK
+// never re-authenticates the stream when the auth token changes — so a device
+// left sitting on a page could go indefinitely without hearing about anything.
+// These triggers are what actually make "change it here, see it there" work:
+// coming back to the app, regaining focus, regaining network, and a slow poll
+// while the app is on screen.
+export function startAutoSync({ intervalMs = 45000, onSynced } = {}) {
+  let stopped = false;
+
+  const run = async (trigger) => {
+    if (stopped || !pb.authStore.isValid) return;
+    // No point polling a tab nobody is looking at; the visibility handler
+    // catches up the moment it comes back.
+    if (trigger === 'interval' && typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+    setSyncState({ lastTrigger: trigger });
+    try {
+      await syncAll();
+      if (!stopped && onSynced) await onSynced(trigger);
+    } catch (err) {
+      if (!stopped) setSyncState({ mode: 'error', lastError: err?.message || String(err) });
+    }
+  };
+
+  const onVisibility = () => {
+    if (document.visibilityState === 'visible') run('visible');
+  };
+  const onFocus = () => run('focus');
+  const onOnline = () => run('online');
+  // The SDK has no reaction of its own to a login or a token refresh.
+  const offAuthChange = pb.authStore.onChange(() => run('auth-change'));
+
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('focus', onFocus);
+  window.addEventListener('online', onOnline);
+  const timer = setInterval(() => run('interval'), intervalMs);
+
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+    document.removeEventListener('visibilitychange', onVisibility);
+    window.removeEventListener('focus', onFocus);
+    window.removeEventListener('online', onOnline);
+    if (offAuthChange) offAuthChange();
+  };
 }
 
 // Subscribe to real-time events
@@ -443,8 +554,47 @@ export function setupRealtimeSync(onUpdate) {
     budgets: db.budgetsStore
   };
 
-  collections.forEach(coll => {
-    pb.collection(coll).subscribe('*', async function (e) {
+  // Disposed setups must not touch state belonging to a newer one.
+  let disposed = false;
+  const unsubscribers = [];
+
+  setSyncState({ realtime: 'connecting' });
+
+  const ready = Promise.all(collections.map(coll => {
+    return pb.collection(coll).subscribe('*', buildHandler(coll, stores, onUpdate))
+      .then(unsubscribe => {
+        // A teardown that landed while this was in flight still has to win.
+        if (disposed) return unsubscribe();
+        unsubscribers.push(unsubscribe);
+      })
+      .catch(err => {
+        console.warn(`Subscribe error ${coll}:`, err);
+        if (!disposed) {
+          setSyncState({ realtime: 'failed', lastError: `realtime ${coll}: ${err?.message || err}` });
+        }
+      });
+  })).then(() => {
+    if (!disposed && unsubscribers.length === collections.length) {
+      setSyncState({ realtime: 'live' });
+    }
+  });
+
+  // Each subscription is dropped by its own handle rather than by wiping the
+  // collection's topic. `unsubscribe('*')` removed every listener on that
+  // collection, so a teardown resolving after the next setup had subscribed
+  // silently killed the new subscriptions too — and nothing reported it.
+  return async () => {
+    disposed = true;
+    await ready.catch(() => {});
+    await Promise.all(unsubscribers.map(fn => Promise.resolve().then(fn).catch(() => {})));
+    unsubscribers.length = 0;
+    setSyncState({ realtime: 'off' });
+  };
+}
+
+function buildHandler(coll, stores, onUpdate) {
+  return (
+    async function (e) {
       const store = stores[coll];
       
       const currentUserId = getCurrentUserId();
@@ -489,10 +639,6 @@ export function setupRealtimeSync(onUpdate) {
         }
       }
       if (onUpdate) onUpdate(coll);
-    }).catch(err => console.warn(`Subscribe error ${coll}:`, err));
-  });
-
-  return () => {
-    collections.forEach(coll => pb.collection(coll).unsubscribe('*'));
-  };
+    }
+  );
 }
