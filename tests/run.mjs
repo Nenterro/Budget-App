@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = mkdtempSync(join(tmpdir(), 'budget-tests-'));
 
-const TESTS = ['sync.test.mjs', 'triggers.test.mjs', 'expenseShares.test.mjs'];
+const TESTS = ['sync.test.mjs', 'triggers.test.mjs', 'expenseShares.test.mjs', 'dropdown.test.mjs'];
 
 let failed = 0;
 
@@ -35,6 +35,7 @@ try {
       format: 'esm',
       outfile,
       logLevel: 'warning',
+      loader: { '.jsx': 'jsx' },
       alias: {
         localforage: join(here, 'mocks', 'localforage.js'),
         pocketbase: join(here, 'mocks', 'pocketbase.js')
