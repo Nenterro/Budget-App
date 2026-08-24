@@ -210,36 +210,7 @@
   line-height: 1;
 }
 
-/* Inputs */
-.input-with-icon {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.input-icon {
-  position: absolute;
-  left: 12px;
-  color: var(--text-secondary);
-  pointer-events: none;
-}
-
-.input-with-icon input {
-  width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 12px 12px 12px 40px;
-  color: var(--text-primary);
-  font-size: 15px;
-  outline: none;
-  transition: all 0.2s;
-}
-
-.input-with-icon input:focus {
-  border-color: var(--accent-color);
-  background: rgba(255, 255, 255, 0.08);
-}
+/* Inputs: see the shared .input-with-icon primitives in index.css. */
 
 /* Math Preview */
 .relative { position: relative; }

@@ -1,5 +1,11 @@
+import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
+
+// Every open modal registers here, newest last, so Escape only dismisses the
+// one on top. Without a stack, pressing Escape with the date picker open over
+// the transaction form would have closed both at once.
+const modalStack = [];
 
 /**
  * ModalWrapper — unified open/close animation for all modals.
@@ -39,6 +45,30 @@ const transition = {
 };
 
 export default function ModalWrapper({ children, onClose, zIndex = 1000, className = '' }) {
+  // Held in a ref so re-registering is not needed every time the parent
+  // re-renders with a new handler.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const token = { close: () => onCloseRef.current && onCloseRef.current() };
+    modalStack.push(token);
+
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      if (modalStack[modalStack.length - 1] !== token) return;
+      event.stopPropagation();
+      token.close();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      const index = modalStack.indexOf(token);
+      if (index !== -1) modalStack.splice(index, 1);
+    };
+  }, []);
+
   return createPortal(
     <motion.div
       className={`modal-overlay ${className}`}

@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = mkdtempSync(join(tmpdir(), 'budget-tests-'));
 
-const TESTS = ['sync.test.mjs', 'triggers.test.mjs'];
+const TESTS = ['sync.test.mjs', 'triggers.test.mjs', 'expenseShares.test.mjs'];
 
 let failed = 0;
 

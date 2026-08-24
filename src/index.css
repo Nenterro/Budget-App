@@ -148,3 +148,45 @@ body {
   .desktop-only { display: flex !important; }
   .mobile-only { display: none !important; }
 }
+
+/* ── Shared form primitives ──────────────────────────────────────────────
+   These live here rather than in a component stylesheet because several
+   components use them. They were defined twice — in AddTransactionModal.css
+   and FilterModal.css, with different padding, radius and background — so
+   whichever loaded last silently restyled the other. Once routes and modals
+   were split into separate chunks it got worse: ExpenseSharingModal, Budgets
+   and EditBudgetModal use these classes without owning them, so their inputs
+   lost all styling unless some other component's stylesheet happened to be
+   loaded first. */
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-secondary);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.input-with-icon input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px 12px 12px 40px;
+  color: var(--text-primary);
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.input-with-icon input:focus {
+  border-color: var(--accent-color);
+  background: rgba(255, 255, 255, 0.08);
+}

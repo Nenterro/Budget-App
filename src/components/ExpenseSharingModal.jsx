@@ -1,448 +1,285 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronDown, ChevronRight, ArrowLeft, Users, Plus, Trash2, Calendar, Check, AlertTriangle, User, Edit2 } from 'lucide-react';
+import { X, ChevronRight, ArrowLeft, Users, Plus, Trash2, Calendar, Check, AlertTriangle, User, Edit2 } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
 import { useData } from '../context/DataContext';
-import { formatCurrency, getCurrencySymbol } from '../utils/format';
-import { formatAmountInput } from '../utils/format';
+import { formatCurrency, getCurrencySymbol, formatAmountInput } from '../utils/format';
 import { evalMath } from '../utils/math';
-import { generateId } from '../store/db';
+import {
+  sharePending, personPending, personRepaid, personWrittenOff, totalPending,
+  applyWriteOff, editWriteOff, removeWriteOff,
+  applyRepayment, editRepayment, removeRepayment,
+  maxWriteOff, maxRepayment
+} from '../utils/expenseShares';
 import { format, parseISO } from 'date-fns';
 import './ExpenseSharingModal.css';
 
+const today = () => new Date().toISOString().substring(0, 10);
+const round2 = (n) => Math.round(n * 100) / 100;
+
+const formatDateShort = (value) => {
+  if (!value) return '';
+  try {
+    return format(parseISO(value), 'dd/MM/yy');
+  } catch {
+    return String(value).substring(0, 10);
+  }
+};
+
+// A dropdown whose value is not among its options renders as its placeholder,
+// which made prefilled forms ("Bad Debt", the person's own name) look empty.
+const withCurrentValue = (items, current) => {
+  const options = items.map(i => ({ value: i.name, label: i.name }));
+  if (current && !options.some(o => o.value === current)) {
+    options.unshift({ value: current, label: current });
+  }
+  return options;
+};
+
+const EMPTY_FORM = { person: '', amount: '', account: '', date: '', category: '', payee: '' };
+
 export default function ExpenseSharingModal({ isOpen, onClose }) {
-  const { transactions, updateTransaction, addTransaction, deleteTransaction, saveTransactionsBatch, categories, payees, accounts } = useData();
-  
-  const [activeTab, setActiveTab] = useState('unsettled'); // 'unsettled' | 'settled'
+  const { transactions, saveTransactionsBatch, categories, payees, accounts } = useData();
+
+  const [activeTab, setActiveTab] = useState('unsettled');
   const [selectedTxId, setSelectedTxId] = useState(null);
-  const [addingRepaymentFor, setAddingRepaymentFor] = useState(null); // txId
-  const [editingRepayment, setEditingRepayment] = useState(null); // { txId, repaymentId }
-  const [writingOffFor, setWritingOffFor] = useState(null); // { txId, shareId }
-  
-  // Repayment form state
-  const [repayPerson, setRepayPerson] = useState('');
-  const [repayAmount, setRepayAmount] = useState('');
-  const [repayAccount, setRepayAccount] = useState('');
-  const [repayDate, setRepayDate] = useState(new Date().toISOString().substring(0, 10));
-  const [showRepayCalendar, setShowRepayCalendar] = useState(false);
-  
-  // Edit Repayment form state
-  const [editPerson, setEditPerson] = useState('');
-  const [editAmount, setEditAmount] = useState('');
-  const [editAccount, setEditAccount] = useState('');
-  const [editDate, setEditDate] = useState('');
-  const [showEditCalendar, setShowEditCalendar] = useState(false);
 
-  // Write-off form state
-  const [writeOffAmount, setWriteOffAmount] = useState('');
-  const [writeOffCategory, setWriteOffCategory] = useState('');
-  const [writeOffPayee, setWriteOffPayee] = useState('');
+  // One drawer, one form. There used to be three near-identical drawers with
+  // their own state, which is how they drifted apart — different validation,
+  // different field sets, and no edit path for write-offs at all.
+  const [drawer, setDrawer] = useState(null); // { kind, shareId?, recordId? }
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [showCalendar, setShowCalendar] = useState(false);
 
-  // Get all expense sharing transactions
-  const allSharedExpenses = useMemo(() => {
-    return transactions
+  const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  const closeDrawer = () => { setDrawer(null); setForm(EMPTY_FORM); setShowCalendar(false); };
+
+  const allSharedExpenses = useMemo(() => (
+    transactions
       .filter(tx => tx.isExpenseShare && tx.expenseShares && tx.expenseShares.length > 0)
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [transactions]);
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+  ), [transactions]);
 
-  const getRepayments = (tx) => tx.repayments || [];
-  const getWriteOffs = (tx) => tx.writeOffs || [];
-
-  const getPersonRepaid = (tx, personName) => {
-    return getRepayments(tx)
-      .filter(r => r.personName === personName)
-      .reduce((acc, r) => acc + (r.amount || 0), 0);
-  };
-
-  const getPersonWrittenOff = (tx, personName) => {
-    return getWriteOffs(tx)
-      .filter(w => w.personName === personName)
-      .reduce((acc, w) => acc + (w.amount || 0), 0);
-  };
-
-  // `share.amount` is already net of anything written off — confirming a
-  // write-off subtracts from it and deleting one adds it back. Subtracting the
-  // write-off again here made a *partial* write-off zero out the whole
-  // remaining balance, so the person looked settled and the expense jumped to
-  // the Settled tab while money was still owed.
-  const getPersonPending = (tx, personName) => {
-    const share = tx.expenseShares.find(s => s.name === personName);
-    if (!share) return 0;
-    return Math.max(0, share.amount - getPersonRepaid(tx, personName));
-  };
-
-  const getSharePending = (tx, share) =>
-    Math.max(0, share.amount - getPersonRepaid(tx, share.name));
-
-  // Shared by every handler that has to recompute the settled flags after a
-  // change, so they can't drift apart again.
-  const recomputeShares = (shares, repayments) => shares.map(s => {
-    const repaid = (repayments || [])
-      .filter(r => r.personName === s.name)
-      .reduce((acc, r) => acc + (r.amount || 0), 0);
-    return { ...s, settled: s.amount <= 0 || repaid >= s.amount };
-  });
-
-  // Derived from the amounts themselves rather than the stored `settled` flag.
-  // The flag is a cache; trusting it meant a row whose flag had gone stale (an
-  // edited repayment, an older record written before the write-off maths was
-  // fixed) kept an expense parked in the wrong tab.
-  const getTotalPending = (tx) => {
-    return tx.expenseShares.reduce((acc, share) => acc + getSharePending(tx, share), 0);
-  };
-
-  const unsettledExpenses = useMemo(() => {
-    return allSharedExpenses.filter(tx => {
-      const pending = getTotalPending(tx);
-      return pending > 0;
-    });
-  }, [allSharedExpenses]);
-
-  const settledExpenses = useMemo(() => {
-    return allSharedExpenses.filter(tx => {
-      const pending = getTotalPending(tx);
-      return pending <= 0;
-    });
-  }, [allSharedExpenses]);
-
-  // The write-off form defaults to the "Bad Debt" category and the person's own
-  // name as payee. Neither is necessarily a saved category/payee, and a
-  // dropdown whose value isn't among its options renders as the placeholder —
-  // so the form looked empty and confirming appeared to do nothing. Fold the
-  // current value in as an option when it isn't already there.
-  const withCurrentValue = (items, current) => {
-    const options = items.map(i => ({ value: i.name, label: i.name }));
-    if (current && !options.some(o => o.value === current)) {
-      options.unshift({ value: current, label: current });
-    }
-    return options;
-  };
-  const writeOffCategoryOptions = withCurrentValue(categories, writeOffCategory);
-  const writeOffPayeeOptions = withCurrentValue(payees, writeOffPayee);
+  const unsettledExpenses = useMemo(
+    () => allSharedExpenses.filter(tx => totalPending(tx) > 0), [allSharedExpenses]);
+  const settledExpenses = useMemo(
+    () => allSharedExpenses.filter(tx => totalPending(tx) <= 0), [allSharedExpenses]);
 
   const displayedExpenses = activeTab === 'unsettled' ? unsettledExpenses : settledExpenses;
-  const selectedTx = useMemo(() => transactions.find(t => t.id === selectedTxId), [transactions, selectedTxId]);
+  const selectedTx = useMemo(
+    () => transactions.find(t => t.id === selectedTxId), [transactions, selectedTxId]);
 
   if (!isOpen) return null;
 
-  const handleStartWriteOff = (tx, share) => {
-    const pending = getPersonPending(tx, share.name);
-    setWritingOffFor({ txId: tx.id, shareId: share.id });
-    setWriteOffAmount(String(Math.round(pending * 100) / 100));
-    setWriteOffCategory('Bad Debt');
-    setWriteOffPayee(share.name);
-  };
+  const currencyFor = (tx) =>
+    getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency);
 
-  const handleConfirmWriteOff = async (tx, shareId) => {
-    const share = tx.expenseShares.find(s => s.id === shareId);
-    const requested = evalMath(writeOffAmount);
-    if (!share || !requested || requested <= 0) return;
+  // ─── Opening the drawer ──────────────────────────────────────────────────
 
-    // Never write off more than is actually outstanding: the surplus used to be
-    // subtracted from the parent transaction anyway, quietly shrinking the
-    // expense below what was really spent.
-    const pending = getPersonPending(tx, share.name);
-    if (pending <= 0) return;
-    const amount = Math.min(requested, pending);
-
-    const writeOffTxId = generateId();
-    const writeOffTx = {
-      id: writeOffTxId,
-      type: tx.type,
-      amount: tx.type === 0 ? -amount : amount,
-      category: writeOffCategory || 'Bad Debt',
-      payee: writeOffPayee || share.name,
-      note: `Written off from shared expense (${tx.payee || 'Shared Expense'})`,
-      date: tx.date,
-      account: tx.account,
-      currency: tx.currency,
-      parentExpenseShareTxId: tx.id,
-      isWriteOff: true,
-      pendingSync: true,
-      updatedAt: new Date().toISOString()
-    };
-
-    const newWriteOffRecord = {
-      id: generateId(),
-      shareId: shareId,
-      personName: share.name,
-      amount: amount,
-      category: writeOffCategory || 'Bad Debt',
-      payee: writeOffPayee || share.name,
-      linkedTxId: writeOffTxId,
-      date: tx.date
-    };
-
-    const updatedWriteOffs = [...(tx.writeOffs || []), newWriteOffRecord];
-
-    // Reduce original transaction amount by write-off amount
-    const signedChange = tx.amount < 0 ? amount : -amount;
-    const newTxAmount = tx.amount + signedChange;
-
-    // Reduce person's share amount on original transaction by write-off amount
-    const updatedShares = recomputeShares(
-      tx.expenseShares.map(s => (s.id === shareId ? { ...s, amount: Math.max(0, s.amount - amount) } : s)),
-      tx.repayments
-    );
-
-    const updatedParentTx = {
-      ...tx,
-      amount: newTxAmount,
-      writeOffs: updatedWriteOffs,
-      expenseShares: updatedShares,
-      pendingSync: true,
-      updatedAt: new Date().toISOString()
-    };
-
-    await saveTransactionsBatch([updatedParentTx, writeOffTx]);
-
-    setWritingOffFor(null);
-    setWriteOffAmount('');
-    setWriteOffCategory('');
-    setWriteOffPayee('');
-  };
-
-  const handleDeleteWriteOff = async (tx, writeOffRecord) => {
-    const updatedWriteOffs = (tx.writeOffs || []).filter(w => w.id !== writeOffRecord.id);
-
-    // Restore written-off amount back to original transaction amount
-    const signedChange = tx.amount < 0 ? writeOffRecord.amount : -writeOffRecord.amount;
-    const restoredTxAmount = tx.amount - signedChange;
-
-    // Restore person's share amount on original transaction. Match on shareId
-    // first and only fall back to the name, so two people with the same name
-    // don't both get the amount added back.
-    let restored = false;
-    const updatedShares = recomputeShares(
-      tx.expenseShares.map(s => {
-        if (restored) return s;
-        const isTarget = writeOffRecord.shareId
-          ? s.id === writeOffRecord.shareId
-          : s.name === writeOffRecord.personName;
-        if (!isTarget) return s;
-        restored = true;
-        return { ...s, amount: s.amount + writeOffRecord.amount };
-      }),
-      tx.repayments
-    );
-
-    const updatedParentTx = {
-      ...tx,
-      amount: restoredTxAmount,
-      writeOffs: updatedWriteOffs,
-      expenseShares: updatedShares,
-      pendingSync: true,
-      updatedAt: new Date().toISOString()
-    };
-
-    await saveTransactionsBatch([updatedParentTx], writeOffRecord.linkedTxId ? [writeOffRecord.linkedTxId] : []);
-  };
-
-  const handleAddRepayment = async (tx) => {
-    const amount = evalMath(repayAmount);
-    if (!repayPerson || !amount || amount <= 0) return;
-
-    const accountToUse = repayAccount || tx.account || (accounts[0]?.name || '');
-    const dateFormatted = repayDate.substring(0, 10);
-
-    const existingIndex = (tx.repayments || []).findIndex(
-      r => r.personName === repayPerson && 
-           (r.account || tx.account) === accountToUse && 
-           (r.date ? r.date.substring(0, 10) : '') === dateFormatted
-    );
-
-    let updatedRepayments = [];
-    let childTxToSave = null;
-
-    if (existingIndex !== -1) {
-      const existing = tx.repayments[existingIndex];
-      const mergedAmount = existing.amount + amount;
-      const updatedRecord = {
-        ...existing,
-        amount: mergedAmount
-      };
-      
-      updatedRepayments = [...tx.repayments];
-      updatedRepayments[existingIndex] = updatedRecord;
-
-      if (existing.linkedTxId) {
-        const linkedTx = transactions.find(t => t.id === existing.linkedTxId);
-        if (linkedTx) {
-          childTxToSave = {
-            ...linkedTx,
-            amount: mergedAmount,
-            updatedAt: new Date().toISOString(),
-            pendingSync: true
-          };
-        }
-      }
-    } else {
-      const linkedTxId = generateId();
-      childTxToSave = {
-        id: linkedTxId,
-        type: 1, // Income
-        amount: amount,
-        category: 'Loan',
-        payee: repayPerson,
-        note: `Repayment for shared expense (${tx.payee || 'Expense Share'})`,
-        date: new Date(repayDate).toISOString(),
-        account: accountToUse,
-        currency: accounts.find(a => a.name === accountToUse)?.currency || tx.currency,
-        parentExpenseShareTxId: tx.id,
-        isRepayment: true,
-        updatedAt: new Date().toISOString(),
-        pendingSync: true
-      };
-
-      const newRepayment = {
-        id: generateId(),
-        personName: repayPerson,
-        amount: amount,
-        date: dateFormatted,
-        account: accountToUse,
-        linkedTxId: linkedTxId
-      };
-
-      updatedRepayments = [...(tx.repayments || []), newRepayment];
-    }
-    
-    const updatedShares = recomputeShares(tx.expenseShares, updatedRepayments);
-
-    const updatedParentTx = {
-      ...tx,
-      repayments: updatedRepayments,
-      expenseShares: updatedShares,
-      pendingSync: true,
-      updatedAt: new Date().toISOString()
-    };
-
-    const batchToSave = [updatedParentTx];
-    if (childTxToSave) batchToSave.push(childTxToSave);
-
-    await saveTransactionsBatch(batchToSave);
-
-    setRepayPerson('');
-    setRepayAmount('');
-    setRepayAccount('');
-    setRepayDate(new Date().toISOString().substring(0, 10));
-    setAddingRepaymentFor(null);
-  };
-
-  const handleStartEditRepayment = (tx, rep) => {
-    setEditingRepayment({ txId: tx.id, repaymentId: rep.id });
-    setEditPerson(rep.personName);
-    setEditAmount(rep.amount.toString());
-    setEditAccount(rep.account || tx.account || (accounts[0]?.name || ''));
-    setEditDate(rep.date ? rep.date.substring(0, 10) : new Date().toISOString().substring(0, 10));
-  };
-
-  const handleSaveEditRepayment = async (tx, rep) => {
-    const newAmt = evalMath(editAmount);
-    if (!editPerson || !newAmt || newAmt <= 0) return;
-
-    const updatedRepayments = (tx.repayments || []).map(r => {
-      if (r.id === rep.id) {
-        return {
-          ...r,
-          personName: editPerson,
-          amount: newAmt,
-          account: editAccount,
-          date: editDate
-        };
-      }
-      return r;
+  const openRepayment = (tx) => {
+    const firstOwing = tx.expenseShares.find(s => sharePending(tx, s) > 0);
+    setDrawer({ kind: 'repay' });
+    setForm({
+      ...EMPTY_FORM,
+      person: firstOwing ? firstOwing.name : '',
+      amount: firstOwing ? String(round2(sharePending(tx, firstOwing))) : '',
+      account: tx.account || accounts[0]?.name || '',
+      date: today()
     });
+  };
 
-    let childTxToSave = null;
-    if (rep.linkedTxId) {
-      const linkedTx = transactions.find(t => t.id === rep.linkedTxId);
-      if (linkedTx) {
-        childTxToSave = {
-          ...linkedTx,
-          payee: editPerson,
-          amount: newAmt,
-          account: editAccount,
-          date: new Date(editDate).toISOString(),
-          currency: accounts.find(a => a.name === editAccount)?.currency || tx.currency,
-          updatedAt: new Date().toISOString(),
-          pendingSync: true
-        };
+  const openEditRepayment = (tx, rep) => {
+    setDrawer({ kind: 'repay-edit', recordId: rep.id });
+    setForm({
+      ...EMPTY_FORM,
+      person: rep.personName,
+      amount: formatAmountInput(String(rep.amount)),
+      account: rep.account || tx.account || accounts[0]?.name || '',
+      date: (rep.date || today()).substring(0, 10)
+    });
+  };
+
+  const openWriteOff = (tx, share) => {
+    setDrawer({ kind: 'writeoff', shareId: share.id });
+    setForm({
+      ...EMPTY_FORM,
+      amount: String(round2(sharePending(tx, share))),
+      category: 'Bad Debt',
+      payee: share.name,
+      date: (tx.date || today()).substring(0, 10)
+    });
+  };
+
+  const openEditWriteOff = (tx, wo) => {
+    setDrawer({ kind: 'writeoff-edit', recordId: wo.id, shareId: wo.shareId });
+    setForm({
+      ...EMPTY_FORM,
+      amount: formatAmountInput(String(wo.amount)),
+      category: wo.category || 'Bad Debt',
+      payee: wo.payee || wo.personName,
+      date: (wo.date || tx.date || today()).substring(0, 10)
+    });
+  };
+
+  // ─── Committing ──────────────────────────────────────────────────────────
+
+  const commit = async (result) => {
+    if (!result) return;
+    const toSave = [result.parentTx];
+    const toDelete = result.deleteIds || [];
+
+    if (result.childTx) {
+      if (result.childTx.create) {
+        toSave.push(result.childTx.create);
+      } else if (result.childTx.mergeInto) {
+        const linked = transactions.find(t => t.id === result.childTx.mergeInto);
+        if (linked) {
+          toSave.push({ ...linked, amount: result.childTx.amount, pendingSync: true, updatedAt: new Date().toISOString() });
+        }
+      } else {
+        toSave.push(result.childTx);
       }
     }
 
-    const updatedShares = recomputeShares(tx.expenseShares, updatedRepayments);
-
-    const updatedParentTx = {
-      ...tx,
-      repayments: updatedRepayments,
-      expenseShares: updatedShares,
-      pendingSync: true,
-      updatedAt: new Date().toISOString()
-    };
-
-    const batchToSave = [updatedParentTx];
-    if (childTxToSave) batchToSave.push(childTxToSave);
-
-    await saveTransactionsBatch(batchToSave);
-
-    setEditingRepayment(null);
+    await saveTransactionsBatch(toSave, toDelete);
+    closeDrawer();
   };
 
-  const handleDeleteRepayment = async (tx, rep) => {
-    const updatedRepayments = (tx.repayments || []).filter(r => r.id !== rep.id);
+  const linkedTxFor = (record) =>
+    record?.linkedTxId ? transactions.find(t => t.id === record.linkedTxId) : null;
 
-    const updatedShares = recomputeShares(tx.expenseShares, updatedRepayments);
+  const handleConfirm = async (tx) => {
+    const amount = evalMath(form.amount);
+    if (!drawer) return;
 
-    const updatedParentTx = {
-      ...tx,
-      repayments: updatedRepayments,
-      expenseShares: updatedShares,
-      pendingSync: true,
-      updatedAt: new Date().toISOString()
-    };
-
-    await saveTransactionsBatch([updatedParentTx], rep.linkedTxId ? [rep.linkedTxId] : []);
-  };
-
-  const formatDateShort = (isoString) => {
-    if (!isoString) return '';
-    try {
-      return format(parseISO(isoString), 'dd/MM/yy');
-    } catch {
-      return isoString.substring(0, 10);
+    if (drawer.kind === 'repay') {
+      await commit(applyRepayment(tx, {
+        personName: form.person,
+        amount,
+        account: form.account,
+        date: form.date,
+        currency: accounts.find(a => a.name === form.account)?.currency
+      }));
+    } else if (drawer.kind === 'repay-edit') {
+      const rep = (tx.repayments || []).find(r => r.id === drawer.recordId);
+      await commit(editRepayment(tx, drawer.recordId, {
+        personName: form.person,
+        amount,
+        account: form.account,
+        date: form.date,
+        currency: accounts.find(a => a.name === form.account)?.currency
+      }, linkedTxFor(rep)));
+    } else if (drawer.kind === 'writeoff') {
+      await commit(applyWriteOff(tx, drawer.shareId, {
+        amount,
+        category: form.category,
+        payee: form.payee,
+        date: form.date
+      }));
+    } else if (drawer.kind === 'writeoff-edit') {
+      const wo = (tx.writeOffs || []).find(w => w.id === drawer.recordId);
+      await commit(editWriteOff(tx, drawer.recordId, {
+        amount,
+        category: form.category,
+        payee: form.payee,
+        date: form.date
+      }, linkedTxFor(wo)));
     }
   };
+
+  const handleDeleteRepayment = (tx, rep) => commit(removeRepayment(tx, rep.id));
+  const handleDeleteWriteOff = (tx, wo) => commit(removeWriteOff(tx, wo.id));
+
+  // ─── Drawer configuration ────────────────────────────────────────────────
+  //
+  // Everything the single drawer needs to render and validate itself, derived
+  // from which kind is open. Keeping it in one place is what stops the four
+  // flows drifting apart again.
+  const drawerConfig = (tx) => {
+    if (!drawer || !tx) return null;
+    const amount = evalMath(form.amount);
+    const isRepay = drawer.kind === 'repay' || drawer.kind === 'repay-edit';
+
+    let ceiling;
+    let subject;
+    if (isRepay) {
+      const record = drawer.kind === 'repay-edit'
+        ? (tx.repayments || []).find(r => r.id === drawer.recordId)
+        : null;
+      // Only this record's own amount frees up headroom, and only while it is
+      // still assigned to the same person.
+      const existing = record && record.personName === form.person ? record : null;
+      ceiling = form.person ? maxRepayment(tx, form.person, existing) : 0;
+      subject = form.person;
+    } else {
+      const existing = drawer.kind === 'writeoff-edit'
+        ? (tx.writeOffs || []).find(w => w.id === drawer.recordId)
+        : null;
+      const share = (tx.expenseShares || []).find(s => s.id === (existing?.shareId || drawer.shareId))
+        || (tx.expenseShares || []).find(s => s.name === existing?.personName);
+      ceiling = share ? maxWriteOff(tx, share, existing) : 0;
+      subject = share?.name;
+    }
+
+    let error = null;
+    if (isRepay && !form.person) error = 'Choose who paid you back.';
+    else if (amount === null || amount <= 0) error = 'Enter an amount greater than zero.';
+    else if (amount > ceiling + 0.005) {
+      error = isRepay
+        ? `That is more than ${subject} still owes (${currencyFor(tx)}${formatCurrency(ceiling)}).`
+        : `Only ${currencyFor(tx)}${formatCurrency(ceiling)} is outstanding for ${subject}.`;
+    }
+
+    const titles = {
+      repay: 'Record repayment',
+      'repay-edit': 'Edit repayment',
+      writeoff: `Write off ${subject || ''}'s share`.trim(),
+      'writeoff-edit': `Edit write-off${subject ? ` for ${subject}` : ''}`
+    };
+
+    const confirmLabels = {
+      repay: 'Record repayment',
+      'repay-edit': 'Save changes',
+      writeoff: 'Write it off',
+      'writeoff-edit': 'Save changes'
+    };
+
+    return { isRepay, ceiling, error, title: titles[drawer.kind], confirmLabel: confirmLabels[drawer.kind] };
+  };
+
+  const config = drawerConfig(selectedTx);
 
   return (
-    <ModalWrapper onClose={onClose}>
-      <div className="modal-content expense-sharing-modal glass-panel" onClick={e => e.stopPropagation()}>
+    <ModalWrapper onClose={drawer ? closeDrawer : onClose}>
+      <div className="expense-sharing-modal glass-panel" onClick={e => e.stopPropagation()}>
         <AnimatePresence mode="wait">
           {!selectedTxId || !selectedTx ? (
-            <motion.div 
+            <motion.div
               key="main-list"
               className="es-view-container"
-              initial={{ opacity: 0, x: -20 }}
+              initial={{ opacity: 0, x: -16 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
             >
-              <div className="modal-header">
-                <h2><Users size={20} style={{ marginRight: '8px', verticalAlign: 'middle' }} />Shared Expenses</h2>
-                <button className="close-btn" onClick={onClose} type="button"><X size={24} /></button>
+              <div className="es-header">
+                <h2><Users size={18} /> Shared expenses</h2>
+                <button className="es-icon-btn" onClick={onClose} type="button" aria-label="Close">
+                  <X size={20} />
+                </button>
               </div>
 
-              {/* Tab Selector */}
               <div className="es-tabs">
-                <button 
+                <button
                   type="button"
                   className={`es-tab ${activeTab === 'unsettled' ? 'active' : ''}`}
                   onClick={() => setActiveTab('unsettled')}
                 >
                   Unsettled <span className="es-tab-count">{unsettledExpenses.length}</span>
                 </button>
-                <button 
+                <button
                   type="button"
                   className={`es-tab ${activeTab === 'settled' ? 'active' : ''}`}
                   onClick={() => setActiveTab('settled')}
@@ -454,372 +291,203 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
               <div className="es-list">
                 {displayedExpenses.length === 0 ? (
                   <div className="es-empty">
-                    <Users size={48} style={{ opacity: 0.3 }} />
-                    <p>No {activeTab} shared expenses</p>
-                    <span>{activeTab === 'unsettled' ? 'All your shared expenses are fully paid back!' : 'Settled shared expenses will appear here.'}</span>
+                    <Users size={44} style={{ opacity: 0.3 }} />
+                    <p>Nothing {activeTab} yet</p>
+                    <span>
+                      {activeTab === 'unsettled'
+                        ? 'Every shared expense has been paid back or written off.'
+                        : 'Shared expenses become settled once nothing is outstanding.'}
+                    </span>
                   </div>
-                ) : (
-                  displayedExpenses.map(tx => {
-                    const totalPending = getTotalPending(tx);
-                    const currency = getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency);
-                    const allSettled = getTotalPending(tx) <= 0;
-
-                    return (
-                      <motion.div 
-                        key={tx.id}
-                        className="es-card glass-panel"
-                        onClick={() => {
-                          setSelectedTxId(tx.id);
-                          setAddingRepaymentFor(null);
-                          setWritingOffFor(null);
-                          setEditingRepayment(null);
-                        }}
-                        whileHover={{ scale: 1.01 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        <div className="es-card-header">
-                          <div className="es-card-left">
-                            <div className="es-card-icon" style={{ background: allSettled ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)' }}>
-                              {allSettled ? <Check size={18} style={{ color: '#10b981' }} /> : <Users size={18} style={{ color: '#f59e0b' }} />}
-                            </div>
-                            <div className="es-card-info">
-                              <div className="es-card-payee">{tx.payee}</div>
-                              <div className="es-card-meta">
-                                <span className="es-card-category">{tx.category}</span>
-                                <span className="es-dot">•</span>
-                                <span className="es-card-date">{formatDateShort(tx.date)}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="es-card-right">
-                            <div className="es-card-amounts">
-                              <span className="es-card-total">{currency}{formatCurrency(Math.abs(tx.amount))}</span>
-                              {totalPending > 0 ? (
-                                <span className="es-card-pending">{currency}{formatCurrency(totalPending)} pending</span>
-                              ) : (
-                                <span className="es-card-settled">All settled ✓</span>
-                              )}
-                            </div>
-                            <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })
-                )}
+                ) : displayedExpenses.map(tx => {
+                  const pending = totalPending(tx);
+                  const currency = currencyFor(tx);
+                  return (
+                    <button
+                      key={tx.id}
+                      type="button"
+                      className="es-card"
+                      onClick={() => { setSelectedTxId(tx.id); closeDrawer(); }}
+                    >
+                      <div className="es-card-icon" style={{ background: pending > 0 ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.15)' }}>
+                        {pending > 0
+                          ? <Users size={16} style={{ color: '#f59e0b' }} />
+                          : <Check size={16} style={{ color: '#10b981' }} />}
+                      </div>
+                      <div className="es-card-info">
+                        <span className="es-card-payee">{tx.payee}</span>
+                        <span className="es-card-meta">{tx.category} • {formatDateShort(tx.date)}</span>
+                      </div>
+                      <div className="es-card-amounts">
+                        <span className="es-card-total">{currency}{formatCurrency(Math.abs(tx.amount))}</span>
+                        <span className={pending > 0 ? 'es-card-pending' : 'es-card-settled'}>
+                          {pending > 0 ? `${currency}${formatCurrency(pending)} owed` : 'Settled'}
+                        </span>
+                      </div>
+                      <ChevronRight size={16} className="es-card-chevron" />
+                    </button>
+                  );
+                })}
               </div>
             </motion.div>
           ) : (
-            <motion.div 
+            <motion.div
               key="detail-view"
-              className="es-view-container es-detail-view"
-              initial={{ opacity: 0, x: 20 }}
+              className="es-view-container"
+              initial={{ opacity: 0, x: 16 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
+              exit={{ opacity: 0, x: 16 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
             >
               {(() => {
                 const tx = selectedTx;
-                const totalPending = getTotalPending(tx);
+                const currency = currencyFor(tx);
+                const pending = totalPending(tx);
                 const totalOwed = tx.expenseShares.reduce((acc, s) => acc + s.amount, 0);
-                const currency = getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency);
-                const allSettled = getTotalPending(tx) <= 0;
-                const txWriteOffs = getWriteOffs(tx);
+                const writeOffs = tx.writeOffs || [];
+                const repayments = tx.repayments || [];
 
                 return (
                   <>
-                    {/* Detail Header */}
-                    <div className="es-detail-header">
-                      <button className="es-back-btn" onClick={() => setSelectedTxId(null)} type="button">
+                    {/* Back is the only navigation here — the close button that
+                        used to sit beside it did the same job as tapping the
+                        backdrop and just competed with the back arrow. */}
+                    <div className="es-header">
+                      <button className="es-icon-btn" onClick={() => setSelectedTxId(null)} type="button" aria-label="Back to list">
                         <ArrowLeft size={20} />
                       </button>
-                      <div className="es-detail-header-info">
-                        <h3>{tx.payee}</h3>
+                      <div className="es-header-titles">
+                        <h2>{tx.payee}</h2>
                         <span>{tx.category} • {formatDateShort(tx.date)}</span>
                       </div>
-                      <button className="close-btn" onClick={onClose} type="button"><X size={24} /></button>
                     </div>
 
-                    {/* Scrollable Detail Body */}
                     <div className="es-detail-body">
-                      {/* Overview Summary */}
                       <div className="es-overview-card">
                         <div className="es-overview-item">
-                          <span className="es-overview-label">Total Expense</span>
+                          <span className="es-overview-label">Total</span>
                           <span className="es-overview-value">{currency}{formatCurrency(Math.abs(tx.amount))}</span>
                         </div>
                         <div className="es-overview-item">
-                          <span className="es-overview-label">Your Share</span>
-                          <span className="es-overview-value" style={{ color: '#10b981' }}>{currency}{formatCurrency(Math.abs(tx.amount) - totalOwed)}</span>
+                          <span className="es-overview-label">Your share</span>
+                          <span className="es-overview-value" style={{ color: '#10b981' }}>
+                            {currency}{formatCurrency(Math.abs(tx.amount) - totalOwed)}
+                          </span>
                         </div>
                         <div className="es-overview-item">
-                          <span className="es-overview-label">Pending</span>
-                          <span className="es-overview-value" style={{ color: totalPending > 0 ? '#f59e0b' : '#10b981' }}>
-                            {totalPending > 0 ? `${currency}${formatCurrency(totalPending)}` : 'Settled ✓'}
+                          <span className="es-overview-label">Outstanding</span>
+                          <span className="es-overview-value" style={{ color: pending > 0 ? '#f59e0b' : '#10b981' }}>
+                            {pending > 0 ? `${currency}${formatCurrency(pending)}` : 'None'}
                           </span>
                         </div>
                       </div>
 
-                      {/* People Breakdown */}
-                      <div className="es-section-title">People Breakdown</div>
+                      <div className="es-section-title">Who owes what</div>
                       <div className="es-people">
-                        {/* Your share */}
                         <div className="es-person-row yours">
                           <div className="es-person-info">
-                            <User size={14} style={{ color: '#10b981' }} />
+                            <User size={14} style={{ color: '#10b981', flexShrink: 0 }} />
                             <span className="es-person-name">You</span>
                           </div>
-                          <span className="es-person-amount" style={{ color: '#10b981' }}>
+                          <span className="es-person-owed" style={{ color: '#10b981' }}>
                             {currency}{formatCurrency(Math.abs(tx.amount) - totalOwed)}
                           </span>
                         </div>
 
                         {tx.expenseShares.map(share => {
-                          const pending = getSharePending(tx, share);
-                          const repaid = getPersonRepaid(tx, share.name);
-                          const writtenOff = getPersonWrittenOff(tx, share.name);
-                          const isWritingOff = writingOffFor?.txId === tx.id && writingOffFor?.shareId === share.id;
-                          const isSettled = pending <= 0;
+                          const owed = sharePending(tx, share);
+                          const repaid = personRepaid(tx, share.name);
+                          const written = personWrittenOff(tx, share.name);
+                          const settled = owed <= 0;
 
                           return (
-                            <div key={share.id} className={`es-person-row ${isSettled ? 'settled' : ''}`}>
+                            <div key={share.id} className={`es-person-row ${settled ? 'settled' : ''}`}>
                               <div className="es-person-info">
-                                <User size={14} style={{ color: isSettled ? '#10b981' : '#f59e0b' }} />
+                                <User size={14} style={{ color: settled ? '#10b981' : '#f59e0b', flexShrink: 0 }} />
                                 <span className="es-person-name">{share.name}</span>
-                                {isSettled && <span className="es-badge settled-badge">{writtenOff > 0 && repaid === 0 ? 'Written Off' : 'Settled'}</span>}
+                                {settled && (
+                                  <span className="es-badge settled-badge">
+                                    {written > 0 && repaid === 0 ? 'Written off' : 'Settled'}
+                                  </span>
+                                )}
                               </div>
                               <div className="es-person-amounts">
-                                {pending > 0 ? (
+                                {owed > 0 ? (
                                   <>
-                                    <span className="es-person-pending">Owes: {currency}{formatCurrency(pending)}</span>
-                                    <motion.button
-                                      whileHover={{ scale: 1.05 }}
-                                      whileTap={{ scale: 0.95 }}
+                                    <span className="es-person-pending">{currency}{formatCurrency(owed)}</span>
+                                    <button
+                                      type="button"
                                       className="es-writeoff-btn"
-                                      onClick={() => handleStartWriteOff(tx, share)}
+                                      onClick={() => openWriteOff(tx, share)}
                                     >
-                                      <AlertTriangle size={12} /> Write Off
-                                    </motion.button>
+                                      <AlertTriangle size={12} /> Write off
+                                    </button>
                                   </>
                                 ) : (
-                                  <span className="es-person-owed">{writtenOff > 0 ? `Written Off: ${currency}${formatCurrency(writtenOff)}` : `Paid: ${currency}${formatCurrency(repaid)}`}</span>
+                                  <span className="es-person-owed">
+                                    {written > 0
+                                      ? `${currency}${formatCurrency(written)} written off`
+                                      : `${currency}${formatCurrency(repaid)} paid`}
+                                  </span>
                                 )}
                               </div>
-
-                              {/* Write-off form popover */}
-                              <AnimatePresence>
-                                {isWritingOff && (
-                                  <motion.div
-                                    className="es-form-drawer-overlay"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
-                                    onClick={() => setWritingOffFor(null)}
-                                  >
-                                    <motion.div
-                                      className="es-form-drawer-card"
-                                      initial={{ y: '100%' }}
-                                      animate={{ y: 0 }}
-                                      exit={{ y: '100%' }}
-                                      transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                                      onClick={e => e.stopPropagation()}
-                                    >
-                                      <div className="es-drawer-header">
-                                        <h4>Write Off Expense for {share.name}</h4>
-                                        <button className="close-btn" type="button" onClick={() => setWritingOffFor(null)}><X size={18} /></button>
-                                      </div>
-                                      
-                                      <div className="es-form-grid">
-                                        <div className="es-field">
-                                          <label className="es-input-label">Amount</label>
-                                          <div className="input-with-icon" style={{ height: '40px', width: '100%' }}>
-                                            <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
-                                            <input 
-                                              type="text" 
-                                              placeholder="Amount to write off" 
-                                              value={writeOffAmount}
-                                              onChange={(e) => setWriteOffAmount(formatAmountInput(e.target.value))}
-                                              style={{ fontSize: '14px', height: '40px', width: '100%' }}
-                                            />
-                                          </div>
-                                        </div>
-
-                                        <div className="es-field">
-                                          <label className="es-input-label">Category</label>
-                                          <UnifiedDropdown
-                                            value={writeOffCategory}
-                                            placeholder="Category"
-                                            options={writeOffCategoryOptions}
-                                            onChange={setWriteOffCategory}
-                                          />
-                                        </div>
-
-                                        <div className="es-field">
-                                          <label className="es-input-label">Payee</label>
-                                          <UnifiedDropdown
-                                            value={writeOffPayee}
-                                            placeholder="Payee"
-                                            options={writeOffPayeeOptions}
-                                            onChange={setWriteOffPayee}
-                                          />
-                                        </div>
-                                      </div>
-
-                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                                        <button className="es-btn-cancel" onClick={() => setWritingOffFor(null)}>Cancel</button>
-                                        <motion.button 
-                                          whileTap={{ scale: 0.95 }}
-                                          className="es-btn-confirm"
-                                          onClick={() => handleConfirmWriteOff(tx, share.id)}
-                                        >
-                                          Confirm Write-Off
-                                        </motion.button>
-                                      </div>
-                                    </motion.div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
                             </div>
                           );
                         })}
                       </div>
 
-                      {/* Repayment History */}
-                      {getRepayments(tx).length > 0 && (
+                      {repayments.length > 0 && (
                         <>
-                          <div className="es-section-title">Repayment History</div>
-                          <div className="es-repayments">
-                            {getRepayments(tx).map(rep => {
-                              const isEditingThis = editingRepayment?.txId === tx.id && editingRepayment?.repaymentId === rep.id;
-
-                              if (isEditingThis) {
-                                return (
-                                  <AnimatePresence key={rep.id}>
-                                    <motion.div
-                                      className="es-form-drawer-overlay"
-                                      initial={{ opacity: 0 }}
-                                      animate={{ opacity: 1 }}
-                                      exit={{ opacity: 0 }}
-                                      onClick={() => setEditingRepayment(null)}
-                                    >
-                                      <motion.div
-                                        className="es-form-drawer-card"
-                                        initial={{ y: '100%' }}
-                                        animate={{ y: 0 }}
-                                        exit={{ y: '100%' }}
-                                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                                        onClick={e => e.stopPropagation()}
-                                      >
-                                        <div className="es-drawer-header">
-                                          <h4>Edit Repayment</h4>
-                                          <button className="close-btn" type="button" onClick={() => setEditingRepayment(null)}><X size={18} /></button>
-                                        </div>
-                                        
-                                        <div className="es-form-grid">
-                                           <div className="es-field">
-                                             <label className="es-input-label">Person</label>
-                                             <UnifiedDropdown
-                                               value={editPerson}
-                                               placeholder="Person"
-                                               options={tx.expenseShares.map(s => ({ value: s.name, label: s.name }))}
-                                               onChange={setEditPerson}
-                                             />
-                                           </div>
-
-                                           <div className="es-field">
-                                             <label className="es-input-label">Amount</label>
-                                             <div className="input-with-icon" style={{ height: '40px', width: '100%' }}>
-                                               <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
-                                               <input 
-                                                 type="text" 
-                                                 placeholder="Amount" 
-                                                 value={editAmount}
-                                                 onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
-                                                 style={{ fontSize: '14px', height: '40px', width: '100%' }}
-                                               />
-                                             </div>
-                                           </div>
-
-                                           <div className="es-field">
-                                             <label className="es-input-label">Account</label>
-                                             <UnifiedDropdown
-                                               value={editAccount}
-                                               placeholder="Account"
-                                               options={accounts.map(a => ({ value: a.name, label: a.name }))}
-                                               onChange={setEditAccount}
-                                             />
-                                           </div>
-
-                                           <div className="es-field">
-                                             <label className="es-input-label">Date</label>
-                                             <div 
-                                               className="input-with-icon" 
-                                               onClick={() => setShowEditCalendar(true)} 
-                                               style={{ cursor: 'pointer', height: '40px', width: '100%' }}
-                                             >
-                                               <Calendar size={14} className="input-icon" />
-                                               <input 
-                                                 type="text" 
-                                                 value={formatDateShort(editDate)} 
-                                                 readOnly 
-                                                 style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px', width: '100%' }} 
-                                               />
-                                             </div>
-                                           </div>
-                                         </div>
-
-                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                                          <button className="es-btn-cancel" onClick={() => setEditingRepayment(null)}>Cancel</button>
-                                          <motion.button 
-                                            whileTap={{ scale: 0.95 }}
-                                            className="es-btn-confirm"
-                                            onClick={() => handleSaveEditRepayment(tx, rep)}
-                                          >
-                                            Save Repayment
-                                          </motion.button>
-                                        </div>
-                                      </motion.div>
-                                    </motion.div>
-                                  </AnimatePresence>
-                                );
-                              }
-
-                              return (
-                                <div key={rep.id} className="es-repayment-row">
-                                  <div className="es-repayment-info">
-                                    <span className="es-repayment-name">{rep.personName}</span>
-                                    <span className="es-repayment-date">{formatDateShort(rep.date)}</span>
-                                  </div>
-                                  <div className="es-repayment-right">
-                                    <span className="es-repayment-amount">+{currency}{formatCurrency(rep.amount)}</span>
-                                    <button className="es-repayment-edit" onClick={() => handleStartEditRepayment(tx, rep)}><Edit2 size={14} /></button>
-                                    <button className="es-repayment-delete" onClick={() => handleDeleteRepayment(tx, rep)}><Trash2 size={14} /></button>
-                                  </div>
+                          <div className="es-section-title">Repayments</div>
+                          <div className="es-records">
+                            {repayments.map(rep => (
+                              <div key={rep.id} className="es-record-row">
+                                <div className="es-record-info">
+                                  <span className="es-record-name">{rep.personName}</span>
+                                  <span className="es-record-meta">
+                                    {formatDateShort(rep.date)}{rep.account ? ` • ${rep.account}` : ''}
+                                  </span>
                                 </div>
-                              );
-                            })}
+                                <span className="es-record-amount positive">
+                                  +{currency}{formatCurrency(rep.amount)}
+                                </span>
+                                <div className="es-record-actions">
+                                  <button type="button" className="es-icon-btn small" onClick={() => openEditRepayment(tx, rep)} aria-label={`Edit repayment from ${rep.personName}`}>
+                                    <Edit2 size={14} />
+                                  </button>
+                                  <button type="button" className="es-icon-btn small danger" onClick={() => handleDeleteRepayment(tx, rep)} aria-label={`Delete repayment from ${rep.personName}`}>
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </>
                       )}
 
-                      {/* Write-Off History */}
-                      {txWriteOffs.length > 0 && (
+                      {writeOffs.length > 0 && (
                         <>
-                          <div className="es-section-title">Write-Off History</div>
-                          <div className="es-repayments">
-                            {txWriteOffs.map(wo => (
-                              <div key={wo.id} className="es-repayment-row writeoff-history-row">
-                                <div className="es-repayment-info">
-                                  <span className="es-repayment-name" style={{ color: '#ef4444' }}>{wo.personName}</span>
-                                  <span className="es-repayment-date">({wo.category})</span>
+                          <div className="es-section-title">Write-offs</div>
+                          <div className="es-records">
+                            {writeOffs.map(wo => (
+                              <div key={wo.id} className="es-record-row writeoff">
+                                <div className="es-record-info">
+                                  <span className="es-record-name">{wo.personName}</span>
+                                  <span className="es-record-meta">
+                                    {formatDateShort(wo.date || tx.date)}{wo.category ? ` • ${wo.category}` : ''}
+                                  </span>
                                 </div>
-                                <div className="es-repayment-right">
-                                  <span className="es-repayment-amount" style={{ color: '#ef4444' }}>-{currency}{formatCurrency(wo.amount)}</span>
-                                  <button 
-                                    className="es-repayment-delete"
-                                    onClick={() => handleDeleteWriteOff(tx, wo)}
-                                    title="Delete Write-Off (Re-open Share)"
-                                  >
+                                <span className="es-record-amount negative">
+                                  −{currency}{formatCurrency(wo.amount)}
+                                </span>
+                                {/* Write-offs could only be deleted and
+                                    re-created before, which meant redoing the
+                                    category and payee every time. */}
+                                <div className="es-record-actions">
+                                  <button type="button" className="es-icon-btn small" onClick={() => openEditWriteOff(tx, wo)} aria-label={`Edit write-off for ${wo.personName}`}>
+                                    <Edit2 size={14} />
+                                  </button>
+                                  <button type="button" className="es-icon-btn small danger" onClick={() => handleDeleteWriteOff(tx, wo)} aria-label={`Delete write-off for ${wo.personName}`}>
                                     <Trash2 size={14} />
                                   </button>
                                 </div>
@@ -830,129 +498,13 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                       )}
                     </div>
 
-                    {/* Sticky Bottom Action Bar */}
-                    {!allSettled && (
+                    {pending > 0 && (
                       <div className="es-detail-bottom-bar">
-                        <motion.button 
-                          type="button"
-                          whileTap={{ scale: 0.98 }}
-                          className="es-add-repayment-btn-primary"
-                          onClick={() => {
-                            setAddingRepaymentFor(tx.id);
-                            const firstUnsettled = tx.expenseShares.find(s => getSharePending(tx, s) > 0);
-                            if (firstUnsettled) {
-                              setRepayPerson(firstUnsettled.name);
-                              const pending = getSharePending(tx, firstUnsettled);
-                              setRepayAmount(String(Math.round(pending * 100) / 100));
-                            } else {
-                              setRepayPerson('');
-                              setRepayAmount('');
-                            }
-                            setRepayAccount(tx.account || (accounts[0]?.name || ''));
-                            setRepayDate(new Date().toISOString().substring(0, 10));
-                          }}
-                        >
-                          <Plus size={18} /> Record Repayment
-                        </motion.button>
+                        <button type="button" className="es-primary-btn" onClick={() => openRepayment(tx)}>
+                          <Plus size={17} /> Record repayment
+                        </button>
                       </div>
                     )}
-
-                    {/* Record Repayment Drawer Popover */}
-                    <AnimatePresence>
-                      {addingRepaymentFor === tx.id && (
-                        <motion.div
-                          className="es-form-drawer-overlay"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          onClick={() => setAddingRepaymentFor(null)}
-                        >
-                          <motion.div
-                            className="es-form-drawer-card"
-                            initial={{ y: '100%' }}
-                            animate={{ y: 0 }}
-                            exit={{ y: '100%' }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                            onClick={e => e.stopPropagation()}
-                          >
-                            <div className="es-drawer-header">
-                              <h4>Record Repayment</h4>
-                              <button className="close-btn" type="button" onClick={() => setAddingRepaymentFor(null)}><X size={18} /></button>
-                            </div>
-                            
-                            <div className="es-form-grid">
-                              <div className="es-field">
-                                <label className="es-input-label">Person</label>
-                                <UnifiedDropdown
-                                  value={repayPerson}
-                                  placeholder="Person"
-                                  options={tx.expenseShares
-                                    .filter(s => getSharePending(tx, s) > 0)
-                                    .map(s => ({ value: s.name, label: s.name }))}
-                                  onChange={(val) => {
-                                    setRepayPerson(val);
-                                    const pending = getPersonPending(tx, val);
-                                    setRepayAmount(String(Math.round(pending * 100) / 100));
-                                  }}
-                                />
-                              </div>
-
-                              <div className="es-field">
-                                <label className="es-input-label">Amount</label>
-                                <div className="input-with-icon" style={{ height: '40px', width: '100%' }}>
-                                  <span className="input-icon" style={{ fontSize: '14px', fontWeight: 500 }}>{currency}</span>
-                                  <input 
-                                    type="text" 
-                                    placeholder="Amount" 
-                                    value={repayAmount}
-                                    onChange={(e) => setRepayAmount(formatAmountInput(e.target.value))}
-                                    style={{ fontSize: '14px', height: '40px', width: '100%' }}
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="es-field">
-                                <label className="es-input-label">Account</label>
-                                <UnifiedDropdown
-                                  value={repayAccount}
-                                  placeholder="Account"
-                                  options={accounts.map(a => ({ value: a.name, label: a.name }))}
-                                  onChange={setRepayAccount}
-                                />
-                              </div>
-
-                              <div className="es-field">
-                                <label className="es-input-label">Date</label>
-                                <div 
-                                  className="input-with-icon" 
-                                  onClick={() => setShowRepayCalendar(true)} 
-                                  style={{ cursor: 'pointer', height: '40px', width: '100%' }}
-                                >
-                                  <Calendar size={14} className="input-icon" />
-                                  <input 
-                                    type="text" 
-                                    value={formatDateShort(repayDate)} 
-                                    readOnly 
-                                    style={{ cursor: 'pointer', fontSize: '13px', height: '40px', paddingLeft: '28px', width: '100%' }} 
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                              <button className="es-btn-cancel" onClick={() => setAddingRepaymentFor(null)}>Cancel</button>
-                              <motion.button 
-                                whileTap={{ scale: 0.95 }}
-                                className="es-btn-confirm"
-                                onClick={() => handleAddRepayment(tx)}
-                              >
-                                Confirm Repayment
-                              </motion.button>
-                            </div>
-                          </motion.div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
                   </>
                 );
               })()}
@@ -960,22 +512,142 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
           )}
         </AnimatePresence>
 
+        {/* Rendered at modal level, outside the scrolling body, so the sheet is
+            always anchored to the modal rather than to whatever row opened it. */}
         <AnimatePresence>
-          {showRepayCalendar && (
-            <UnifiedCalendar 
-              value={repayDate} 
-              onChange={setRepayDate} 
-              onClose={() => setShowRepayCalendar(false)} 
-            />
+          {drawer && selectedTx && config && (
+            <motion.div
+              className="es-drawer-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeDrawer}
+            >
+              <motion.div
+                className="es-drawer"
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="es-drawer-grip" />
+                <h4 className="es-drawer-title">{config.title}</h4>
+
+                <div className="es-form-grid">
+                  {config.isRepay && (
+                    <div className="es-field">
+                      <label className="es-input-label">Person</label>
+                      <UnifiedDropdown
+                        value={form.person}
+                        placeholder="Who paid you back"
+                        options={withCurrentValue(
+                          selectedTx.expenseShares.filter(
+                            s => sharePending(selectedTx, s) > 0 || s.name === form.person
+                          ),
+                          form.person
+                        )}
+                        onChange={(value) => {
+                          setField('person', value);
+                          const owed = personPending(selectedTx, value);
+                          if (drawer.kind === 'repay') setField('amount', String(round2(owed)));
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  <div className="es-field">
+                    <label className="es-input-label">
+                      Amount
+                      {config.ceiling > 0 && (
+                        <span className="es-input-hint">
+                          max {currencyFor(selectedTx)}{formatCurrency(config.ceiling)}
+                        </span>
+                      )}
+                    </label>
+                    <div className="input-with-icon es-input">
+                      <span className="input-icon es-currency">{currencyFor(selectedTx)}</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={form.amount}
+                        onChange={(e) => setField('amount', formatAmountInput(e.target.value))}
+                      />
+                    </div>
+                  </div>
+
+                  {!config.isRepay && (
+                    <>
+                      <div className="es-field">
+                        <label className="es-input-label">Category</label>
+                        <UnifiedDropdown
+                          value={form.category}
+                          placeholder="Category"
+                          options={withCurrentValue(categories, form.category)}
+                          onChange={(value) => setField('category', value)}
+                        />
+                      </div>
+                      <div className="es-field">
+                        <label className="es-input-label">Payee</label>
+                        <UnifiedDropdown
+                          value={form.payee}
+                          placeholder="Payee"
+                          options={withCurrentValue(payees, form.payee)}
+                          onChange={(value) => setField('payee', value)}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {config.isRepay && (
+                    <div className="es-field">
+                      <label className="es-input-label">Account</label>
+                      <UnifiedDropdown
+                        value={form.account}
+                        placeholder="Account"
+                        options={accounts.map(a => ({ value: a.name, label: a.name }))}
+                        onChange={(value) => setField('account', value)}
+                      />
+                    </div>
+                  )}
+
+                  <div className="es-field">
+                    <label className="es-input-label">Date</label>
+                    <div className="input-with-icon es-input" onClick={() => setShowCalendar(true)} style={{ cursor: 'pointer' }}>
+                      <Calendar size={15} className="input-icon" />
+                      <input type="text" value={formatDateShort(form.date)} readOnly style={{ cursor: 'pointer' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* The confirm button used to sit there looking enabled and
+                    silently do nothing when the form was invalid. */}
+                {config.error && <div className="es-drawer-error">{config.error}</div>}
+
+                <div className="es-drawer-actions">
+                  <button type="button" className="es-btn-cancel" onClick={closeDrawer}>Cancel</button>
+                  <button
+                    type="button"
+                    className="es-btn-confirm"
+                    disabled={!!config.error}
+                    onClick={() => handleConfirm(selectedTx)}
+                  >
+                    {config.confirmLabel}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
           )}
         </AnimatePresence>
 
         <AnimatePresence>
-          {showEditCalendar && (
-            <UnifiedCalendar 
-              value={editDate} 
-              onChange={setEditDate} 
-              onClose={() => setShowEditCalendar(false)} 
+          {showCalendar && (
+            <UnifiedCalendar
+              value={form.date}
+              onChange={(value) => setField('date', value)}
+              onClose={() => setShowCalendar(false)}
+              zIndex={2500}
             />
           )}
         </AnimatePresence>
