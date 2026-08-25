@@ -2,7 +2,7 @@ import {
   sharePending, personPending, totalPending, personWrittenOff,
   applyWriteOff, editWriteOff, removeWriteOff,
   applyRepayment, editRepayment, removeRepayment,
-  maxWriteOff, maxRepayment
+  maxWriteOff, maxRepayment, toBatch, findOrphanedLinks
 } from '../src/utils/expenseShares.js';
 
 let failed = 0;
@@ -64,7 +64,7 @@ console.log('\n--- Editing a write-off moves only the delta ---');
   const created = applyWriteOff(tx, 's1', { amount: 150, category: 'Bad Debt', payee: 'Ali' });
   tx = created.parentTx;
   const woId = tx.writeOffs[0].id;
-  const linked = created.writeOffTx;
+  const linked = created.childTx.create;
 
   check('ceiling is 400 (250 pending + its own 150)', near(maxWriteOff(tx, tx.expenseShares[0], tx.writeOffs[0]), 400));
 
@@ -175,6 +175,84 @@ console.log('\n--- Two people with the same name stay independent ---');
   const removed = removeWriteOff(parentTx, parentTx.writeOffs[0].id);
   check('reversal targets the same share', near(removed.parentTx.expenseShares[0].amount, 400) && near(removed.parentTx.expenseShares[1].amount, 300),
         JSON.stringify(removed.parentTx.expenseShares.map(s => s.amount)));
+}
+
+// -- What actually reaches the database -------------------------------------
+//
+// The bug that credited real money lived here, not in the arithmetic above:
+// applyWriteOff returned its Bad Debt transaction under a key the modal did not
+// read, so the parent expense shrank and nothing offset it. Every test above
+// passed while that was broken, because they all inspected the returned object
+// directly instead of the batch that actually gets saved.
+console.log('\n--- Every mutation must save its counterpart transaction ---');
+{
+  const find = (list) => (id) => list.find(t => t.id === id);
+
+  const tx = base();
+  const wo = applyWriteOff(tx, 's1', { amount: 200, category: 'Bad Debt', payee: 'Ali' });
+  const woBatch = toBatch(wo, find([tx]));
+  check('write-off saves two transactions', woBatch.save.length === 2, `saved ${woBatch.save.length}`);
+
+  const badDebt = woBatch.save.find(t => t.isWriteOff);
+  check('one of them is the Bad Debt transaction', !!badDebt);
+  check('Bad Debt carries the written-off amount', !!badDebt && near(badDebt.amount, -200),
+        `got ${badDebt && badDebt.amount}`);
+
+  // The whole point: writing off must not create or destroy money.
+  const before = tx.amount;
+  const after = woBatch.save.reduce((sum, t) => sum + t.amount, 0);
+  check('total across the batch is unchanged', near(before, after), `before ${before}, after ${after}`);
+
+  const tx2 = base();
+  const rep = applyRepayment(tx2, { personName: 'Ali', amount: 150, account: 'Cash', date: '2026-08-05' });
+  const repBatch = toBatch(rep, find([tx2]));
+  check('repayment saves two transactions', repBatch.save.length === 2);
+  check('one of them is the linked income',
+        repBatch.save.some(t => t.isRepayment && near(t.amount, 150)));
+
+  const woState = wo.parentTx;
+  const edit = editWriteOff(woState, woState.writeOffs[0].id, { amount: 300 }, badDebt);
+  const editBatch = toBatch(edit, find([woState, badDebt]));
+  check('editing saves the updated Bad Debt too', editBatch.save.length === 2);
+  check('and it carries the new amount', near(editBatch.save[1].amount, -300),
+        `got ${editBatch.save[1].amount}`);
+  const editTotal = editBatch.save.reduce((sum, t) => sum + t.amount, 0);
+  check('editing keeps the total unchanged', near(editTotal, before),
+        `expected ${before}, got ${editTotal}`);
+
+  const removed = removeWriteOff(woState, woState.writeOffs[0].id);
+  const removeBatch = toBatch(removed, find([woState, badDebt]));
+  check('removing deletes the Bad Debt transaction', removeBatch.remove.length === 1);
+  check('and restores the parent', near(removeBatch.save[0].amount, before),
+        `got ${removeBatch.save[0].amount}`);
+}
+
+console.log('\n--- Repairing counterparts that went missing ---');
+{
+  // Exactly the state the dropped-write-off bug left behind.
+  const wo = applyWriteOff(base(), 's1', { amount: 250, category: 'Bad Debt', payee: 'Ali' });
+  const damaged = [wo.parentTx];   // its Bad Debt transaction was never saved
+
+  const rebuilt = findOrphanedLinks(damaged);
+  check('the missing Bad Debt transaction is found', rebuilt.length === 1, `found ${rebuilt.length}`);
+  check('rebuilt with the amount from the record', near(rebuilt[0].amount, -250));
+  check('rebuilt with the id the record already points at',
+        rebuilt[0].id === wo.parentTx.writeOffs[0].linkedTxId);
+  check('books balance once repaired', near(damaged[0].amount + rebuilt[0].amount, -1000),
+        `got ${damaged[0].amount + rebuilt[0].amount}`);
+
+  // Reusing the stored id keeps this safe to run repeatedly, and safe if the
+  // real transaction turns up later from another device.
+  check('nothing left to repair afterwards', findOrphanedLinks([...damaged, ...rebuilt]).length === 0);
+
+  const healthy = toBatch(applyWriteOff(base(), 's1', { amount: 100 }), () => null);
+  check('a healthy pair needs no repair', findOrphanedLinks(healthy.save).length === 0);
+
+  const repaired = findOrphanedLinks([
+    applyRepayment(base(), { personName: 'Ali', amount: 120, account: 'Cash', date: '2026-08-05' }).parentTx
+  ]);
+  check('a missing repayment income is rebuilt too', repaired.length === 1 && near(repaired[0].amount, 120),
+        JSON.stringify(repaired.map(t => t.amount)));
 }
 
 console.log(failed === 0 ? '\nALL EXPENSE-SHARE CHECKS PASSED\n' : `\n${failed} CHECK(S) FAILED\n`);

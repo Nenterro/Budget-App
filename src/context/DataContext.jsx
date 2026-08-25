@@ -6,6 +6,7 @@ import { isUnlocked, tryRestoreSession, deriveKey, verifyPinWithData, hasCachedP
 import PinPad from '../components/PinPad';
 import { useSecuritySettings, useSettingsMaintenance } from './SettingsContext';
 import { useAuth } from './AuthContext';
+import { findOrphanedLinks } from '../utils/expenseShares';
 
 const DataContext = createContext(null);
 
@@ -151,6 +152,30 @@ export function DataProvider({ children }) {
 
     const subscribe = () => { subscribeRealtimeRef.current(); };
 
+    // Every write-off and repayment has a counterpart transaction: the parent
+    // expense is reduced by the write-off and a Bad Debt transaction carries
+    // that portion. If the counterpart is missing the books gain money out of
+    // nowhere — which is exactly what happened while applyWriteOff's result was
+    // being dropped on the floor.
+    //
+    // Rebuilt using the id the record already stores, so this is idempotent and
+    // cannot duplicate a transaction that later arrives from another device.
+    async function repairOrphanedShareLinks() {
+      const rebuilt = findOrphanedLinks(await db.getTransactions());
+      if (rebuilt.length === 0) return;
+
+      console.warn(
+        `Restoring ${rebuilt.length} shared-expense transaction(s) that were recorded ` +
+        `but never saved. Account balances were overstated until now.`
+      );
+      for (const tx of rebuilt) {
+        await db.saveTransaction(tx);
+      }
+      await loadData();
+      await syncAll();
+      await loadData();
+    }
+
     // Wrapper so every exit path — including the early returns for no server
     // and no session — marks the security state as resolved exactly once.
     async function init() {
@@ -232,6 +257,7 @@ export function DataProvider({ children }) {
           // Full sync now that we can decrypt
           await syncAll();
           await loadData();
+          await repairOrphanedShareLinks();
           subscribe();
         } else if (isMounted) {
           // No cached PIN — prompt user
@@ -241,6 +267,7 @@ export function DataProvider({ children }) {
         // No E2EE — just sync everything
         await syncAll();
         await loadData();
+        await repairOrphanedShareLinks();
         subscribe();
       }
     }

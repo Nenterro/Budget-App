@@ -11,7 +11,7 @@ import {
   sharePending, personPending, personRepaid, personWrittenOff, totalPending,
   applyWriteOff, editWriteOff, removeWriteOff,
   applyRepayment, editRepayment, removeRepayment,
-  maxWriteOff, maxRepayment
+  maxWriteOff, maxRepayment, toBatch
 } from '../utils/expenseShares';
 import { format, parseISO } from 'date-fns';
 import './ExpenseSharingModal.css';
@@ -126,24 +126,9 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   // ─── Committing ──────────────────────────────────────────────────────────
 
   const commit = async (result) => {
-    if (!result) return;
-    const toSave = [result.parentTx];
-    const toDelete = result.deleteIds || [];
-
-    if (result.childTx) {
-      if (result.childTx.create) {
-        toSave.push(result.childTx.create);
-      } else if (result.childTx.mergeInto) {
-        const linked = transactions.find(t => t.id === result.childTx.mergeInto);
-        if (linked) {
-          toSave.push({ ...linked, amount: result.childTx.amount, pendingSync: true, updatedAt: new Date().toISOString() });
-        }
-      } else {
-        toSave.push(result.childTx);
-      }
-    }
-
-    await saveTransactionsBatch(toSave, toDelete);
+    const batch = toBatch(result, (id) => transactions.find(t => t.id === id));
+    if (!batch) return;
+    await saveTransactionsBatch(batch.save, batch.remove);
     closeDrawer();
   };
 

@@ -111,7 +111,12 @@ export function applyWriteOff(tx, shareId, { amount, category, payee, date }) {
     )
   });
 
-  return { parentTx, writeOffTx, amount: capped };
+  // Every mutation reports its child transaction under `childTx`, in the shape
+  // toBatch() understands. This one used to return it as `writeOffTx`, which
+  // nothing read — so the Bad Debt transaction was silently never saved while
+  // the parent expense had already been shrunk by the same amount, quietly
+  // crediting the account.
+  return { parentTx, childTx: { create: writeOffTx }, amount: capped };
 }
 
 // Only the delta moves. Growing a write-off takes more out of the share and the
@@ -309,4 +314,88 @@ export function removeRepayment(tx, repaymentId) {
   });
 
   return { parentTx, deleteIds: record.linkedTxId ? [record.linkedTxId] : [] };
+}
+
+// ─── Turning a mutation into a save batch ──────────────────────────────────
+//
+// The single place that decides what actually reaches the database. It used to
+// live inside the modal, which let a helper return its child under a key the
+// modal did not read, with no test able to catch it.
+//
+// `findTx` resolves an id to an existing transaction, for the merge case.
+export function toBatch(result, findTx) {
+  if (!result) return null;
+
+  const save = [result.parentTx];
+  const remove = result.deleteIds || [];
+  const child = result.childTx;
+
+  if (child) {
+    if (child.create) {
+      save.push(child.create);
+    } else if (child.mergeInto) {
+      const linked = findTx(child.mergeInto);
+      if (linked) save.push(touch({ ...linked, amount: child.amount }));
+    } else {
+      save.push(child);
+    }
+  }
+
+  return { save, remove };
+}
+
+// ─── Repairing orphaned links ──────────────────────────────────────────────
+//
+// A write-off or repayment always has a counterpart transaction: the parent's
+// amount is reduced by the write-off and a Bad Debt transaction carries that
+// portion, so if the counterpart goes missing the books gain money out of
+// nowhere. Records written while applyWriteOff's result was being dropped are
+// in exactly that state.
+//
+// Rebuilt with the id already stored on the record, so this is idempotent: if
+// the real transaction turns up later from another device it is the same
+// record, not a duplicate.
+export function findOrphanedLinks(transactions) {
+  const byId = new Map((transactions || []).map(t => [t.id, t]));
+  const rebuilt = [];
+
+  for (const tx of transactions || []) {
+    if (!tx.isExpenseShare || !Array.isArray(tx.expenseShares)) continue;
+
+    for (const record of tx.writeOffs || []) {
+      if (!record.linkedTxId || byId.has(record.linkedTxId)) continue;
+      rebuilt.push(touch({
+        id: record.linkedTxId,
+        type: tx.type,
+        amount: tx.type === 0 ? -record.amount : record.amount,
+        category: record.category || 'Bad Debt',
+        payee: record.payee || record.personName,
+        note: `Written off from shared expense (${tx.payee || 'Shared Expense'})`,
+        date: record.date || tx.date,
+        account: tx.account,
+        currency: tx.currency,
+        parentExpenseShareTxId: tx.id,
+        isWriteOff: true
+      }));
+    }
+
+    for (const record of tx.repayments || []) {
+      if (!record.linkedTxId || byId.has(record.linkedTxId)) continue;
+      rebuilt.push(touch({
+        id: record.linkedTxId,
+        type: 1,
+        amount: record.amount,
+        category: 'Loan',
+        payee: record.personName,
+        note: `Repayment for shared expense (${tx.payee || 'Expense Share'})`,
+        date: record.date ? new Date(record.date).toISOString() : tx.date,
+        account: record.account || tx.account,
+        currency: tx.currency,
+        parentExpenseShareTxId: tx.id,
+        isRepayment: true
+      }));
+    }
+  }
+
+  return rebuilt;
 }
