@@ -70,6 +70,40 @@
       "confidence": 0.95
     },
     {
+      "_note": "Wallet push notifications. Not scoped to a sender: the wording is distinctive enough on its own, and which app it came from is whatever the shortcut declares - which is what makes these usable for spotting transfers between your own accounts, since the counterparty name is just the account holder either way.",
+      "id": "wallet-received-titled",
+      "bank": "",
+      "senders": [],
+      "match": "Money\\s+Received\\s+(?P<merchant>[A-Za-z][A-Za-z .'-]{2,40}?)\\s+sent\\s+you\\s+(?P<currency>PKR|Rs\\.?)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)",
+      "direction": "credit",
+      "confidence": 0.95
+    },
+    {
+      "_note": "Same wording without the notification title, in case only the body is forwarded. Must stay after the titled variant, which would otherwise take 'Money Received NAME' as the merchant.",
+      "id": "wallet-received-sent-you",
+      "bank": "",
+      "senders": [],
+      "match": "(?P<merchant>[A-Za-z][A-Za-z .'-]{2,40}?)\\s+sent\\s+you\\s+(?P<currency>PKR|Rs\\.?)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)",
+      "direction": "credit",
+      "confidence": 0.9
+    },
+    {
+      "id": "wallet-sent-to",
+      "bank": "",
+      "senders": [],
+      "match": "(?P<currency>Rs\\.?|PKR)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s+sent\\s+to\\s+(?P<merchant>[A-Za-z][A-Za-z .'-]{2,40}?)(?=\\s*[.!,]|\\s*$)",
+      "direction": "debit",
+      "confidence": 0.95
+    },
+    {
+      "id": "wallet-received-from",
+      "bank": "",
+      "senders": [],
+      "match": "(?P<currency>Rs\\.?|PKR)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s+received\\s+from\\s+(?P<merchant>[A-Za-z][A-Za-z .'-]{2,40}?)(?=\\s*[.!,]|\\s*$)",
+      "direction": "credit",
+      "confidence": 0.95
+    },
+    {
       "id": "raast-received",
       "bank": "Raast",
       "senders": [],

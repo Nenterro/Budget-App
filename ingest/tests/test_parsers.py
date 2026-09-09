@@ -252,6 +252,62 @@ def test_currency_with_trailing_period():
     check("PKR. currency", currency, "PKR")
 
 
+# --- Wallet push notifications --------------------------------------------
+
+def test_wallet_sent_to():
+    result = parse(
+        "Off it goes \U0001F4B8 Rs. 100 sent to Huzaifa Sadeem. "
+        "Your wallet's seen better days.",
+        sender="SadaPay",
+    )
+    check("sent-to template", result["templateId"], "wallet-sent-to")
+    check("sent-to amount", result["parsed"]["amount"], 100.0)
+    check("sent-to direction", result["parsed"]["direction"], "debit")
+    check("sent-to merchant", result["parsed"]["merchant"], "Huzaifa Sadeem")
+
+
+def test_wallet_received_from():
+    result = parse(
+        "Cha-Ching! \U0001F911 Rs. 100 received from Huzaifa Sadeem. "
+        "Just the kind of notification we like.",
+        sender="SadaPay",
+    )
+    check("received-from template", result["templateId"], "wallet-received-from")
+    check("received-from amount", result["parsed"]["amount"], 100.0)
+    check("received-from direction", result["parsed"]["direction"], "credit")
+    check("received-from merchant", result["parsed"]["merchant"], "Huzaifa Sadeem")
+
+
+def test_wallet_sent_you_is_income():
+    # The regression this pins: the message never says "from", and its only
+    # directional word is "sent", so it used to parse as money going out - or
+    # rather with no direction at all, and no merchant.
+    result = parse(
+        "Money Received HUZAIFA SADEEM sent you PKR 100 \U0001F389",
+        sender="NayaPay",
+    )
+    check("titled template", result["templateId"], "wallet-received-titled")
+    check("sent-you amount", result["parsed"]["amount"], 100.0)
+    check("sent-you is credit", result["parsed"]["direction"], "credit")
+    # Not "Money Received HUZAIFA SADEEM" - the title must not be swallowed.
+    check("sent-you merchant", result["parsed"]["merchant"], "HUZAIFA SADEEM")
+
+
+def test_wallet_sent_you_body_only():
+    # Same wording with the notification title missing.
+    result = parse("HUZAIFA SADEEM sent you PKR 250", sender="NayaPay")
+    check("body-only template", result["templateId"], "wallet-received-sent-you")
+    check("body-only merchant", result["parsed"]["merchant"], "HUZAIFA SADEEM")
+    check("body-only direction", result["parsed"]["direction"], "credit")
+    check("body-only amount", result["parsed"]["amount"], 250.0)
+
+
+def test_sent_to_is_still_debit():
+    # "sent you" is a credit cue; "sent to" must stay a debit one.
+    check("sent to", parsers.detect_direction("Rs 100 sent to Ali"), "debit")
+    check("sent you", parsers.detect_direction("Ali sent you Rs 100"), "credit")
+
+
 def test_unknown_sender_generic_path():
     result = parse(
         "Your account has been debited with PKR 899.00 at FOODPANDA on "

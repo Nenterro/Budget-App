@@ -36,7 +36,34 @@ log = logging.getLogger("ingest")
 
 PURGE_INTERVAL_SECONDS = 12 * 60 * 60
 
-state = {"client": None, "user_id": None, "ready": False, "last_error": None}
+state = {
+    "client": None,
+    # The user a message goes to when it names none.
+    "user_id": None,
+    # Routing keys from INGEST_USERS, resolved to PocketBase ids at startup.
+    "user_ids": {},
+    "ready": False,
+    "last_error": None,
+}
+
+
+def resolve_target_user(user_key):
+    """Which budget the draft belongs in.
+
+    An unrecognised key is an error, not a reason to use the default: silently
+    filing one person's spending into another person's budget is worse than
+    losing the message, and much harder to notice.
+    """
+    if not user_key:
+        return state["user_id"]
+
+    user_id = state["user_ids"].get(str(user_key).strip())
+    if not user_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown user key '{user_key}'. Configure it in INGEST_USERS.",
+        )
+    return user_id
 
 
 # --- request models --------------------------------------------------------
@@ -45,6 +72,7 @@ class SmsPayload(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
     sender: str | None = Field(None, max_length=200)
     receivedAt: str | None = None
+    user: str | None = Field(None, max_length=100)
 
 
 class NotificationPayload(BaseModel):
@@ -52,6 +80,7 @@ class NotificationPayload(BaseModel):
     title: str | None = Field(None, max_length=300)
     app: str | None = Field(None, max_length=200)
     receivedAt: str | None = None
+    user: str | None = Field(None, max_length=100)
 
 
 class ParseTestPayload(BaseModel):
@@ -134,7 +163,7 @@ def dedupe_hash(source, sender, text):
     return digest.hexdigest()
 
 
-async def store_draft(source, sender, text, received_at):
+async def store_draft(source, sender, text, received_at, user_key=None):
     if not state["ready"]:
         raise HTTPException(
             status_code=503,
@@ -142,7 +171,7 @@ async def store_draft(source, sender, text, received_at):
         )
 
     client = state["client"]
-    user_id = state["user_id"]
+    user_id = resolve_target_user(user_key)
 
     result = parsers.parse_message(text, sender=sender, received_at=received_at)
 
@@ -194,14 +223,20 @@ async def store_draft(source, sender, text, received_at):
 
 # --- lifecycle -------------------------------------------------------------
 
+async def purge_all():
+    """Sweep expired drafts for every budget this service files into."""
+    targets = {state["user_id"], *state["user_ids"].values()}
+    for user_id in targets:
+        if user_id:
+            await state["client"].purge_older_than(settings.retention_days, user_id)
+
+
 async def purge_loop():
     while True:
         await asyncio.sleep(PURGE_INTERVAL_SECONDS)
         try:
             if state["ready"]:
-                await state["client"].purge_older_than(
-                    settings.retention_days, state["user_id"]
-                )
+                await purge_all()
         except Exception as err:  # noqa: BLE001 - a sweep must never kill the app
             log.warning("Purge run failed: %s", err)
 
@@ -219,10 +254,25 @@ async def connect():
     await client.authenticate()
     await client.ensure_collection()
     state["user_id"] = await client.resolve_user_id(settings.budget_user_email)
+
+    # One bad entry in INGEST_USERS must not stop everyone else's messages
+    # from being filed, so each is resolved on its own.
+    resolved = {}
+    for key, email in settings.user_map.items():
+        try:
+            resolved[key] = await client.resolve_user_id(email)
+        except PocketBaseError as err:
+            log.error("Routing key '%s' could not be resolved: %s", key, err)
+    state["user_ids"] = resolved
+
     state["ready"] = True
     state["last_error"] = None
-    log.info("Ready. Filing drafts for user %s", state["user_id"])
-    await client.purge_older_than(settings.retention_days, state["user_id"])
+    log.info(
+        "Ready. Default user %s; routing keys: %s",
+        state["user_id"],
+        ", ".join(sorted(resolved)) or "none",
+    )
+    await purge_all()
 
 
 async def connect_with_retry():
@@ -262,6 +312,8 @@ async def health():
         "status": "ok" if state["ready"] else "starting",
         "templates": len(parsers.get_templates()),
         "collection": settings.collection,
+        # Names only — never the ids or emails behind them.
+        "routingKeys": sorted(state["user_ids"]),
         "error": state["last_error"],
     }
 
@@ -276,7 +328,8 @@ async def ingest_sms(
     require_token(authorization, x_ingest_token)
     check_rate_limit(request.client.host if request.client else "unknown")
     return await store_draft(
-        "sms", payload.sender, payload.text, parse_received_at(payload.receivedAt)
+        "sms", payload.sender, payload.text,
+        parse_received_at(payload.receivedAt), payload.user
     )
 
 
@@ -295,7 +348,8 @@ async def ingest_notification(
     text = " ".join(part for part in (payload.title, payload.body) if part)
     sender = payload.app or payload.title
     return await store_draft(
-        "notification", sender, text, parse_received_at(payload.receivedAt)
+        "notification", sender, text,
+        parse_received_at(payload.receivedAt), payload.user
     )
 
 
@@ -317,7 +371,7 @@ async def ingest_any(
     if not body:
         raise HTTPException(status_code=400, detail="Empty body")
 
-    text, sender, received, source = None, None, None, "sms"
+    text, sender, received, source, user_key = None, None, None, "sms", None
     try:
         data = json.loads(body)
         if isinstance(data, dict):
@@ -330,6 +384,7 @@ async def ingest_any(
             sender = data.get("sender") or data.get("from") or data.get("app")
             received = data.get("receivedAt") or data.get("date")
             source = data.get("source") or source
+            user_key = data.get("user")
         elif isinstance(data, str):
             text = data
     except json.JSONDecodeError:
@@ -342,7 +397,9 @@ async def ingest_any(
     if source not in ("sms", "notification", "email"):
         source = "sms"
 
-    return await store_draft(source, sender, text[:4000], parse_received_at(received))
+    return await store_draft(
+        source, sender, text[:4000], parse_received_at(received), user_key
+    )
 
 
 @app.post("/parse/test")

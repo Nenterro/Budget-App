@@ -53,6 +53,10 @@ CREDIT_WORDS = [
     "you have received", "you received", "received from", "deposited",
     "deposit of", "refund of", "refunded", "cash in", "salary",
     "transferred from", "added to your",
+    # Wallet apps phrase an incoming transfer as something the *other* party
+    # did: "HUZAIFA SADEEM sent you PKR 100". Without these, the only cue in
+    # the message is the word "sent", which reads as money going out.
+    "sent you", "money received",
 ]
 
 # Messages that are not transactions at all. Filtering these at ingest keeps

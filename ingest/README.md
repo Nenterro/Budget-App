@@ -120,8 +120,29 @@ JSON fields:
 | --- | --- | --- |
 | `text` | Text | **Shortcut Input** (the message body) |
 | `sender` | Text | a fixed string — see the table below |
+| `user` | Text | your routing key, if more than one person uses this server |
 
 `receivedAt` is optional; leave it out and the server timestamps on arrival.
+
+### Routing to the right person
+
+With one person on the server, skip `user` entirely — everything goes to
+`BUDGET_USER_EMAIL`.
+
+For more than one, set `INGEST_USERS` to a JSON object of key to email and have
+each phone send its own key:
+
+```
+INGEST_USERS={"huzaifa":"me@example.com","sara":"sara@example.com"}
+```
+
+The key is an opaque handle rather than an email, so a shortcut sitting on
+someone's phone does not carry their address around in plain text. An
+unrecognised key is rejected with a 400 rather than falling back to the
+default: filing one person's spending into another person's budget is worse
+than dropping the message, and far harder to notice afterwards.
+
+`GET /health` lists the configured keys (names only) so a typo is visible.
 
 Name them `Budget - Askari`, `Budget - SadaPay`, `Budget - NayaPay`.
 
@@ -227,7 +248,8 @@ reason:
 | --- | --- | --- |
 | `PB_URL` | `http://pocketbase:8090` | PocketBase, by container name |
 | `PB_ADMIN_EMAIL` / `PB_ADMIN_PASSWORD` | — | Admin login, required |
-| `BUDGET_USER_EMAIL` | — | Whose queue drafts go into |
+| `BUDGET_USER_EMAIL` | — | Whose queue drafts go into when none is named |
+| `INGEST_USERS` | `{}` | JSON of routing key -> email, for more than one person |
 | `INGEST_TOKEN` | — | Shared secret for the Shortcut |
 | `INBOX_COLLECTION` | `inbox_messages` | Collection name |
 | `INBOX_RETENTION_DAYS` | `30` | Age at which unreviewed drafts are swept |
