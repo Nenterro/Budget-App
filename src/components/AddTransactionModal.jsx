@@ -5,6 +5,7 @@ import { X, Calendar, DollarSign, Tag, User, Users, AlignLeft, ArrowRight, Arrow
 import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
 import ModalWrapper from './ModalWrapper';
+import FieldPopover, { useIsMobile, TapField } from './FieldPopover';
 import { formatAmountInput, formatCurrency, getCurrencySymbol } from '../utils/format';
 import { evalMath } from '../utils/math';
 import { generateId } from '../store/db';
@@ -32,16 +33,6 @@ const slideVariants = {
 function formatPreview(num) {
   if (num === null) return '';
   return formatCurrency(num);
-}
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 767);
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 767);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-  return isMobile;
 }
 
 export default function AddTransactionModal({ isOpen, onClose, initialData = null }) {
@@ -346,24 +337,15 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
     </span>
   );
 
-  const renderTapField = (label, value, Icon, fieldName, compact = false) => {
-    const hasValue = value && value.trim().length > 0;
-    return (
-      <div className="form-group" style={{ minWidth: 0, flex: 1 }}>
-        {hasValue && <label>{label}</label>}
-        <div 
-          className="input-with-icon" 
-          onClick={() => setActiveField(fieldName)}
-          style={{ cursor: 'pointer', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '12px' }}
-        >
-          <Icon size={compact ? 16 : 18} className="input-icon" style={{ color: hasValue ? 'var(--text-primary)' : 'var(--text-secondary)' }} />
-          <div style={{ paddingLeft: '40px', paddingRight: '12px', height: '46px', display: 'flex', alignItems: 'center', color: hasValue ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: compact ? '13px' : '15px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-            {hasValue ? value : label}
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const renderTapField = (label, value, Icon, fieldName, compact = false) => (
+    <TapField
+      label={label}
+      value={value}
+      icon={Icon}
+      compact={compact}
+      onOpen={() => setActiveField(fieldName)}
+    />
+  );
 
   return (
     <ModalWrapper onClose={handleClose}>
@@ -1011,7 +993,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
         </form>
 
         {activeField && (
-          <PoppedFieldOverlay 
+          <FieldPopover 
             field={activeField}
             items={
               activeField === 'category' ? categories : 
@@ -1073,90 +1055,5 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
         )}
       </div>
     </ModalWrapper>
-  );
-}
-
-function PoppedFieldOverlay({ field, onClose, items = [], onSelect, onAdd, initialValue, onSaveValue }) {
-  const isAutocomplete = field === 'category' || field === 'payee' || field === 'account' || field === 'transferTo';
-  
-  // Autocomplete starts empty to show all options. Text fields start with initialValue.
-  const [query, setQuery] = useState(isAutocomplete ? '' : (initialValue || ''));
-
-  const filtered = isAutocomplete ? items.filter(item => item.name.toLowerCase().includes(query.toLowerCase())) : [];
-  const exactMatch = isAutocomplete ? items.find(item => item.name.toLowerCase() === query.trim().toLowerCase()) : null;
-
-  // Handle click outside
-  const executeApply = () => {
-    if (!isAutocomplete) {
-      onSaveValue(query);
-      onClose();
-    } else {
-      if (exactMatch) {
-        onSelect(exactMatch.name);
-      } else if (query.trim()) {
-        onSelect(query.trim());
-      } else {
-        onClose(); // Empty query cancels
-      }
-    }
-  };
-
-  const handleBackdropClick = () => {
-    executeApply();
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      executeApply();
-    }
-  };
-
-  return (
-    <div className="popped-overlay" onClick={handleBackdropClick}>
-      <div className="popped-container glass-panel" onClick={e => e.stopPropagation()}>
-        <div className="popped-header">
-          {field === 'account' || field === 'transferTo' ? (
-            <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', padding: '8px', flex: 1 }}>
-              Select Account
-            </div>
-          ) : (
-            <input 
-              className="popped-input"
-              placeholder={
-                field === 'amount' ? 'Enter amount (e.g. 50+20)...' : 
-                field === 'note' ? 'Enter note...' : 
-                `Search or add ${field}...`
-              }
-              value={query}
-              onChange={e => setQuery(field === 'amount' ? formatAmountInput(e.target.value) : e.target.value)}
-              onKeyDown={handleKeyDown}
-              type="text"
-              inputMode={field === 'amount' ? 'decimal' : 'text'}
-              autoFocus
-            />
-          )}
-        </div>
-        
-        {isAutocomplete && (
-          <div className="popped-list">
-            {query.trim() && !exactMatch && (
-              <button className="popped-item add-new-row" onClick={() => onAdd(query.trim())}>
-                <div className="popped-icon-wrap add-icon"><Plus size={18} /></div>
-                <span>Add "{query.trim()}"</span>
-              </button>
-            )}
-            {filtered.map(item => (
-              <button key={item.id} className="popped-item" onClick={() => onSelect(item.name)} type="button">
-                <span>{item.name}</span>
-              </button>
-            ))}
-            {filtered.length === 0 && !query.trim() && (
-              <div className="popped-item" style={{ color: 'var(--text-secondary)' }}>No items found</div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
   );
 }

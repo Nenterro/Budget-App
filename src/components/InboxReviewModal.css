@@ -515,3 +515,34 @@
 .ib-hint strong {
   color: var(--text-primary);
 }
+
+/* Amount and date share a row, as they do in the transaction form. */
+.ib-form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.ib-flex-1 { flex: 1; min-width: 0; }
+.ib-flex-2 { flex: 2; min-width: 0; }
+.ib-relative { position: relative; }
+
+/* The arithmetic result, shown while the amount field holds an expression. */
+.ib-math-preview {
+  position: absolute;
+  bottom: -20px;
+  left: 12px;
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+/* A row carrying a math preview needs room for it, or the preview overlaps
+   whatever field comes next. */
+.ib-form-row:has(.ib-math-preview) {
+  margin-bottom: 12px;
+}

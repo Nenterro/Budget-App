@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   X, Check, Trash2, Inbox, ChevronRight, ChevronDown, ChevronUp, ArrowLeft,
-  RefreshCw, User, Calendar, FileText, Banknote,
+  RefreshCw, User, Calendar, AlignLeft, Wallet, Tag,
   ArrowDownLeft, ArrowUpRight, AlertTriangle
 } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import UnifiedDropdown from './UnifiedDropdown';
+import UnifiedCalendar from './UnifiedCalendar';
+import FieldPopover, { useIsMobile, TapField } from './FieldPopover';
 import { useData } from '../context/DataContext';
 import { useAutomationSettings } from '../context/SettingsContext';
 import { deleteDraft } from '../store/inbox';
@@ -18,7 +20,8 @@ import {
   prettifyMerchant
 } from '../utils/inboxDraft';
 import { generateId } from '../store/db';
-import { formatCurrency, getCurrencySymbol } from '../utils/format';
+import { formatCurrency, getCurrencySymbol, formatAmountInput } from '../utils/format';
+import { evalMath } from '../utils/math';
 import { format, parseISO } from 'date-fns';
 import './InboxReviewModal.css';
 
@@ -29,6 +32,14 @@ const formatDateShort = (value) => {
   } catch {
     return String(value).substring(0, 10);
   }
+};
+
+// The form's own date display, matching the transaction form's dd/mm/yy.
+const formatDayMonthYear = (value) => {
+  if (!value) return '';
+  const parts = String(value).split('-');
+  if (parts.length !== 3) return value;
+  return `${parts[2]}/${parts[1]}/${parts[0].slice(2)}`;
 };
 
 // A dropdown whose value is not among its options renders as its placeholder,
@@ -58,11 +69,16 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
   } = useData();
   const { automationRules, setAutomationRules } = useAutomationSettings();
 
+  const isMobile = useIsMobile();
+
   const [selectedId, setSelectedId] = useState(null);
   const [edits, setEdits] = useState({});
   const [showRaw, setShowRaw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Which field the popover is focused on, on phone-width layouts.
+  const [activeField, setActiveField] = useState(null);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   const suggestions = useMemo(() => {
     const map = {};
@@ -132,7 +148,9 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
   }, [onRefresh]);
 
   const handleApprove = useCallback(async (draft) => {
-    const amount = parseFloat(valueFor(draft, 'amount'));
+    // evalMath, not parseFloat: the field now formats digit groups and accepts
+    // arithmetic, and parseFloat("1,200") is 1.
+    const amount = evalMath(valueFor(draft, 'amount'));
     if (!Number.isFinite(amount) || amount <= 0) {
       alert('Enter a valid amount before adding this transaction.');
       return;
@@ -296,7 +314,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         <span className={`ib-card-total ${isIncome ? 'income' : 'expense'}`}>
                           {isIncome ? '+' : '-'}
                           {getCurrencySymbol(valueFor(draft, 'currency'))}
-                          {formatCurrency(Math.abs(parseFloat(valueFor(draft, 'amount')) || 0))}
+                          {formatCurrency(Math.abs(evalMath(valueFor(draft, 'amount')) || 0))}
                         </span>
                         <span className={`ib-card-sub ${account ? '' : 'needs-input'}`}>
                           {account || 'Needs account'}
@@ -322,7 +340,21 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                 const draft = selected;
                 const type = valueFor(draft, 'type');
                 const suggestion = suggestions[draft.id] || {};
-                const symbol = getCurrencySymbol(valueFor(draft, 'currency'));
+                const amountValue = String(valueFor(draft, 'amount') ?? '');
+
+                // The amount field accepts arithmetic the same way the
+                // transaction form does — "1200+45" for a tip added by hand.
+                const evalResult = evalMath(amountValue);
+                const showPreview = /[+\-*/]/.test(amountValue) && evalResult !== null;
+
+                const CurrencyIcon = ({ size, className, style }) => (
+                  <span
+                    className={className}
+                    style={{ ...style, fontSize: size, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    {getCurrencySymbol(valueFor(draft, 'currency'))}
+                  </span>
+                );
 
                 return (
                   <>
@@ -368,57 +400,89 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         </div>
                       )}
 
-                      <div className="ib-form-group">
-                        <label>Amount</label>
-                        <div className="input-with-icon">
-                          <Banknote size={18} className="input-icon" />
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={valueFor(draft, 'amount')}
-                            onChange={e => setField(draft.id, 'amount', e.target.value)}
-                            placeholder={`${symbol} 0.00`}
-                          />
+                      <div className="ib-form-row">
+                        <div className="ib-form-group ib-flex-2 ib-relative">
+                          {amountValue && <label>Amount ({valueFor(draft, 'currency')})</label>}
+                          {isMobile ? (
+                            <div onClick={() => setActiveField('amount')} style={{ cursor: 'pointer' }}>
+                              <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
+                                <CurrencyIcon size={18} className="input-icon" />
+                                <input type="text" placeholder="Amount" value={amountValue} readOnly />
+                              </div>
+                              {showPreview && <div className="ib-math-preview">= {formatCurrency(evalResult)}</div>}
+                            </div>
+                          ) : (
+                            <>
+                              <div className="input-with-icon">
+                                <CurrencyIcon size={18} className="input-icon" />
+                                <input
+                                  type="text"
+                                  placeholder="Amount"
+                                  value={amountValue}
+                                  onChange={e => setField(draft.id, 'amount', formatAmountInput(e.target.value))}
+                                />
+                              </div>
+                              {showPreview && <div className="ib-math-preview">= {formatCurrency(evalResult)}</div>}
+                            </>
+                          )}
+                        </div>
+
+                        <div className="ib-form-group ib-flex-1">
+                          <label>Date</label>
+                          <div
+                            className="input-with-icon"
+                            onClick={() => setIsCalendarOpen(true)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <Calendar size={18} className="input-icon" />
+                            <input
+                              type="text"
+                              value={formatDayMonthYear(valueFor(draft, 'date'))}
+                              readOnly
+                              style={{ cursor: 'pointer', paddingLeft: '34px' }}
+                            />
+                          </div>
                         </div>
                       </div>
 
-                      <div className="ib-form-group">
-                        <label>Date</label>
-                        <div className="input-with-icon">
-                          <Calendar size={18} className="input-icon" />
-                          <input
-                            type="date"
-                            value={valueFor(draft, 'date')}
-                            onChange={e => setField(draft.id, 'date', e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="ib-form-group">
-                        <label>Account</label>
-                        <UnifiedDropdown
+                      {isMobile ? (
+                        <TapField
+                          label="Account"
                           value={valueFor(draft, 'account')}
-                          options={withCurrentValue(accounts, valueFor(draft, 'account'))}
-                          onChange={v => setField(draft.id, 'account', v)}
-                          placeholder="Choose account"
+                          icon={Wallet}
+                          onOpen={() => setActiveField('account')}
                         />
-                      </div>
-
-                      <div className="ib-form-group">
-                        <label>Payee</label>
-                        <div className="input-with-icon">
-                          <User size={18} className="input-icon" />
-                          <input
-                            type="text"
-                            list={`ib-payees-${draft.id}`}
-                            value={valueFor(draft, 'payee')}
-                            onChange={e => setPayeeField(draft, e.target.value)}
-                            placeholder="Unspecified"
+                      ) : (
+                        <div className="ib-form-group">
+                          {valueFor(draft, 'account') && <label>Account</label>}
+                          <UnifiedDropdown
+                            value={valueFor(draft, 'account')}
+                            options={withCurrentValue(accounts, valueFor(draft, 'account'))}
+                            onChange={v => setField(draft.id, 'account', v)}
+                            placeholder="Choose account"
                           />
                         </div>
-                        <datalist id={`ib-payees-${draft.id}`}>
-                          {payees.map(p => <option key={p.id || p.name} value={p.name} />)}
-                        </datalist>
+                      )}
+
+                      <div className="ib-form-group">
+                        {isMobile ? (
+                          <TapField
+                            label="Payee"
+                            value={valueFor(draft, 'payee')}
+                            icon={User}
+                            onOpen={() => setActiveField('payee')}
+                          />
+                        ) : (
+                          <>
+                            {valueFor(draft, 'payee') && <label>Payee</label>}
+                            <UnifiedDropdown
+                              value={valueFor(draft, 'payee')}
+                              options={withCurrentValue(payees, valueFor(draft, 'payee'))}
+                              onChange={v => setPayeeField(draft, v)}
+                              placeholder="Unspecified"
+                            />
+                          </>
+                        )}
                         {(() => {
                           const merchant = draft.parsed?.merchant;
                           if (!merchant || !looksLikeIdentifier(merchant)) return null;
@@ -439,28 +503,56 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         })()}
                       </div>
 
-                      <div className="ib-form-group">
-                        <label>Category</label>
-                        <UnifiedDropdown
+                      {isMobile ? (
+                        <TapField
+                          label="Category"
                           value={valueFor(draft, 'category')}
-                          options={categoryOptions}
-                          onChange={v => setField(draft.id, 'category', v)}
-                          placeholder="Uncategorised"
+                          icon={Tag}
+                          onOpen={() => setActiveField('category')}
                         />
-                      </div>
-
-                      <div className="ib-form-group">
-                        <label>Note</label>
-                        <div className="input-with-icon">
-                          <FileText size={18} className="input-icon" />
-                          <input
-                            type="text"
-                            value={valueFor(draft, 'note')}
-                            onChange={e => setField(draft.id, 'note', e.target.value)}
-                            placeholder="Optional"
+                      ) : (
+                        <div className="ib-form-group">
+                          {valueFor(draft, 'category') && <label>Category</label>}
+                          <UnifiedDropdown
+                            value={valueFor(draft, 'category')}
+                            options={withCurrentValue(categories, valueFor(draft, 'category'))}
+                            onChange={v => setField(draft.id, 'category', v)}
+                            placeholder="Uncategorised"
                           />
                         </div>
-                      </div>
+                      )}
+
+                      {isMobile ? (
+                        <TapField
+                          label="Note"
+                          value={valueFor(draft, 'note')}
+                          icon={AlignLeft}
+                          onOpen={() => setActiveField('note')}
+                        />
+                      ) : (
+                        <div className="ib-form-group">
+                          {valueFor(draft, 'note') && <label>Note</label>}
+                          <div className="input-with-icon">
+                            <AlignLeft size={18} className="input-icon" />
+                            <input
+                              type="text"
+                              value={valueFor(draft, 'note')}
+                              onChange={e => setField(draft.id, 'note', e.target.value)}
+                              placeholder="Note"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <AnimatePresence>
+                        {isCalendarOpen && (
+                          <UnifiedCalendar
+                            value={valueFor(draft, 'date')}
+                            onChange={v => setField(draft.id, 'date', v)}
+                            onClose={() => setIsCalendarOpen(false)}
+                          />
+                        )}
+                      </AnimatePresence>
 
                       <button
                         type="button"
@@ -497,6 +589,40 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Sits inside the panel, which is position:relative — the overlay is
+            absolutely positioned and covers the modal rather than the page. */}
+        {selected && activeField && (
+          <FieldPopover
+            field={activeField}
+            items={
+              activeField === 'category' ? categories
+                : activeField === 'payee' ? payees
+                : activeField === 'account' ? accounts
+                : []
+            }
+            initialValue={valueFor(selected, activeField)}
+            onSelect={(val) => {
+              if (activeField === 'payee') setPayeeField(selected, val);
+              else setField(selected.id, activeField, val);
+              setActiveField(null);
+            }}
+            onSaveValue={(val) => setField(selected.id, activeField, val)}
+            onAdd={async (val) => {
+              // Creating from here works exactly as it does in the transaction
+              // form: the payee or category becomes a real one immediately.
+              if (activeField === 'category') {
+                await saveCategory({ name: val, color: '#6366f1' });
+                setField(selected.id, 'category', val);
+              } else if (activeField === 'payee') {
+                await savePayee({ name: val, color: '#10b981' });
+                setPayeeField(selected, val);
+              }
+              setActiveField(null);
+            }}
+            onClose={() => setActiveField(null)}
+          />
+        )}
       </div>
     </ModalWrapper>
   );
