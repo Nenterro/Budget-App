@@ -18,7 +18,7 @@ import {
   confidenceLabel,
   looksLikeIdentifier,
   prettifyMerchant,
-  findTransferPairs,
+  findTransfers,
   pairToTransferSuggestion
 } from '../utils/inboxDraft';
 import { generateId } from '../store/db';
@@ -84,13 +84,16 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
 
   // One entry per thing to review: a matched transfer, or a lone message.
   const items = useMemo(() => {
-    const pairs = findTransferPairs(drafts, { accounts, rules: automationRules })
-      .filter(pair => !rejectedPairs.has(pair.id));
+    const transfers = findTransfers(drafts, { accounts, rules: automationRules })
+      .filter(transfer => !rejectedPairs.has(transfer.id));
 
-    const paired = new Set(pairs.flatMap(p => [p.debit.id, p.credit.id]));
+    // Either half may be absent: not every app reports both legs.
+    const paired = new Set(
+      transfers.flatMap(t => [t.debit?.id, t.credit?.id]).filter(Boolean)
+    );
 
     return [
-      ...pairs.map(pair => ({
+      ...transfers.map(pair => ({
         kind: 'transfer',
         id: pair.id,
         pair,
@@ -218,9 +221,9 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
           pendingSync: true
         });
 
-        // Both halves described the one movement, so both go.
-        await deleteDraft(item.pair.debit.id);
-        await deleteDraft(item.pair.credit.id);
+        // Whichever halves arrived described the one movement, so they go.
+        if (item.pair.debit) await deleteDraft(item.pair.debit.id);
+        if (item.pair.credit) await deleteDraft(item.pair.credit.id);
       } else {
         const draft = item.draft;
         const account = valueFor(item, 'account');
@@ -287,8 +290,8 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     setBusy(true);
     try {
       if (item.kind === 'transfer') {
-        await deleteDraft(item.pair.debit.id);
-        await deleteDraft(item.pair.credit.id);
+        if (item.pair.debit) await deleteDraft(item.pair.debit.id);
+        if (item.pair.credit) await deleteDraft(item.pair.credit.id);
       } else {
         await deleteDraft(item.draft.id);
       }
@@ -364,7 +367,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                   const amount = Math.abs(evalMath(valueFor(item, 'amount')) || 0);
                   const symbol = getCurrencySymbol(valueFor(item, 'currency'));
 
-                  const source = isTransfer ? item.pair.debit : item.draft;
+                  const source = isTransfer ? (item.pair.debit || item.pair.credit) : item.draft;
                   const level = confidenceLabel(source.confidence || 0);
 
                   const title = isTransfer
@@ -376,7 +379,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                     : `${item.draft.parsed?.bank || item.draft.sender || 'Unknown sender'} • ${formatDayMonthYear(valueFor(item, 'date'))}`;
 
                   const sub = isTransfer
-                    ? 'Two messages matched'
+                    ? (item.pair.oneSided ? 'Needs the other account' : 'Two messages matched')
                     : (valueFor(item, 'account') || 'Needs account');
 
                   return (
@@ -431,7 +434,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
               {(() => {
                 const item = selected;
                 const isTransfer = item.kind === 'transfer';
-                const draft = isTransfer ? item.pair.debit : item.draft;
+                const draft = isTransfer ? (item.pair.debit || item.pair.credit) : item.draft;
                 const type = isTransfer ? 2 : valueFor(item, 'type');
                 const suggestion = suggestions[item.id] || {};
                 const amountValue = String(valueFor(item, 'amount') ?? '');
@@ -479,8 +482,9 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         <div className="ib-transfer-note">
                           <ArrowRightLeft size={14} />
                           <span>
-                            Two messages, same amount, moments apart — matched as
-                            one transfer so the movement is not counted twice.
+                            {item.pair.oneSided
+                              ? `Only one side of this was reported, and ${draft.parsed?.merchant || 'the counterparty'} is a name you marked as your own — so pick the account at the other end.`
+                              : 'Two messages, same amount, moments apart — matched as one transfer so the movement is not counted twice.'}
                           </span>
                         </div>
                       ) : (
@@ -722,18 +726,23 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         className="ib-raw-toggle"
                         onClick={() => setShowRaw(v => !v)}
                       >
-                        <span>{isTransfer ? 'Both original messages' : 'Original message'}</span>
+                        <span>{isTransfer && item.pair.debit && item.pair.credit
+                          ? 'Both original messages' : 'Original message'}</span>
                         {showRaw ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
                       {showRaw && (
                         isTransfer ? (
                           <>
-                            <div className="ib-raw">
-                              <strong>Sent</strong> {item.pair.debit.rawText}
-                            </div>
-                            <div className="ib-raw">
-                              <strong>Received</strong> {item.pair.credit.rawText}
-                            </div>
+                            {item.pair.debit && (
+                              <div className="ib-raw">
+                                <strong>Sent</strong> {item.pair.debit.rawText}
+                              </div>
+                            )}
+                            {item.pair.credit && (
+                              <div className="ib-raw">
+                                <strong>Received</strong> {item.pair.credit.rawText}
+                              </div>
+                            )}
                           </>
                         ) : (
                           <div className="ib-raw">{draft.rawText}</div>

@@ -555,23 +555,70 @@ export function findTransferPairs(drafts, options = {}) {
   return pairs;
 }
 
-/** The transfer form's starting values for a matched pair. */
+/**
+ * Every transfer in the queue, whether both halves arrived or only one.
+ *
+ * A matched pair corroborates itself: two messages agreeing on the amount and
+ * the moment. A lone message has nothing backing it up, so it is only ever
+ * treated as a transfer when the counterparty is a name the user has
+ * explicitly declared to be themselves. Inferring that from the name alone
+ * would turn every payment to a namesake into a transfer, and a transfer
+ * booked as one leg of a movement that never happened is hard to spot later.
+ *
+ * This matters in practice because not every app reports both sides — SadaPay
+ * currently sends nothing at all for an outgoing transfer.
+ */
+export function findTransfers(drafts, options = {}) {
+  const { rules } = options;
+  const pairs = findTransferPairs(drafts, options);
+  const claimed = new Set(pairs.flatMap(p => [p.debit.id, p.credit.id]));
+
+  const oneSided = [];
+  for (const draft of drafts || []) {
+    if (claimed.has(draft.id)) continue;
+    if (!draftAmount(draft)) continue;
+
+    const direction = draft?.parsed?.direction;
+    if (direction !== 'debit' && direction !== 'credit') continue;
+
+    // The deliberate asymmetry: no self label, no one-sided transfer.
+    if (!isSelfLabel(draft?.parsed?.merchant, rules)) continue;
+
+    oneSided.push({
+      id: draft.id,
+      debit: direction === 'debit' ? draft : null,
+      credit: direction === 'credit' ? draft : null,
+      oneSided: true
+    });
+  }
+
+  return [...pairs, ...oneSided];
+}
+
+/**
+ * The transfer form's starting values.
+ *
+ * Either side may be missing. The account the message came from is known; the
+ * one at the other end is not named anywhere, so it is left blank for the user
+ * to pick rather than guessed.
+ */
 export function pairToTransferSuggestion(pair, options = {}) {
   const { accounts = [], rules } = options;
   const { debit, credit } = pair;
+  const known = debit || credit;
 
-  const from = suggestAccount(debit, accounts, rules);
-  const to = suggestAccount(credit, accounts, rules);
-  const fromRecord = findByName(accounts, from);
+  const from = debit ? suggestAccount(debit, accounts, rules) : '';
+  const to = credit ? suggestAccount(credit, accounts, rules) : '';
+  const currencySource = findByName(accounts, from || to);
 
   return {
     type: 2,
-    amount: String(draftAmount(debit) || ''),
-    date: toDateInput(debit?.parsed?.occurredAt || debit?.receivedAt),
+    amount: String(draftAmount(known) || ''),
+    date: toDateInput(known?.parsed?.occurredAt || known?.receivedAt),
     from,
     to,
-    currency: fromRecord?.currency || debit?.parsed?.currency || 'PKR',
-    note: `Auto-added transfer from ${debit?.parsed?.bank || debit?.sender || 'SMS'}`
+    currency: currencySource?.currency || known?.parsed?.currency || 'PKR',
+    note: `Auto-added transfer from ${known?.parsed?.bank || known?.sender || 'SMS'}`
   };
 }
 

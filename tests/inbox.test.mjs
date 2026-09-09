@@ -21,6 +21,7 @@ import {
   looksLikeIdentifier,
   categoryFromHistory,
   findTransferPairs,
+  findTransfers,
   pairToTransferSuggestion,
   isSelfLabel,
   DEFAULT_AUTOMATION_RULES
@@ -458,6 +459,60 @@ console.log('\n--- Transfers between your own accounts ---');
     isSelfLabel('Naveera Seerat', labelled) === false);
   check('no labels configured, no match',
     isSelfLabel('Huzaifa Sadeem', DEFAULT_AUTOMATION_RULES) === false);
+
+  // --- One-sided transfers ---
+  //
+  // Not every app reports both legs; SadaPay sends nothing for an outgoing
+  // transfer. A lone message has no second message backing it up, so it only
+  // counts as a transfer when the counterparty is a name the user declared.
+  {
+    const lone = [half('a', 'NayaPay', 'credit', 100, 0, 'Huzaifa Sadeem')];
+
+    eq('no self label, not a transfer',
+      findTransfers(lone, {
+        accounts: TRANSFER_ACCOUNTS, rules: DEFAULT_AUTOMATION_RULES
+      }).length, 0);
+
+    const found = findTransfers(lone, { accounts: TRANSFER_ACCOUNTS, rules: labelled });
+    eq('self label makes it a transfer', found.length, 1);
+    eq('the known side is the credit', found[0]?.credit?.id, 'a');
+    eq('the other side is unknown', found[0]?.debit, null);
+    eq('flagged as one-sided', found[0]?.oneSided, true);
+
+    const s = pairToTransferSuggestion(found[0], {
+      accounts: TRANSFER_ACCOUNTS, rules: labelled
+    });
+    eq('destination known', s.to, 'NayaPay');
+    // Nothing names the source, so it is left for the user rather than guessed.
+    eq('source left blank', s.from, '');
+    eq('amount carried over', s.amount, '100');
+
+    // The outgoing direction works the same way round.
+    const outgoing = findTransfers(
+      [half('b', 'SadaPay', 'debit', 100, 0, 'Huzaifa Sadeem')],
+      { accounts: TRANSFER_ACCOUNTS, rules: labelled }
+    );
+    eq('outgoing one-sided found', outgoing.length, 1);
+    const so = pairToTransferSuggestion(outgoing[0], {
+      accounts: TRANSFER_ACCOUNTS, rules: labelled
+    });
+    eq('source known', so.from, 'SadaPay Card');
+    eq('destination left blank', so.to, '');
+
+    // Someone else's name is never a transfer, label or no label.
+    eq('a real payee is not a transfer',
+      findTransfers([half('c', 'SadaPay', 'debit', 100, 0, 'METRO')], {
+        accounts: TRANSFER_ACCOUNTS, rules: labelled
+      }).length, 0);
+
+    // A matched pair is still preferred over two one-sided entries.
+    const both = findTransfers(
+      [half('d', 'SadaPay', 'debit', 100, 0), half('e', 'NayaPay', 'credit', 100, 0)],
+      { accounts: TRANSFER_ACCOUNTS, rules: labelled }
+    );
+    eq('pair wins over two singles', both.length, 1);
+    eq('and it has both sides', Boolean(both[0].debit && both[0].credit), true);
+  }
 
   // Each draft belongs to at most one pair, and the closest partner wins.
   const many = findTransferPairs(
