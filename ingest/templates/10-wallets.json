@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "_comment": [
+    "High-precision templates. These files are read in filename order and the",
+    "first template whose sender and regex both match wins, so anything with",
+    "named groups belongs here, ahead of the broad sender-recognition rules.",
+    "",
+    "Recognised named groups: amount, currency, merchant, last4, date,",
+    "reference. Any group a template omits is filled in afterwards by the",
+    "generic extractors, so a template only needs to describe the parts that",
+    "are genuinely distinctive about that sender's wording.",
+    "",
+    "Edit this file on the server and POST /admin/reload to apply - no rebuild."
+  ],
+  "templates": [
+    {
+      "id": "jazzcash-received",
+      "bank": "JazzCash",
+      "senders": ["JazzCash", "Jazz ?Cash"],
+      "match": "you have received\\s*(?P<currency>Rs\\.?|PKR)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?).{0,40}?from\\s+(?P<merchant>[A-Za-z0-9 .'&_-]{3,40}?)(?=\\.|,|\\s+TID|\\s+Your|\\s*$)",
+      "direction": "credit",
+      "confidence": 0.95
+    },
+    {
+      "id": "jazzcash-sent",
+      "bank": "JazzCash",
+      "senders": ["JazzCash", "Jazz ?Cash"],
+      "match": "you have sent\\s*(?P<currency>Rs\\.?|PKR)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s*to\\s+(?P<merchant>[A-Za-z0-9 .'&_-]{3,40}?)(?=\\.|,|\\s+from|\\s+Fee|\\s+TID|\\s*$)",
+      "direction": "debit",
+      "confidence": 0.95
+    },
+    {
+      "id": "jazzcash-payment",
+      "bank": "JazzCash",
+      "senders": ["JazzCash", "Jazz ?Cash"],
+      "match": "(?P<currency>Rs\\.?|PKR)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s*(?:has been\\s+)?debited.{0,40}?(?:payment to|to)\\s+(?P<merchant>[A-Za-z0-9 .'&_-]{3,40}?)(?=\\.|,|\\s+TID|\\s+Your|\\s*$)",
+      "direction": "debit",
+      "confidence": 0.92
+    },
+    {
+      "id": "easypaisa-received",
+      "bank": "Easypaisa",
+      "senders": ["Easypaisa", "EasyPaisa", "^EP$"],
+      "match": "you have received\\s*(?P<currency>Rs\\.?|PKR)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?).{0,40}?from\\s+(?P<merchant>[A-Za-z0-9 .'&_-]{3,40}?)(?=\\.|,|\\s+Your|\\s+TID|\\s*$)",
+      "direction": "credit",
+      "confidence": 0.95
+    },
+    {
+      "id": "easypaisa-payment",
+      "bank": "Easypaisa",
+      "senders": ["Easypaisa", "EasyPaisa", "^EP$"],
+      "match": "payment of\\s*(?P<currency>Rs\\.?|PKR)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?).{0,20}?(?:made |sent )?to\\s+(?P<merchant>[A-Za-z0-9 .'&_-]{3,40}?)(?=\\.|,|\\s+Your|\\s+TID|\\s*$)",
+      "direction": "debit",
+      "confidence": 0.95
+    },
+    {
+      "id": "sadapay-card",
+      "bank": "SadaPay",
+      "senders": ["SadaPay", "Sada ?Pay"],
+      "match": "you spent\\s*(?P<currency>PKR|Rs\\.?)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s*at\\s+(?P<merchant>[A-Za-z0-9 .'&*_-]{3,40}?)(?=\\s+with|\\.|,|\\s*$)",
+      "direction": "debit",
+      "confidence": 0.95
+    },
+    {
+      "id": "nayapay-paid",
+      "bank": "NayaPay",
+      "senders": ["NayaPay", "Naya ?Pay"],
+      "match": "you (?:paid|sent)\\s*(?P<currency>PKR|Rs\\.?)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s*to\\s+(?P<merchant>[A-Za-z0-9 .'&*_-]{3,40}?)(?=\\.|,|\\s+NayaPay|\\s*$)",
+      "direction": "debit",
+      "confidence": 0.95
+    },
+    {
+      "id": "raast-received",
+      "bank": "Raast",
+      "senders": [],
+      "match": "raast.{0,30}?(?P<currency>PKR|Rs\\.?)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s*(?:has been\\s+)?(?:received|credited).{0,20}?from\\s+(?P<merchant>[A-Za-z0-9 .'&_-]{3,40}?)(?=\\.|,|\\s+Your|\\s*$)",
+      "direction": "credit",
+      "confidence": 0.9
+    },
+    {
+      "id": "generic-card-purchase",
+      "bank": "",
+      "senders": [],
+      "match": "(?:debit|credit) card\\s*(?:ending|no\\.?|number)?\\s*[*x\\u2022-]{0,8}\\s*(?P<last4>\\d{4}).{0,60}?(?P<currency>PKR|Rs\\.?|USD|\\$)\\s*(?P<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s*(?:was\\s+)?(?:used\\s+)?(?:for\\s+)?(?:a\\s+)?(?:transaction\\s+)?at\\s+(?P<merchant>[A-Za-z0-9 .,'&*/_-]{3,40}?)(?=\\s+on\\b|\\.|,|\\s+Avl|\\s+Bal|\\s*$)",
+      "direction": "debit",
+      "confidence": 0.88
+    }
+  ]
+}

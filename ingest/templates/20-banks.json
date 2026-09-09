@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "_comment": [
+    "Sender recognition, not pattern matching. These load after 10-wallets.json,",
+    "so a precise template always gets first refusal.",
+    "",
+    "The match is '.' - any non-empty message. All these do is put a bank name",
+    "on the draft and let the generic extractors pull out amount, direction,",
+    "merchant and card digits. That is deliberate: bank wording changes often",
+    "and a loose rule that reliably labels the sender beats a tight one that",
+    "silently stops matching. The generic amount extractor also knows to skip",
+    "the running balance, which a hand-written per-bank regex usually does not.",
+    "",
+    "When a bank's format turns out to be stable and worth pinning down, move",
+    "it into 10-wallets.json with named groups and a higher confidence.",
+    "",
+    "Add a sender by appending its SMS short-code / alphanumeric id to the",
+    "senders list. POST /admin/reload afterwards."
+  ],
+  "templates": [
+    {
+      "id": "pk-bank-hbl",
+      "bank": "HBL",
+      "senders": ["^HBL", "HBLBank", "HBL ?Bank"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-meezan",
+      "bank": "Meezan Bank",
+      "senders": ["Meezan"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-ubl",
+      "bank": "UBL",
+      "senders": ["^UBL", "UBL ?Bank", "UBLDigital"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-mcb",
+      "bank": "MCB",
+      "senders": ["^MCB", "MCB ?Bank"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-alfalah",
+      "bank": "Bank Alfalah",
+      "senders": ["Alfalah", "^BAFL"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-abl",
+      "bank": "Allied Bank",
+      "senders": ["^ABL", "Allied"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-faysal",
+      "bank": "Faysal Bank",
+      "senders": ["Faysal"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-askari",
+      "bank": "Askari Bank",
+      "senders": ["Askari", "^AKBL"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-scb",
+      "bank": "Standard Chartered",
+      "senders": ["^SCB", "StanChart", "Standard ?Chartered"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-dib",
+      "bank": "Dubai Islamic Bank",
+      "senders": ["^DIB", "Dubai ?Islamic"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-bankislami",
+      "bank": "BankIslami",
+      "senders": ["BankIslami", "Bank ?Islami"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-js",
+      "bank": "JS Bank",
+      "senders": ["^JS ?Bank", "^JSBL"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-soneri",
+      "bank": "Soneri Bank",
+      "senders": ["Soneri"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-hmb",
+      "bank": "Habib Metro",
+      "senders": ["^HMB", "Habib ?Metro"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    },
+    {
+      "id": "pk-bank-nbp",
+      "bank": "National Bank",
+      "senders": ["^NBP"],
+      "match": ".",
+      "direction": "auto",
+      "confidence": 0.7
+    }
+  ]
+}

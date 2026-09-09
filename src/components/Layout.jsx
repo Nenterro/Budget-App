@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal, Wallet } from 'lucide-react';
+import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal, Wallet, Inbox } from 'lucide-react';
 // Rendered only once the user taps Add, so it does not belong in the chunk
 // that paints the shell.
 const AddTransactionModal = lazy(() => import('./AddTransactionModal'));
+// Same reasoning: most sessions never open the review queue.
+const InboxReviewModal = lazy(() => import('./InboxReviewModal'));
+import { useInboxDrafts } from '../hooks/useInboxDrafts';
 import MoreMenuModal from './MoreMenuModal';
 import PwaInstallBanner from './PwaInstallPrompt';
 import PullToRefresh from './PullToRefresh';
@@ -31,7 +34,24 @@ function GradientDef() {
   );
 }
 
-function Sidebar({ isPinned, togglePin, onOpenAdd }) {
+// A standing invitation rather than a notification: it sits above the page
+// content on every route while anything is waiting, and disappears the moment
+// the queue empties. Buried behind the More menu it would have gone unseen on
+// the phone, which is the device the messages arrive on.
+function InboxBanner({ count, onOpen }) {
+  if (count === 0) return null;
+  return (
+    <button className="inbox-banner" onClick={onOpen}>
+      <Inbox size={18} />
+      <span>
+        {count} transaction{count === 1 ? '' : 's'} detected
+      </span>
+      <span className="inbox-banner-cta">Review</span>
+    </button>
+  );
+}
+
+function Sidebar({ isPinned, togglePin, onOpenAdd, inboxCount, onOpenInbox }) {
   return (
     <div className={`sidebar-wrapper desktop-only ${isPinned ? 'pinned' : 'unpinned'}`}>
       <aside className={`sidebar glass-panel ${isPinned ? 'pinned' : 'unpinned'}`}>
@@ -52,6 +72,13 @@ function Sidebar({ isPinned, togglePin, onOpenAdd }) {
               <span className="nav-label">{item.label}</span>
             </NavLink>
           ))}
+          {inboxCount > 0 && (
+            <button className="nav-item nav-inbox-btn" onClick={onOpenInbox} title="Detected Transactions">
+              <Inbox size={20} className="nav-icon" />
+              <span className="nav-label">Detected</span>
+              <span className="nav-badge">{inboxCount}</span>
+            </button>
+          )}
         </nav>
         <div className="sidebar-footer">
           <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Settings">
@@ -140,6 +167,9 @@ export default function Layout() {
   };
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
+
+  const { drafts, refresh: refreshInbox, count: inboxCount } = useInboxDrafts();
 
   const location = useLocation();
 
@@ -153,9 +183,18 @@ export default function Layout() {
     <div className="app-container">
       <PullToRefresh />
       <GradientDef />
-      <Sidebar isPinned={isSidebarPinned} togglePin={toggleSidebarPin} onOpenAdd={() => setIsAddOpen(true)} />
+      <Sidebar
+        isPinned={isSidebarPinned}
+        togglePin={toggleSidebarPin}
+        onOpenAdd={() => setIsAddOpen(true)}
+        inboxCount={inboxCount}
+        onOpenInbox={() => setIsInboxOpen(true)}
+      />
       <div className="main-wrapper">
         <main className="main-content">
+          {!location.pathname.startsWith('/settings') && (
+            <InboxBanner count={inboxCount} onOpen={() => setIsInboxOpen(true)} />
+          )}
           <div key={location.pathname} className="page-transition-wrapper">
             <Outlet />
           </div>
@@ -169,6 +208,18 @@ export default function Layout() {
         {isAddOpen && (
           <Suspense fallback={null}>
             <AddTransactionModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />
+          </Suspense>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {isInboxOpen && (
+          <Suspense fallback={null}>
+            <InboxReviewModal
+              isOpen={isInboxOpen}
+              onClose={() => setIsInboxOpen(false)}
+              drafts={drafts}
+              onRefresh={refreshInbox}
+            />
           </Suspense>
         )}
       </AnimatePresence>

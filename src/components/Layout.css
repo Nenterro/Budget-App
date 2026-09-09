@@ -313,3 +313,71 @@
   z-index: 60;
 }
 .fab-container { position: relative; }
+
+/* --- Detected transactions (SMS / notification ingest) --- */
+
+/* Sits above page content on every non-settings route while the review queue
+   has anything in it. On the phone this is the only entry point that is
+   reliably seen, so it is deliberately not dismissible - it goes away by
+   being dealt with. */
+.inbox-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 14px;
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.inbox-banner:hover {
+  background: rgba(139, 92, 246, 0.2);
+}
+
+.inbox-banner > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+}
+
+.inbox-banner-cta {
+  color: var(--accent-color);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.nav-inbox-btn {
+  position: relative;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.nav-badge {
+  position: absolute;
+  top: 8px;
+  left: 26px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent-color);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

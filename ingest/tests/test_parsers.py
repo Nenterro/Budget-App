@@ -1,0 +1,245 @@
+"""Parser tests.
+
+Run from the ingest directory:  python -m tests.test_parsers
+
+Deliberately plain asserts and no pytest dependency - this has to be runnable
+on the server over SSH after a template edit, not just in a dev environment.
+"""
+import os
+import sys
+from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app import parsers  # noqa: E402
+
+TEMPLATE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates"
+)
+
+RECEIVED = datetime(2026, 9, 9, 12, 0, 0, tzinfo=timezone.utc)
+
+failures = []
+checks = 0
+
+
+def check(label, actual, expected):
+    global checks
+    checks += 1
+    if actual != expected:
+        failures.append(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+def parse(text, sender=None):
+    return parsers.parse_message(text, sender=sender, received_at=RECEIVED)
+
+
+def test_amount_parsing():
+    check("comma amount", parsers.parse_amount("1,234.50"), 1234.5)
+    check("plain amount", parsers.parse_amount("500"), 500.0)
+    check("lakh grouping", parsers.parse_amount("1,00,000"), 100000.0)
+    check("zero rejected", parsers.parse_amount("0"), None)
+    check("junk rejected", parsers.parse_amount("abc"), None)
+    check("none rejected", parsers.parse_amount(None), None)
+
+
+def test_currency_aliases():
+    check("Rs.", parsers.normalise_currency("Rs."), "PKR")
+    check("RS", parsers.normalise_currency("RS"), "PKR")
+    check("PKR", parsers.normalise_currency("PKR"), "PKR")
+    check("dollar", parsers.normalise_currency("$"), "USD")
+
+
+def test_direction_by_position():
+    # "debit card" appears after "credited" - the first cue is the real one.
+    check(
+        "credit wins on position",
+        parsers.detect_direction(
+            "Your account has been credited with PKR 100 on your debit card"
+        ),
+        "credit",
+    )
+    check(
+        "debit detected",
+        parsers.detect_direction("PKR 500 has been debited from your account"),
+        "debit",
+    )
+    check("no cue", parsers.detect_direction("Your statement is ready"), None)
+
+
+def test_balance_is_not_the_amount():
+    # The balance is quoted second here, and also first in the second case.
+    amount, currency = parsers.extract_amount_and_currency(
+        "Debited PKR 250.00 at SHELL. Avl Bal PKR 45,000.00"
+    )
+    check("amount not balance (trailing)", amount, 250.0)
+    check("currency", currency, "PKR")
+
+    amount, _ = parsers.extract_amount_and_currency(
+        "Avl Bal PKR 45,000.00. Txn amount PKR 250.00"
+    )
+    check("amount not balance (leading)", amount, 250.0)
+
+
+def test_last4_extraction():
+    check("asterisks", parsers.extract_last4("Card ****1234 used"), "1234")
+    check("ending in", parsers.extract_last4("card ending in 5678"), "5678")
+    check("a/c form", parsers.extract_last4("A/C no 9012 debited"), "9012")
+    check("absent", parsers.extract_last4("You spent PKR 100"), None)
+
+
+def test_noise_is_rejected():
+    for text in [
+        "Your OTP is 123456. Do not share it with anyone.",
+        "123456 is your code for login.",
+        "Congratulations! You could win a prize worth PKR 100,000",
+    ]:
+        result = parse(text)
+        check(f"noise: {text[:24]}", result["isNoise"], True)
+        check(f"noise confidence: {text[:24]}", result["confidence"], 0.0)
+
+
+def test_jazzcash_received():
+    result = parse(
+        "You have received Rs. 5,000.00 in your JazzCash account from "
+        "AHMED KHAN. TID: 987654321. Your balance is Rs. 12,300.00",
+        sender="JazzCash",
+    )
+    check("jazzcash template", result["templateId"], "jazzcash-received")
+    check("jazzcash amount", result["parsed"]["amount"], 5000.0)
+    check("jazzcash direction", result["parsed"]["direction"], "credit")
+    check("jazzcash merchant", result["parsed"]["merchant"], "AHMED KHAN")
+    check("jazzcash bank", result["parsed"]["bank"], "JazzCash")
+
+
+def test_sadapay_card():
+    result = parse(
+        "You spent PKR 1,250.00 at CAREEM with your SadaPay card. "
+        "Balance: PKR 3,000.00",
+        sender="SadaPay",
+    )
+    check("sadapay template", result["templateId"], "sadapay-card")
+    check("sadapay amount", result["parsed"]["amount"], 1250.0)
+    check("sadapay merchant", result["parsed"]["merchant"], "CAREEM")
+    check("sadapay direction", result["parsed"]["direction"], "debit")
+
+
+def test_generic_card_purchase():
+    result = parse(
+        "Your Debit Card ending 4321 was used for PKR 3,499.00 at "
+        "METRO CASH CARRY on 08-Sep-26. Avl Bal PKR 22,100.00",
+        sender="UBL",
+    )
+    check("card amount", result["parsed"]["amount"], 3499.0)
+    check("card last4", result["parsed"]["last4"], "4321")
+    check("card merchant", result["parsed"]["merchant"], "METRO CASH CARRY")
+    check("card direction", result["parsed"]["direction"], "debit")
+
+
+def test_template_match_still_fills_date_and_bank():
+    # A template that names neither (generic-card-purchase carries no `date`
+    # group and no bank) must still end up with the date the message states
+    # and the sender as the bank label. Both were being dropped: a template
+    # match used to skip the generic fill-in for these two fields.
+    result = parse(
+        "Your Debit Card ending 4321 was used for PKR 3,499.00 at "
+        "METRO CASH CARRY on 08-Sep-26. Avl Bal PKR 22,100.00",
+        sender="Askari",
+    )
+    check("template matched", result["templateId"], "generic-card-purchase")
+    check("date from message", result["parsed"]["occurredAt"][:10], "2026-09-08")
+    check("bank falls back to sender", result["parsed"]["bank"], "Askari")
+
+
+def test_template_date_group_wins():
+    # Where a template does capture the date, that stays authoritative.
+    result = parse(
+        "You have received Rs. 500.00 in your JazzCash account from "
+        "ALI. TID: 1. Your balance is Rs. 900.00",
+        sender="JazzCash",
+    )
+    check("named bank kept", result["parsed"]["bank"], "JazzCash")
+
+
+def test_unknown_sender_generic_path():
+    result = parse(
+        "Your account has been debited with PKR 899.00 at FOODPANDA on "
+        "09/09/2026. Avl Bal PKR 5,000.00",
+        sender="SOMEBANK",
+    )
+    check("generic template", result["templateId"], None)
+    check("generic amount", result["parsed"]["amount"], 899.0)
+    check("generic direction", result["parsed"]["direction"], "debit")
+    check("generic merchant", result["parsed"]["merchant"], "FOODPANDA")
+    # Confidence starts at 0.5 for the generic path, minus 0.05 for no card.
+    check("generic confidence", result["confidence"], 0.45)
+
+
+def test_bank_sender_is_labelled():
+    result = parse(
+        "Dear Customer, your account has been debited with PKR 750.00 "
+        "at K ELECTRIC on 09/09/2026.",
+        sender="Meezan",
+    )
+    check("meezan template", result["templateId"], "pk-bank-meezan")
+    check("meezan bank label", result["parsed"]["bank"], "Meezan Bank")
+    check("meezan amount", result["parsed"]["amount"], 750.0)
+    check("meezan direction", result["parsed"]["direction"], "debit")
+
+
+def test_sender_scoping():
+    # A JazzCash-worded message from a different sender must not claim the
+    # JazzCash template.
+    result = parse(
+        "You have received Rs. 100.00 from SOMEONE.", sender="RandomSender"
+    )
+    check("sender scoping", result["templateId"], None)
+
+
+def test_future_date_is_rejected():
+    # A misread date must not land the transaction in next year.
+    result = parse(
+        "Your account was debited with PKR 100.00 on 31/12/2099.",
+        sender="SOMEBANK",
+    )
+    check("future date falls back", result["parsed"]["occurredAt"],
+          RECEIVED.isoformat())
+
+
+def test_stated_date_is_used():
+    result = parse(
+        "Your account was debited with PKR 100.00 on 08/09/2026.",
+        sender="SOMEBANK",
+    )
+    check("stated date used", result["parsed"]["occurredAt"][:10], "2026-09-08")
+
+
+def test_empty_and_amountless():
+    check("empty text", parse("")["isNoise"], True)
+    check("no amount", parse("Your statement is ready to view.")["isNoise"], True)
+
+
+def main():
+    parsers.load_templates(TEMPLATE_DIR)
+    loaded = len(parsers.get_templates())
+    if loaded == 0:
+        print("FAIL: no templates loaded from", TEMPLATE_DIR)
+        return 1
+    print(f"Loaded {loaded} templates from {TEMPLATE_DIR}")
+
+    for name, function in sorted(globals().items()):
+        if name.startswith("test_") and callable(function):
+            function()
+
+    if failures:
+        print(f"\n{len(failures)} of {checks} checks FAILED:\n")
+        for failure in failures:
+            print("  -", failure)
+        return 1
+
+    print(f"All {checks} checks passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

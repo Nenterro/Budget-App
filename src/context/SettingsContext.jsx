@@ -31,7 +31,12 @@ const DEFAULT_SETTINGS = {
   stats: { period: 'This Month', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE }, active: DEFAULT_STATS },
   transactions: { period: 'All Time', customRange: { start: null, end: null }, filters: { ...DEFAULT_FILTER_STATE } },
   appearance: { theme: 'purple', customHex: '#6366f1', baseCurrency: 'PKR', displayMode: 'unified' },
-  security: { e2eeEnabled: false, hasPromptedE2ee: false }
+  security: { e2eeEnabled: false, hasPromptedE2ee: false },
+  // What the review queue has learned from past approvals: which card maps to
+  // which account, which merchant string is which payee, and which category
+  // that payee usually belongs to. Kept in settings so it syncs (encrypted)
+  // to every device rather than being relearned on each one.
+  automation: { accountByLast4: {}, payeeByMerchant: {}, categoryByPayee: {} }
 };
 
 const serializeFilters = (filters) => ({
@@ -82,7 +87,8 @@ export function SettingsProvider({ children }) {
           stats: { ...DEFAULT_SETTINGS.stats, ...config.stats, filters: deserializeFilters(config.stats?.filters) },
           transactions: { ...DEFAULT_SETTINGS.transactions, ...config.transactions, filters: deserializeFilters(config.transactions?.filters) },
           appearance: { ...DEFAULT_SETTINGS.appearance, ...config.appearance },
-          security: { ...DEFAULT_SETTINGS.security, ...config.security }
+          security: { ...DEFAULT_SETTINGS.security, ...config.security },
+          automation: { ...DEFAULT_SETTINGS.automation, ...config.automation }
         });
       }
     } catch (err) {
@@ -107,7 +113,8 @@ export function SettingsProvider({ children }) {
         stats: { ...newSettings.stats, filters: serializeFilters(newSettings.stats.filters) },
         transactions: { ...newSettings.transactions, filters: serializeFilters(newSettings.transactions.filters) },
         appearance: { ...newSettings.appearance },
-        security: { ...newSettings.security }
+        security: { ...newSettings.security },
+        automation: { ...newSettings.automation }
       };
 
       const existingRecord = await db.settingsStore.getItem('appsettings1234');
@@ -263,6 +270,29 @@ export const useAppearanceSettings = () => {
     displayMode: appearance.displayMode || 'unified',
     setDisplayMode
   };
+};
+
+export const useAutomationSettings = () => {
+  const context = useContext(SettingsContext);
+  if (!context) throw new Error("useAutomationSettings must be used within SettingsProvider");
+
+  const { getPageSettings, setPageSettings } = context;
+  const automation = getPageSettings('automation');
+
+  const setAutomationRules = async (rules) => {
+    return await setPageSettings('automation', () => rules);
+  };
+
+  // A user who has never approved a draft has no rules, and a settings record
+  // written before this existed has no `automation` key at all — both must
+  // read as an empty rule set rather than as undefined.
+  const automationRules = {
+    accountByLast4: automation?.accountByLast4 || {},
+    payeeByMerchant: automation?.payeeByMerchant || {},
+    categoryByPayee: automation?.categoryByPayee || {}
+  };
+
+  return { automationRules, setAutomationRules };
 };
 
 export const useSecuritySettings = () => {
