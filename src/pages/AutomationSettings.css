@@ -200,3 +200,38 @@
     font-size: 16px;
   }
 }
+
+/* --- Ingest key --- */
+
+.am-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.am-token {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 10px;
+  overflow-x: auto;
+  white-space: nowrap;
+  /* Long enough to matter: selecting it by hand should be possible when the
+     clipboard is unavailable. */
+  user-select: all;
+}
+
+.am-section-titles p code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 1px 5px;
+  border-radius: 5px;
+  color: var(--text-primary);
+}

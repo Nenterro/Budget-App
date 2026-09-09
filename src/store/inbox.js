@@ -69,6 +69,62 @@ function normaliseDraft(record) {
   return { ...record, parsed: parsed || {} };
 }
 
+// --- Per-person ingest token ----------------------------------------------
+//
+// The secret the phone's shortcut presents. It lives on the user's own record
+// rather than in settings, in plain text, and both of those are deliberate:
+// the ingest service has to be able to read it to know who is sending, so it
+// cannot be inside the encrypted payload. The users collection only lets a
+// record be viewed or updated by the person it belongs to, so one person's
+// token is not visible to another regardless.
+
+const TOKEN_FIELD = 'ingest_token';
+
+/** 32 random bytes as hex, from the platform CSPRNG. */
+function newToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** The signed-in user's token, minting one the first time it is asked for. */
+export async function getOrCreateIngestToken() {
+  if (!(await ensureConnection())) return null;
+  const user = pb.authStore.model;
+  if (!user?.id) return null;
+
+  // The cached auth record can predate the field existing, so the record is
+  // re-read rather than trusted.
+  let record;
+  try {
+    record = await pb.collection('users').getOne(user.id);
+  } catch (err) {
+    console.warn('Could not read the ingest token:', err);
+    return null;
+  }
+
+  if (record[TOKEN_FIELD]) return record[TOKEN_FIELD];
+  return regenerateIngestToken();
+}
+
+/** Mint a fresh token, retiring whatever the shortcuts are using now. */
+export async function regenerateIngestToken() {
+  if (!(await ensureConnection())) return null;
+  const user = pb.authStore.model;
+  if (!user?.id) return null;
+
+  const token = newToken();
+  try {
+    await pb.collection('users').update(user.id, { [TOKEN_FIELD]: token });
+    return token;
+  } catch (err) {
+    // Most likely the ingest service has never run, so the field does not
+    // exist on the collection yet.
+    console.warn('Could not save the ingest token:', err);
+    return null;
+  }
+}
+
 /** Remove a draft once it has become a transaction, or been rejected. */
 export async function deleteDraft(id) {
   try {

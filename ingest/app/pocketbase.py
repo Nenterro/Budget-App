@@ -135,6 +135,61 @@ class PocketBaseClient:
         log.info("Created collection '%s'", self.collection)
         return response.json()
 
+    async def ensure_user_token_field(self, field="ingest_token"):
+        """Give the users collection somewhere to keep a per-person token.
+
+        Stored in plain text, unlike everything else this app holds, and
+        necessarily so: it is the credential the phone presents, which means
+        this service has to be able to read it. It is safe there because the
+        users collection only lets a record be listed, viewed or updated by
+        the person it belongs to — so one person's token is not visible to
+        another even though it is not encrypted.
+        """
+        users = await self._get_collection("users")
+        if not users:
+            raise PocketBaseError("The 'users' collection is missing")
+
+        schema = users.get("schema", [])
+        if any(f.get("name") == field for f in schema):
+            return False
+
+        users["schema"] = schema + [{"name": field, "type": "text"}]
+        response = await self._request(
+            "PATCH", f"/api/collections/{users['id']}", json=users
+        )
+        if response.status_code != 200:
+            raise PocketBaseError(
+                f"Could not add '{field}' to users ({response.status_code}): "
+                f"{response.text[:300]}"
+            )
+        log.info("Added '%s' field to the users collection", field)
+        return True
+
+    async def find_user_by_token(self, token, field="ingest_token"):
+        """The account a per-person token belongs to, or None.
+
+        Deliberately not cached. A token the user has just regenerated has to
+        stop working immediately, and at the volume of messages this service
+        sees one extra query is nothing next to that guarantee.
+        """
+        response = await self._request(
+            "GET",
+            "/api/collections/users/records",
+            params={"filter": f'{field} = "{token}"', "perPage": 2},
+        )
+        if response.status_code != 200:
+            log.warning("Token lookup failed: %s", response.text[:200])
+            return None
+
+        items = response.json().get("items", [])
+        if len(items) != 1:
+            # Zero is a bad token. More than one should be impossible, and
+            # guessing which account was meant is not a risk worth taking.
+            if len(items) > 1:
+                log.error("Ingest token collision across %d accounts", len(items))
+            return None
+        return items[0]["id"]
+
     async def resolve_user_id(self, email):
         response = await self._request(
             "GET",

@@ -123,19 +123,56 @@ class ParseTestPayload(BaseModel):
 
 # --- auth ------------------------------------------------------------------
 
-def require_token(authorization, x_ingest_token):
-    """Accept the secret from either header.
+# A per-person token is 32 random bytes as hex. Checking the shape before
+# querying keeps anything else out of the PocketBase filter string.
+USER_TOKEN_PATTERN = re.compile(r"^[a-f0-9]{32,128}$")
+
+
+def presented_token(authorization, x_ingest_token):
+    """The secret from either header.
 
     iOS Shortcuts can send an Authorization header, but a custom header is far
     less fiddly to get right in the Shortcuts UI, so both work.
     """
-    presented = None
     if authorization and authorization.lower().startswith("bearer "):
-        presented = authorization[7:].strip()
-    elif x_ingest_token:
-        presented = x_ingest_token.strip()
+        return authorization[7:].strip()
+    if x_ingest_token:
+        return x_ingest_token.strip()
+    return None
 
-    if not presented or not hmac.compare_digest(presented, settings.ingest_token):
+
+async def authenticate(authorization, x_ingest_token):
+    """Who is sending this.
+
+    Two kinds of token are accepted. A per-person token identifies the account
+    on its own, which is the point of it: the phone presents one secret and the
+    draft can only ever land in that person's budget, so a shortcut cannot name
+    someone else's. The shared server token is still honoured for the shortcuts
+    that predate this, and those still say who they are with the `user` field.
+
+    Returns the user id to file under, or None meaning "the shared token, work
+    it out from the payload".
+    """
+    token = presented_token(authorization, x_ingest_token)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing ingest token")
+
+    # The shared token first: a cheap comparison, and no query.
+    if hmac.compare_digest(token, settings.ingest_token):
+        return None
+
+    if USER_TOKEN_PATTERN.match(token) and state["client"]:
+        user_id = await state["client"].find_user_by_token(token)
+        if user_id:
+            return user_id
+
+    raise HTTPException(status_code=401, detail="Invalid ingest token")
+
+
+def require_token(authorization, x_ingest_token):
+    """Token check for the endpoints that read nothing and write nothing."""
+    token = presented_token(authorization, x_ingest_token)
+    if not token or not hmac.compare_digest(token, settings.ingest_token):
         raise HTTPException(status_code=401, detail="Invalid or missing ingest token")
 
 
@@ -196,7 +233,7 @@ def dedupe_hash(source, sender, text):
     return digest.hexdigest()
 
 
-async def store_draft(source, sender, text, received_at, user_key=None):
+async def store_draft(source, sender, text, received_at, user_key=None, owner_id=None):
     if not state["ready"]:
         raise HTTPException(
             status_code=503,
@@ -204,7 +241,9 @@ async def store_draft(source, sender, text, received_at, user_key=None):
         )
 
     client = state["client"]
-    user_id = await resolve_target_user(user_key)
+    # A per-person token has already said whose budget this is, and it is
+    # not overridable by anything in the payload.
+    user_id = owner_id or await resolve_target_user(user_key)
 
     result = parsers.parse_message(text, sender=sender, received_at=received_at)
 
@@ -290,6 +329,7 @@ async def connect():
     state["client"] = client
     await client.authenticate()
     await client.ensure_collection()
+    await client.ensure_user_token_field()
     state["user_id"] = await client.resolve_user_id(settings.budget_user_email)
 
     # One bad entry in INGEST_USERS must not stop everyone else's messages
@@ -363,11 +403,11 @@ async def ingest_sms(
     authorization: str | None = Header(None),
     x_ingest_token: str | None = Header(None),
 ):
-    require_token(authorization, x_ingest_token)
+    owner_id = await authenticate(authorization, x_ingest_token)
     check_rate_limit(request.client.host if request.client else "unknown")
     return await store_draft(
         "sms", payload.sender, payload.text,
-        parse_received_at(payload.receivedAt), payload.user
+        parse_received_at(payload.receivedAt), payload.user, owner_id
     )
 
 
@@ -378,7 +418,7 @@ async def ingest_notification(
     authorization: str | None = Header(None),
     x_ingest_token: str | None = Header(None),
 ):
-    require_token(authorization, x_ingest_token)
+    owner_id = await authenticate(authorization, x_ingest_token)
     check_rate_limit(request.client.host if request.client else "unknown")
 
     # A notification splits what an SMS says in one string across title and
@@ -387,7 +427,7 @@ async def ingest_notification(
     sender = payload.app or payload.title
     return await store_draft(
         "notification", sender, text,
-        parse_received_at(payload.receivedAt), payload.user
+        parse_received_at(payload.receivedAt), payload.user, owner_id
     )
 
 
@@ -401,7 +441,7 @@ async def ingest_any(
 
     Takes JSON with any of text/body/message, or a bare text/plain body.
     """
-    require_token(authorization, x_ingest_token)
+    owner_id = await authenticate(authorization, x_ingest_token)
     check_rate_limit(request.client.host if request.client else "unknown")
 
     raw = await request.body()
@@ -436,7 +476,7 @@ async def ingest_any(
         source = "sms"
 
     return await store_draft(
-        source, sender, text[:4000], parse_received_at(received), user_key
+        source, sender, text[:4000], parse_received_at(received), user_key, owner_id
     )
 
 

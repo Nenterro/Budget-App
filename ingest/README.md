@@ -92,9 +92,9 @@ https://huz-ingest.duckdns.org:8888/health   # works
 https://huz-ingest.duckdns.org/health        # times out
 ```
 
-What protects it: a 256-bit bearer token, a 60 requests/minute per-IP ceiling,
-and the fact that the worst a valid token can do is put a draft in a queue you
-have to approve by hand.
+What protects it: a 256-bit token per person, a 60 requests/minute per-IP
+ceiling, and the fact that the worst a valid token can do is put a draft in a
+queue that person has to approve by hand.
 
 ## The iPhone Shortcuts
 
@@ -111,7 +111,7 @@ a bank whose parsing is misbehaving can be switched off on its own.
 | --- | --- |
 | URL | `https://huz-ingest.duckdns.org:8888/ingest/sms` |
 | Method | `POST` |
-| Headers | `X-Ingest-Token`: *the value of `INGEST_TOKEN` in `.env`* |
+| Headers | `X-Ingest-Token`: *your key from Settings ▸ Detection Rules* |
 | Request Body | JSON |
 
 JSON fields:
@@ -120,42 +120,31 @@ JSON fields:
 | --- | --- | --- |
 | `text` | Text | **Shortcut Input** (the message body) |
 | `sender` | Text | a fixed string — see the table below |
-| `user` | Text | your budget account email, if more than one person uses this server |
 
 `receivedAt` is optional; leave it out and the server timestamps on arrival.
 
 ### Routing to the right person
 
-Everyone on this server has a budget account already, so the shortcut just
-names it. Add a third field to the Request Body:
+Each person has their own ingest key, shown in the budget app under
+**Settings ▸ Detection Rules ▸ Your ingest key**. They paste that into the
+`X-Ingest-Token` header of their own shortcut, and that is the whole setup.
 
-| Key | Type | Value |
-| --- | --- | --- |
-| `user` | Text | the email that account signs into the budget app with |
+The key identifies the account by itself, so a shortcut carries no email and no
+`user` field, and a message sent with it can only ever reach that person's
+budget. There is nothing to configure on the server: the key is minted by the
+app, stored on the user's own record, and looked up here.
 
-Nothing needs configuring here first — a family member sets up their own
-shortcut with their own email and it works. Adding someone is a change to their
-phone, not to this service.
+Keys are looked up on every request rather than cached, so **Create a new key**
+in the app retires the old one immediately — which is what makes it useful when
+a phone is lost.
 
-Leave `user` out entirely and the draft goes to `BUDGET_USER_EMAIL`, which is
-what a single-person server wants.
+The shared `INGEST_TOKEN` still works and still honours a `user` field naming
+an account email, which is what the shortcuts predating per-person keys use.
+It also remains the credential for `/parse/test`, `/templates` and
+`/admin/reload`, which are server-wide rather than anyone's in particular.
 
-An address matching no account is rejected with a 400 rather than falling back
-to the default: filing one person's spending into another person's budget is
-worse than dropping the message, and far harder to notice afterwards. Emails
-are resolved once and remembered, so a newly registered account starts working
-without restarting the service.
-
-`INGEST_USERS` still accepts a JSON object of short alias to email if a
-shorter handle is ever wanted, but it is optional and no longer the main path.
-
-**One thing to be aware of**: the ingest token is shared by everyone, so anyone
-holding it can file drafts into any account on this server by naming its email.
-Within a family that is a reasonable trade for not having to register each
-person, and a draft still has to be confirmed by hand in the app before it
-becomes a transaction — but it is the reason the token should not be handed
-out beyond the people who already share this budget server. Per-person tokens
-are the fix if that ever stops being true.
+Prefer the per-person key. The shared token can file into any account on the
+server by naming its email, so it should not go beyond whoever administers it.
 
 ### Notifications
 
@@ -238,7 +227,7 @@ reason:
 | `PB_URL` | `http://pocketbase:8090` | PocketBase, by container name |
 | `PB_ADMIN_EMAIL` / `PB_ADMIN_PASSWORD` | — | Admin login, required |
 | `BUDGET_USER_EMAIL` | — | Whose queue drafts go into when none is named |
-| `INGEST_USERS` | `{}` | Optional JSON of short alias -> email |
+| `INGEST_USERS` | `{}` | Optional JSON of short alias -> email, for the shared token |
 | `INGEST_TOKEN` | — | Shared secret for the Shortcut |
 | `INBOX_COLLECTION` | `inbox_messages` | Collection name |
 | `INBOX_RETENTION_DAYS` | `30` | Age at which unreviewed drafts are swept |

@@ -1,10 +1,14 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Wallet, User, Tag, Check, X, ArrowRightLeft } from 'lucide-react';
+import {
+  ArrowLeft, Plus, Trash2, Wallet, User, Tag, Check, X, ArrowRightLeft,
+  KeyRound, Copy, Eye, EyeOff, RefreshCw
+} from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAutomationSettings } from '../context/SettingsContext';
 import UnifiedDropdown from '../components/UnifiedDropdown';
 import { normaliseMerchant } from '../utils/inboxDraft';
+import { getOrCreateIngestToken, regenerateIngestToken } from '../store/inbox';
 import './ManageData.css';
 import './AutomationSettings.css';
 
@@ -272,6 +276,102 @@ function SelfLabelsSection({ labels, onChange }) {
   );
 }
 
+/**
+ * The secret the phone's shortcut presents.
+ *
+ * It identifies the account on its own, so a shortcut carries no email and
+ * cannot file into anyone else's budget — which is the whole reason it exists
+ * per person rather than one shared across the server.
+ */
+function IngestTokenSection() {
+  const [token, setToken] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRevealed, setIsRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getOrCreateIngestToken()
+      .then(value => { if (!cancelled) setToken(value); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const copy = async () => {
+    if (!token) return;
+    try {
+      await navigator.clipboard.writeText(token);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard access is refused outside a secure context; revealing the
+      // token so it can be selected by hand beats failing silently.
+      setIsRevealed(true);
+    }
+  };
+
+  const regenerate = async () => {
+    const ok = window.confirm(
+      'Create a new key? Every shortcut using the current one will stop working '
+      + 'until you paste the new key into it.'
+    );
+    if (!ok) return;
+    setIsLoading(true);
+    const next = await regenerateIngestToken();
+    setToken(next);
+    setIsRevealed(true);
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="am-section glass-panel">
+      <div className="am-section-head">
+        <div className="am-section-icon"><KeyRound size={16} /></div>
+        <div className="am-section-titles">
+          <h2>Your ingest key</h2>
+          <p>
+            Paste this into the <code>X-Ingest-Token</code> header of your phone's
+            shortcut. It stands for your account, so nothing in the shortcut needs
+            to say who you are, and a message sent with it can only ever reach
+            your budget.
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="am-empty">Loading…</div>
+      ) : !token ? (
+        <div className="am-empty">
+          No key yet. This needs the ingest service to have started at least
+          once — it is what adds the field the key is stored in.
+        </div>
+      ) : (
+        <>
+          <div className="am-token-row">
+            <code className="am-token">
+              {isRevealed ? token : `${token.slice(0, 6)}${'•'.repeat(24)}${token.slice(-4)}`}
+            </code>
+            <button
+              className="am-delete"
+              onClick={() => setIsRevealed(v => !v)}
+              title={isRevealed ? 'Hide' : 'Reveal'}
+              type="button"
+            >
+              {isRevealed ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+            <button className="am-confirm" onClick={copy} title="Copy" type="button">
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+            </button>
+          </div>
+          <button className="am-add-btn" onClick={regenerate} type="button">
+            <RefreshCw size={16} /> Create a new key
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function AutomationSettings() {
   const navigate = useNavigate();
   const { accounts, categories, payees } = useData();
@@ -304,6 +404,8 @@ export default function AutomationSettings() {
           message from the same card or merchant needs no edits.
           {total > 0 && ` ${total} rule${total === 1 ? '' : 's'} so far.`}
         </p>
+
+        <IngestTokenSection />
 
         <MappingSection
           icon={User}
