@@ -58,6 +58,31 @@ global.window.__fire('online');
 await tick(); await tick();
 check('online event triggered a sync', reloads > beforeOnline);
 
+// The quiet failure this guards against: the token lapses, `authStore.model`
+// stays put, so the app still looks signed in while nothing leaves the device.
+console.log('\n--- The session expires while the app sits open ---');
+pb.authStore.__expire();
+const beforeExpiry = reloads;
+global.document.__fire('visibilitychange');
+await tick(); await tick();
+check('no sync attempted with a dead token', reloads === beforeExpiry);
+check('state says expired, not idle', getSyncState().mode === 'expired', JSON.stringify(getSyncState()));
+check('session is reported as expired', getSyncState().session === 'expired', JSON.stringify(getSyncState()));
+check('an expired session is explained', !!getSyncState().lastError, JSON.stringify(getSyncState()));
+
+console.log('\n--- Signing back in resumes syncing ---');
+const resumedId = 'resumed00000003';
+SERVER.collections.transactions.set(resumedId, {
+  id: resumedId, amount: -20, category: 'Coffee', payee: 'Cafe',
+  date: '2026-08-05T00:00:00.000Z', account: 'Cash', users: 'user_abc123456789',
+  encrypted_payload: '', created: '2026-03-01T00:00:00.000Z', updated: '2026-03-01T00:00:00.000Z'
+});
+pb.authStore.__login({ id: 'user_abc123456789' });
+await tick(); await tick(); await tick();
+check('back to synced', getSyncState().mode === 'synced', JSON.stringify(getSyncState()));
+check('what was missed arrives', (await localIds()).includes(resumedId),
+      `local: ${JSON.stringify(await localIds())}`);
+
 console.log('\n--- Stopping auto-sync detaches every listener ---');
 stopAuto();
 const afterStop = reloads;

@@ -381,3 +381,72 @@
   align-items: center;
   justify-content: center;
 }
+
+/* Sits above every page, settings included: an expired session is exactly the
+   thing a user cannot be left to discover by wandering into the sync screen. */
+.session-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 14px;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--text-primary);
+}
+
+.session-alert-icon {
+  flex-shrink: 0;
+  color: #ef4444;
+}
+
+.session-alert-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-alert-text strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.session-alert-text span {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.session-alert-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: #ef4444;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.session-alert-cta:hover {
+  background: #dc2626;
+}
+
+@media (max-width: 560px) {
+  .session-alert {
+    flex-wrap: wrap;
+  }
+  .session-alert-cta {
+    width: 100%;
+    justify-content: center;
+  }
+}

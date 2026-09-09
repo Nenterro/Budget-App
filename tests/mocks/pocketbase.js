@@ -25,16 +25,30 @@ export default class PocketBase {
     this.authStore = {
       model: null,
       token: '',
-      get isValid() { return !!this.model; },
+      // A real token expires on its own while the model stays put — that is
+      // the state the app has to notice.
+      __expired: false,
+      get isValid() { return !!this.model && !this.__expired; },
       onChange(cb) { cbs.push(cb); return () => { const i = cbs.indexOf(cb); if (i >= 0) cbs.splice(i, 1); }; },
-      __login(model) { this.model = model; this.token = 't'; cbs.forEach(c => c(this.token, model)); },
-      clear() { this.model = null; this.token = ''; cbs.forEach(c => c('', null)); },
+      __login(model) { this.model = model; this.token = 't'; this.__expired = false; cbs.forEach(c => c(this.token, model)); },
+      __expire() { this.__expired = true; },
+      clear() { this.model = null; this.token = ''; this.__expired = false; cbs.forEach(c => c('', null)); },
     };
   }
 
   collection(name) {
     const store = coll(name);
+    const client = this;
     return {
+      async authRefresh() {
+        if (!client.authStore.isValid) {
+          const e = new Error('The request requires valid record authorization token.');
+          e.status = 401;
+          throw e;
+        }
+        SERVER.log.push(['authRefresh', name]);
+        return { token: client.authStore.token, record: client.authStore.model };
+      },
       async getFullList({ filter } = {}) {
         SERVER.log.push(['getFullList', name, filter]);
         let items = [...store.values()];

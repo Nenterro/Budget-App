@@ -28,6 +28,10 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
 
   const from = location.state?.from?.pathname || "/";
+  // Arriving here because the session lapsed is a different situation from a
+  // cold sign-in: nothing has been lost, and saying so is the difference
+  // between "sign in again" and "did my data just disappear?".
+  const isSessionExpired = location.state?.reason === 'session-expired';
 
   const handleAuthResult = () => {
     navigate(from, { replace: true });
@@ -86,8 +90,23 @@ export default function Login() {
             <LogIn size={32} className="login-logo-icon" />
           </div>
           <h1>{isLogin ? 'Welcome Back' : 'Create Account'}</h1>
-          <p>Sign in to sync your budget seamlessly.</p>
+          <p>
+            {isSessionExpired
+              ? 'Your session expired, so this device stopped syncing.'
+              : 'Sign in to sync your budget seamlessly.'}
+          </p>
         </div>
+
+        {isSessionExpired && (
+          <div className="login-notice">
+            <AlertCircle size={18} />
+            <span>
+              Everything saved on this device is still here. Sign back into the
+              same account and anything that has not been uploaded yet will sync
+              straight away.
+            </span>
+          </div>
+        )}
 
         <AnimatePresence mode="wait">
           {error && (

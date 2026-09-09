@@ -3,6 +3,7 @@ import { ArrowLeft, Cloud, CheckCircle, XCircle, RefreshCw, AlertTriangle } from
 import { useNavigate } from 'react-router-dom';
 import { pb, syncAll, connectPocketBase, checkUrl, PB_URLS } from '../store/sync';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
 import './ManageData.css';
 
 const SYNC_LABELS = {
@@ -10,6 +11,7 @@ const SYNC_LABELS = {
   syncing: 'Syncing now',
   synced: 'Up to date',
   offline: 'No server reachable',
+  expired: 'Session expired — not syncing',
   'signed-out': 'Signed out on this device',
   guest: 'Local only (guest)',
   error: 'Last sync had errors'
@@ -20,7 +22,8 @@ const SYNC_TONES = {
   syncing: 'busy',
   offline: 'bad',
   error: 'bad',
-  'signed-out': 'warn',
+  expired: 'bad',
+  'signed-out': 'bad',
   guest: 'warn',
   pending: 'muted'
 };
@@ -110,6 +113,27 @@ export default function SyncSettings() {
   };
 
   const { loadData, syncStatus } = useData();
+  const { sessionExpired, countPendingChanges, logout } = useAuth();
+
+  // "Signed out" only reads as urgent once it says what is stranded here.
+  const notSyncing = sessionExpired || syncStatus.mode === 'expired' || syncStatus.mode === 'signed-out';
+  const [pendingCount, setPendingCount] = useState(null);
+  useEffect(() => {
+    if (!notSyncing) return;
+    let alive = true;
+    countPendingChanges()
+      .then(count => { if (alive) setPendingCount(count); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [notSyncing, countPendingChanges]);
+
+  const handleSignOutForGood = async () => {
+    const warning = pendingCount > 0
+      ? `${pendingCount} change${pendingCount === 1 ? '' : 's'} on this device ${pendingCount === 1 ? 'has' : 'have'} never reached the server. Signing out erases the local copy, so ${pendingCount === 1 ? 'it' : 'they'} will be lost. Continue?`
+      : 'This clears the local copy of your data on this device. Continue?';
+    if (!window.confirm(warning)) return;
+    await logout();
+  };
 
   // Only so "Last synced" counts up on its own while the page is open.
   const [now, setNow] = useState(() => Date.now());
@@ -158,6 +182,41 @@ export default function SyncSettings() {
             />
             <StatusRow label="Last synced" value={formatAgo(syncStatus.lastSyncAt, now)} tone="muted" />
           </div>
+
+          {/* The state this page used to report in passing, as one grey row
+              among others: the saved session is gone, so nothing here is being
+              backed up, and it says so with the action that fixes it. */}
+          {notSyncing && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                <AlertTriangle size={18} style={{ color: '#ef4444', flexShrink: 0, marginTop: '1px' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700 }}>This device is signed out</span>
+                  <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                    The saved session expired or was rejected by the server, so
+                    nothing has been uploaded since. The app keeps working from
+                    the copy stored here.
+                    {pendingCount > 0 && ` ${pendingCount} change${pendingCount === 1 ? '' : 's'} ${pendingCount === 1 ? 'is' : 'are'} waiting to be uploaded.`}
+                  </span>
+                </div>
+              </div>
+              <button
+                className="submit-btn bg-primary"
+                onClick={() => navigate('/login', { state: { reason: 'session-expired' } })}
+                style={{ margin: 0 }}
+              >
+                Sign in again
+              </button>
+              {/* Signing back in first is always the safe order, so the
+                  destructive option is the quiet one. */}
+              <button
+                onClick={handleSignOutForGood}
+                style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-secondary)', fontSize: '12.5px', textDecoration: 'underline', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Sign out and clear this device instead
+              </button>
+            </div>
+          )}
 
           {syncStatus.realtime !== 'live' && syncStatus.mode === 'synced' && (
             <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>

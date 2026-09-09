@@ -9,6 +9,7 @@ const AddTransactionModal = lazy(() => import('./AddTransactionModal'));
 const InboxReviewModal = lazy(() => import('./InboxReviewModal'));
 import { useInboxDrafts } from '../hooks/useInboxDrafts';
 import MoreMenuModal from './MoreMenuModal';
+import SessionAlert from './SessionAlert';
 import PwaInstallBanner from './PwaInstallPrompt';
 import PullToRefresh from './PullToRefresh';
 import './Layout.css';
@@ -192,6 +193,9 @@ export default function Layout() {
       />
       <div className="main-wrapper">
         <main className="main-content">
+          {/* Unlike the inbox banner this shows on the settings screens too:
+              losing data is not something to hide behind a route check. */}
+          <SessionAlert />
           {!location.pathname.startsWith('/settings') && (
             <InboxBanner count={inboxCount} onOpen={() => setIsInboxOpen(true)} />
           )}
