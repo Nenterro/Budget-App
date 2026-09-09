@@ -550,6 +550,9 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                             value={valueFor(draft, 'date')}
                             onChange={v => setField(draft.id, 'date', v)}
                             onClose={() => setIsCalendarOpen(false)}
+                            // Must clear this modal's own z-index, or the
+                            // calendar opens behind it and cannot be used.
+                            zIndex={2500}
                           />
                         )}
                       </AnimatePresence>

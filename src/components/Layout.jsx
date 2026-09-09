@@ -35,14 +35,14 @@ function GradientDef() {
   );
 }
 
-// A standing invitation rather than a notification: it sits above the page
-// content on every route while anything is waiting, and disappears the moment
-// the queue empties. Buried behind the More menu it would have gone unseen on
-// the phone, which is the device the messages arrive on.
+// Phone only. The sidebar carries its own badged entry, so on desktop this
+// banner was just repeating it above every page. On a phone there is no
+// sidebar, and buried behind the More menu it would have gone unseen — on the
+// device the messages actually arrive on.
 function InboxBanner({ count, onOpen }) {
   if (count === 0) return null;
   return (
-    <button className="inbox-banner" onClick={onOpen}>
+    <button className="inbox-banner mobile-only" onClick={onOpen}>
       <Inbox size={18} />
       <span>
         {count} transaction{count === 1 ? '' : 's'} detected
