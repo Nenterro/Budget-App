@@ -20,6 +20,9 @@ import {
   payeeUsage,
   looksLikeIdentifier,
   categoryFromHistory,
+  findTransferPairs,
+  pairToTransferSuggestion,
+  isSelfLabel,
   DEFAULT_AUTOMATION_RULES
 } from '../src/utils/inboxDraft.js';
 
@@ -376,6 +379,97 @@ console.log('\n--- Learning from an approval ---');
   });
   eq('no merchant, no payee rule', Object.keys(noMerchant.payeeByMerchant).length, 0);
   eq('but card still learned', noMerchant.accountByLast4['5555'], 'HBL Current');
+}
+
+console.log('\n--- Transfers between your own accounts ---');
+{
+  const TRANSFER_ACCOUNTS = [{ name: 'SadaPay Card' }, { name: 'NayaPay' }];
+
+  const half = (id, sender, direction, amount, minutesAgo, merchant = 'Huzaifa Sadeem') => ({
+    id,
+    sender,
+    source: 'notification',
+    rawText: 'raw',
+    receivedAt: new Date(Date.UTC(2026, 8, 9, 12, 0) - minutesAgo * 60000).toISOString(),
+    confidence: 0.9,
+    parsed: { amount, direction, merchant, bank: sender, currency: 'PKR', last4: null }
+  });
+
+  // The motivating case: same amount, opposite directions, seconds apart, the
+  // account holder's own name on both sides. No configuration needed.
+  const pairs = findTransferPairs(
+    [half('a', 'SadaPay', 'debit', 100, 0), half('b', 'NayaPay', 'credit', 100, 0)],
+    { accounts: TRANSFER_ACCOUNTS, rules: DEFAULT_AUTOMATION_RULES }
+  );
+  eq('one pair found', pairs.length, 1);
+  eq('debit side', pairs[0]?.debit.id, 'a');
+  eq('credit side', pairs[0]?.credit.id, 'b');
+
+  const suggestion = pairToTransferSuggestion(pairs[0], {
+    accounts: TRANSFER_ACCOUNTS, rules: DEFAULT_AUTOMATION_RULES
+  });
+  eq('is a transfer', suggestion.type, 2);
+  eq('from the debited account', suggestion.from, 'SadaPay Card');
+  eq('to the credited account', suggestion.to, 'NayaPay');
+  eq('transfer amount', suggestion.amount, '100');
+
+  // Things that must NOT pair up.
+  eq('different amounts',
+    findTransferPairs(
+      [half('a', 'SadaPay', 'debit', 100, 0), half('b', 'NayaPay', 'credit', 101, 0)],
+      { accounts: TRANSFER_ACCOUNTS }).length, 0);
+
+  eq('too far apart in time',
+    findTransferPairs(
+      [half('a', 'SadaPay', 'debit', 100, 0), half('b', 'NayaPay', 'credit', 100, 45)],
+      { accounts: TRANSFER_ACCOUNTS }).length, 0);
+
+  eq('same direction',
+    findTransferPairs(
+      [half('a', 'SadaPay', 'debit', 100, 0), half('b', 'NayaPay', 'debit', 100, 0)],
+      { accounts: TRANSFER_ACCOUNTS }).length, 0);
+
+  // A genuine coincidence: paying someone 100 while someone else pays you 100.
+  eq('different counterparties do not pair',
+    findTransferPairs(
+      [half('a', 'SadaPay', 'debit', 100, 0, 'METRO'),
+       half('b', 'NayaPay', 'credit', 100, 0, 'Naveera Seerat')],
+      { accounts: TRANSFER_ACCOUNTS }).length, 0);
+
+  // Money leaving and arriving in the same account is two transactions that
+  // happen to match, not a transfer.
+  eq('same account on both sides',
+    findTransferPairs(
+      [half('a', 'SadaPay', 'debit', 100, 0), half('b', 'SadaPay', 'credit', 100, 0)],
+      { accounts: TRANSFER_ACCOUNTS }).length, 0);
+
+  // Self labels are the escape hatch when the two apps write the name
+  // differently enough not to match each other.
+  const labelled = { ...DEFAULT_AUTOMATION_RULES, selfLabels: ['Huzaifa Sadeem'] };
+  eq('self label bridges differing names',
+    findTransferPairs(
+      [half('a', 'SadaPay', 'debit', 100, 0, 'H SADEEM'),
+       half('b', 'NayaPay', 'credit', 100, 0, 'HUZAIFA SADEEM')],
+      { accounts: TRANSFER_ACCOUNTS, rules: labelled }).length, 1);
+
+  check('isSelfLabel matches a declared name',
+    isSelfLabel('HUZAIFA SADEEM', labelled) === true);
+  check('isSelfLabel rejects someone else',
+    isSelfLabel('Naveera Seerat', labelled) === false);
+  check('no labels configured, no match',
+    isSelfLabel('Huzaifa Sadeem', DEFAULT_AUTOMATION_RULES) === false);
+
+  // Each draft belongs to at most one pair, and the closest partner wins.
+  const many = findTransferPairs(
+    [
+      half('d1', 'SadaPay', 'debit', 100, 0),
+      half('c1', 'NayaPay', 'credit', 100, 0),
+      half('c2', 'NayaPay', 'credit', 100, 5)
+    ],
+    { accounts: TRANSFER_ACCOUNTS }
+  );
+  eq('only one pair from three halves', many.length, 1);
+  eq('closest partner chosen', many[0]?.credit.id, 'c1');
 }
 
 console.log('\n--- Account identifiers vs real names ---');

@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   X, Check, Trash2, Inbox, ChevronRight, ChevronDown, ChevronUp, ArrowLeft,
-  RefreshCw, User, Calendar, AlignLeft, Wallet, Tag,
-  ArrowDownLeft, ArrowUpRight, AlertTriangle
+  RefreshCw, User, Calendar, AlignLeft, Wallet, Tag, ArrowRight, ArrowRightLeft,
+  ArrowDownLeft, ArrowUpRight, AlertTriangle, Unlink
 } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import UnifiedDropdown from './UnifiedDropdown';
@@ -17,24 +17,16 @@ import {
   learnFromApproval,
   confidenceLabel,
   looksLikeIdentifier,
-  prettifyMerchant
+  prettifyMerchant,
+  findTransferPairs,
+  pairToTransferSuggestion
 } from '../utils/inboxDraft';
 import { generateId } from '../store/db';
 import { formatCurrency, getCurrencySymbol, formatAmountInput } from '../utils/format';
 import { evalMath } from '../utils/math';
-import { format, parseISO } from 'date-fns';
 import './InboxReviewModal.css';
 
-const formatDateShort = (value) => {
-  if (!value) return '';
-  try {
-    return format(parseISO(value), 'dd/MM/yy');
-  } catch {
-    return String(value).substring(0, 10);
-  }
-};
-
-// The form's own date display, matching the transaction form's dd/mm/yy.
+// The form's date display, matching the transaction form's dd/mm/yy.
 const formatDayMonthYear = (value) => {
   if (!value) return '';
   const parts = String(value).split('-');
@@ -52,15 +44,23 @@ const withCurrentValue = (items, current) => {
   return options;
 };
 
+const itemTime = (draft) =>
+  new Date(draft?.receivedAt || draft?.parsed?.occurredAt || 0).getTime();
+
 /**
  * The review queue for transactions detected from SMS and notifications.
  *
- * A list you scan, then one draft at a time opened into a full form — the same
+ * A list you scan, then one entry at a time opened into a full form — the same
  * shape as the shared-expenses modal, because the job is the same: most rows
  * need no attention, and the one that does needs all of it.
  *
- * Nothing is added without a tap. Every approval teaches the rules: this card
- * is that account, this merchant is that payee, that payee is that category.
+ * An entry is usually a single message, but a transfer between your own
+ * accounts arrives as two: a debit from the sending app and a credit from the
+ * receiving one. Approved separately those become an expense and an income,
+ * which double-counts the movement and leaves both balances wrong, so matched
+ * halves are shown and approved as one transfer.
+ *
+ * Nothing is added without a tap. Every approval teaches the rules.
  */
 export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh }) {
   const {
@@ -68,7 +68,6 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     addTransaction, savePayee, saveCategory
   } = useData();
   const { automationRules, setAutomationRules } = useAutomationSettings();
-
   const isMobile = useIsMobile();
 
   const [selectedId, setSelectedId] = useState(null);
@@ -76,24 +75,49 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
   const [showRaw, setShowRaw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  // Which field the popover is focused on, on phone-width layouts.
   const [activeField, setActiveField] = useState(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  // Pairs the user has said are not transfers after all. Kept for the life of
+  // the modal rather than persisted: the two halves are about to be approved
+  // separately and gone.
+  const [rejectedPairs, setRejectedPairs] = useState(() => new Set());
+
+  // One entry per thing to review: a matched transfer, or a lone message.
+  const items = useMemo(() => {
+    const pairs = findTransferPairs(drafts, { accounts, rules: automationRules })
+      .filter(pair => !rejectedPairs.has(pair.id));
+
+    const paired = new Set(pairs.flatMap(p => [p.debit.id, p.credit.id]));
+
+    return [
+      ...pairs.map(pair => ({
+        kind: 'transfer',
+        id: pair.id,
+        pair,
+        time: Math.max(itemTime(pair.debit), itemTime(pair.credit))
+      })),
+      ...drafts
+        .filter(draft => !paired.has(draft.id))
+        .map(draft => ({ kind: 'single', id: draft.id, draft, time: itemTime(draft) }))
+    ].sort((a, b) => b.time - a.time);
+  }, [drafts, accounts, automationRules, rejectedPairs]);
 
   const suggestions = useMemo(() => {
     const map = {};
-    for (const draft of drafts) {
-      map[draft.id] = draftToSuggestion(draft, {
-        accounts, categories, payees, transactions, rules: automationRules
-      });
+    for (const item of items) {
+      map[item.id] = item.kind === 'transfer'
+        ? pairToTransferSuggestion(item.pair, { accounts, rules: automationRules })
+        : draftToSuggestion(item.draft, {
+            accounts, categories, payees, transactions, rules: automationRules
+          });
     }
     return map;
-  }, [drafts, accounts, categories, payees, transactions, automationRules]);
+  }, [items, accounts, categories, payees, transactions, automationRules]);
 
-  // Edits for drafts that have left the queue are dead weight, and keeping
+  // Edits for entries that have left the queue are dead weight, and keeping
   // them would resurrect stale values if an id ever came back.
   useEffect(() => {
-    const live = new Set(drafts.map(d => d.id));
+    const live = new Set(items.map(i => i.id));
     setEdits(current => {
       const next = {};
       let dropped = false;
@@ -103,38 +127,38 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       }
       return dropped ? next : current;
     });
-    // The open draft being approved elsewhere (another device) must not leave
-    // the detail view showing something that no longer exists.
+    // An entry approved elsewhere (another device), or re-paired underneath
+    // us, must not leave the detail view showing something that is gone.
     setSelectedId(current => (current && !live.has(current) ? null : current));
-  }, [drafts]);
+  }, [items]);
 
   const selected = useMemo(
-    () => drafts.find(d => d.id === selectedId) || null, [drafts, selectedId]);
+    () => items.find(i => i.id === selectedId) || null, [items, selectedId]);
 
-  const valueFor = useCallback((draft, field) => {
-    const edited = edits[draft.id];
+  const valueFor = useCallback((item, field) => {
+    const edited = edits[item.id];
     if (edited && field in edited) return edited[field];
-    return suggestions[draft.id]?.[field] ?? '';
+    return suggestions[item.id]?.[field] ?? '';
   }, [edits, suggestions]);
 
-  const setField = useCallback((draftId, field, value) => {
+  const setField = useCallback((itemId, field, value) => {
     setEdits(current => ({
       ...current,
-      [draftId]: { ...(current[draftId] || {}), [field]: value }
+      [itemId]: { ...(current[itemId] || {}), [field]: value }
     }));
   }, []);
 
   // Picking a payee pulls its usual category across, unless the user has
   // already chosen one by hand.
-  const setPayeeField = useCallback((draft, value) => {
+  const setPayeeField = useCallback((item, value) => {
     setEdits(current => {
-      const existing = current[draft.id] || {};
+      const existing = current[item.id] || {};
       const next = { ...existing, payee: value };
       if (!('category' in existing)) {
         const learned = automationRules?.categoryByPayee?.[value];
         if (learned) next.category = learned;
       }
-      return { ...current, [draft.id]: next };
+      return { ...current, [item.id]: next };
     });
   }, [automationRules]);
 
@@ -147,77 +171,127 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     }
   }, [onRefresh]);
 
-  const handleApprove = useCallback(async (draft) => {
-    // evalMath, not parseFloat: the field now formats digit groups and accepts
+  const handleApprove = useCallback(async (item) => {
+    // evalMath, not parseFloat: the field formats digit groups and accepts
     // arithmetic, and parseFloat("1,200") is 1.
-    const amount = evalMath(valueFor(draft, 'amount'));
+    const amount = evalMath(valueFor(item, 'amount'));
     if (!Number.isFinite(amount) || amount <= 0) {
       alert('Enter a valid amount before adding this transaction.');
-      return;
-    }
-    const account = valueFor(draft, 'account');
-    if (!account) {
-      alert('Choose which account this transaction belongs to.');
       return;
     }
 
     setBusy(true);
     try {
-      const type = valueFor(draft, 'type');
-      const payee = (valueFor(draft, 'payee') || '').trim() || 'Unspecified';
-      const category = (valueFor(draft, 'category') || '').trim() || 'Unspecified';
+      if (item.kind === 'transfer') {
+        const from = valueFor(item, 'from');
+        const to = valueFor(item, 'to');
+        if (!from || !to) {
+          alert('Choose both accounts before adding this transfer.');
+          return;
+        }
+        if (from === to) {
+          alert('A transfer needs two different accounts.');
+          return;
+        }
 
-      // A payee or category named here becomes a real one, exactly as it would
-      // if it had been typed into the Add Transaction form.
-      if (payee !== 'Unspecified' && !payees.some(p => p.name.toLowerCase() === payee.toLowerCase())) {
-        await savePayee({ name: payee, color: '#10b981' });
+        // The shape the rest of the app expects of a transfer: negative
+        // amount on the source account, the destination in transferTo, and
+        // the generated payee label the reference rewriting keys off.
+        await addTransaction({
+          id: generateId(),
+          type: 2,
+          amount: -Math.abs(amount),
+          category: 'Transfer',
+          payee: `Transfer to ${to}`,
+          note: valueFor(item, 'note'),
+          date: new Date(valueFor(item, 'date')).toISOString(),
+          account: from,
+          transferTo: to,
+          currency: valueFor(item, 'currency'),
+          receivedAmount: null,
+          isExpenseShare: false,
+          expenseShares: null,
+          splits: null,
+          repayments: [],
+          writeOffs: [],
+          updatedAt: new Date().toISOString(),
+          pendingSync: true
+        });
+
+        // Both halves described the one movement, so both go.
+        await deleteDraft(item.pair.debit.id);
+        await deleteDraft(item.pair.credit.id);
+      } else {
+        const draft = item.draft;
+        const account = valueFor(item, 'account');
+        if (!account) {
+          alert('Choose which account this transaction belongs to.');
+          return;
+        }
+
+        const type = valueFor(item, 'type');
+        const payee = (valueFor(item, 'payee') || '').trim() || 'Unspecified';
+        const category = (valueFor(item, 'category') || '').trim() || 'Unspecified';
+
+        // A payee or category named here becomes a real one, exactly as it
+        // would if it had been typed into the Add Transaction form.
+        if (payee !== 'Unspecified' && !payees.some(p => p.name.toLowerCase() === payee.toLowerCase())) {
+          await savePayee({ name: payee, color: '#10b981' });
+        }
+        if (category !== 'Unspecified' && !categories.some(c => c.name.toLowerCase() === category.toLowerCase())) {
+          await saveCategory({ name: category, color: '#6366f1' });
+        }
+
+        await addTransaction({
+          id: generateId(),
+          type,
+          amount: type === 1 ? Math.abs(amount) : -Math.abs(amount),
+          category,
+          payee,
+          note: valueFor(item, 'note'),
+          date: new Date(valueFor(item, 'date')).toISOString(),
+          account,
+          transferTo: null,
+          currency: valueFor(item, 'currency'),
+          receivedAmount: null,
+          isExpenseShare: false,
+          expenseShares: null,
+          splits: null,
+          repayments: [],
+          writeOffs: [],
+          updatedAt: new Date().toISOString(),
+          pendingSync: true
+        });
+
+        const learned = learnFromApproval(automationRules, draft, { account, payee, category });
+        if (learned !== automationRules) await setAutomationRules(learned);
+
+        // The draft has served its purpose, and it is the only plaintext copy
+        // of this message on the server. It goes as soon as the transaction
+        // exists.
+        await deleteDraft(draft.id);
       }
-      if (category !== 'Unspecified' && !categories.some(c => c.name.toLowerCase() === category.toLowerCase())) {
-        await saveCategory({ name: category, color: '#6366f1' });
-      }
 
-      await addTransaction({
-        id: generateId(),
-        type,
-        amount: type === 1 ? Math.abs(amount) : -Math.abs(amount),
-        category,
-        payee,
-        note: valueFor(draft, 'note'),
-        date: new Date(valueFor(draft, 'date')).toISOString(),
-        account,
-        transferTo: null,
-        currency: valueFor(draft, 'currency'),
-        receivedAmount: null,
-        isExpenseShare: false,
-        expenseShares: null,
-        splits: null,
-        repayments: [],
-        writeOffs: [],
-        updatedAt: new Date().toISOString(),
-        pendingSync: true
-      });
-
-      const learned = learnFromApproval(automationRules, draft, { account, payee, category });
-      if (learned !== automationRules) await setAutomationRules(learned);
-
-      // The draft has served its purpose, and it is the only plaintext copy of
-      // this message on the server. It goes as soon as the transaction exists.
-      await deleteDraft(draft.id);
       setSelectedId(null);
       await onRefresh();
     } catch (err) {
       console.error('Failed to add transaction from draft:', err);
-      alert('Could not add this transaction. It is still in the queue — try again.');
+      alert('Could not add this. It is still in the queue — try again.');
     } finally {
       setBusy(false);
     }
   }, [valueFor, payees, categories, savePayee, saveCategory, addTransaction,
       automationRules, setAutomationRules, onRefresh]);
 
-  const handleDismiss = useCallback(async (draft) => {
+  const handleDismiss = useCallback(async (item) => {
     setBusy(true);
     try {
-      await deleteDraft(draft.id);
+      if (item.kind === 'transfer') {
+        await deleteDraft(item.pair.debit.id);
+        await deleteDraft(item.pair.credit.id);
+      } else {
+        await deleteDraft(item.draft.id);
+      }
       setSelectedId(null);
       await onRefresh();
     } finally {
@@ -225,9 +299,12 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     }
   }, [onRefresh]);
 
-  const openDraft = useCallback((draft) => {
-    setSelectedId(draft.id);
-    setShowRaw(false);
+  // The escape hatch for a wrong match: two unrelated transactions that
+  // happened to be for the same amount at the same moment. Splitting them
+  // back apart is better than dismissing, which would throw both away.
+  const handleUnpair = useCallback((item) => {
+    setRejectedPairs(current => new Set(current).add(item.id));
+    setSelectedId(null);
   }, []);
 
   if (!isOpen) return null;
@@ -237,8 +314,10 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     ...categories.map(c => ({ value: c.name, label: c.name }))
   ];
 
+  const closeDetail = () => { setSelectedId(null); setActiveField(null); };
+
   return (
-    <ModalWrapper onClose={selected ? () => setSelectedId(null) : onClose} zIndex={2400}>
+    <ModalWrapper onClose={selected ? closeDetail : onClose} zIndex={2400}>
       <div className="inbox-modal glass-panel" onClick={e => e.stopPropagation()}>
         <AnimatePresence mode="wait">
           {!selected ? (
@@ -269,7 +348,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
               </div>
 
               <div className="ib-list">
-                {drafts.length === 0 ? (
+                {items.length === 0 ? (
                   <div className="ib-empty">
                     <Inbox size={44} style={{ opacity: 0.3 }} />
                     <p>Nothing waiting</p>
@@ -278,46 +357,59 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                       appear here for you to confirm.
                     </span>
                   </div>
-                ) : drafts.map(draft => {
-                  const type = valueFor(draft, 'type');
+                ) : items.map(item => {
+                  const isTransfer = item.kind === 'transfer';
+                  const type = isTransfer ? 2 : valueFor(item, 'type');
                   const isIncome = type === 1;
-                  const level = confidenceLabel(draft.confidence || 0);
-                  const payee = valueFor(draft, 'payee');
-                  const account = valueFor(draft, 'account');
+                  const amount = Math.abs(evalMath(valueFor(item, 'amount')) || 0);
+                  const symbol = getCurrencySymbol(valueFor(item, 'currency'));
+
+                  const source = isTransfer ? item.pair.debit : item.draft;
+                  const level = confidenceLabel(source.confidence || 0);
+
+                  const title = isTransfer
+                    ? 'Transfer'
+                    : (valueFor(item, 'payee') || item.draft.parsed?.merchant || 'Unknown payee');
+
+                  const meta = isTransfer
+                    ? `${valueFor(item, 'from') || 'Unknown'} → ${valueFor(item, 'to') || 'Unknown'}`
+                    : `${item.draft.parsed?.bank || item.draft.sender || 'Unknown sender'} • ${formatDayMonthYear(valueFor(item, 'date'))}`;
+
+                  const sub = isTransfer
+                    ? 'Two messages matched'
+                    : (valueFor(item, 'account') || 'Needs account');
 
                   return (
                     <button
-                      key={draft.id}
+                      key={item.id}
                       type="button"
                       className="ib-card"
-                      onClick={() => openDraft(draft)}
+                      onClick={() => { setSelectedId(item.id); setShowRaw(false); }}
                     >
                       <div
                         className="ib-card-icon"
-                        style={{ background: isIncome ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' }}
+                        style={{
+                          background: isTransfer ? 'rgba(168,85,247,0.15)'
+                            : isIncome ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'
+                        }}
                       >
-                        {isIncome
-                          ? <ArrowDownLeft size={16} style={{ color: '#10b981' }} />
-                          : <ArrowUpRight size={16} style={{ color: '#ef4444' }} />}
+                        {isTransfer
+                          ? <ArrowRightLeft size={16} style={{ color: '#a855f7' }} />
+                          : isIncome
+                            ? <ArrowDownLeft size={16} style={{ color: '#10b981' }} />
+                            : <ArrowUpRight size={16} style={{ color: '#ef4444' }} />}
                       </div>
                       <div className="ib-card-info">
-                        <span className="ib-card-payee">
-                          {payee || draft.parsed?.merchant || 'Unknown payee'}
-                        </span>
-                        <span className="ib-card-meta">
-                          {draft.parsed?.bank || draft.sender || 'Unknown sender'}
-                          {' • '}
-                          {formatDateShort(valueFor(draft, 'date'))}
-                        </span>
+                        <span className="ib-card-payee">{title}</span>
+                        <span className="ib-card-meta">{meta}</span>
                       </div>
                       <div className="ib-card-amounts">
-                        <span className={`ib-card-total ${isIncome ? 'income' : 'expense'}`}>
-                          {isIncome ? '+' : '-'}
-                          {getCurrencySymbol(valueFor(draft, 'currency'))}
-                          {formatCurrency(Math.abs(evalMath(valueFor(draft, 'amount')) || 0))}
+                        <span className={`ib-card-total ${isTransfer ? 'transfer' : isIncome ? 'income' : 'expense'}`}>
+                          {isTransfer ? '' : isIncome ? '+' : '-'}
+                          {symbol}{formatCurrency(amount)}
                         </span>
-                        <span className={`ib-card-sub ${account ? '' : 'needs-input'}`}>
-                          {account || 'Needs account'}
+                        <span className={`ib-card-sub ${!isTransfer && !valueFor(item, 'account') ? 'needs-input' : ''}`}>
+                          {sub}
                           <i className={`ib-dot ${level}`} />
                         </span>
                       </div>
@@ -337,13 +429,15 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
               transition={{ duration: 0.2, ease: 'easeOut' }}
             >
               {(() => {
-                const draft = selected;
-                const type = valueFor(draft, 'type');
-                const suggestion = suggestions[draft.id] || {};
-                const amountValue = String(valueFor(draft, 'amount') ?? '');
+                const item = selected;
+                const isTransfer = item.kind === 'transfer';
+                const draft = isTransfer ? item.pair.debit : item.draft;
+                const type = isTransfer ? 2 : valueFor(item, 'type');
+                const suggestion = suggestions[item.id] || {};
+                const amountValue = String(valueFor(item, 'amount') ?? '');
 
                 // The amount field accepts arithmetic the same way the
-                // transaction form does — "1200+45" for a tip added by hand.
+                // transaction form does.
                 const evalResult = evalMath(amountValue);
                 const showPreview = /[+\-*/]/.test(amountValue) && evalResult !== null;
 
@@ -352,7 +446,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                     className={className}
                     style={{ ...style, fontSize: size, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {getCurrencySymbol(valueFor(draft, 'currency'))}
+                    {getCurrencySymbol(valueFor(item, 'currency'))}
                   </span>
                 );
 
@@ -361,14 +455,18 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                     <div className="ib-header">
                       <button
                         className="ib-icon-btn"
-                        onClick={() => setSelectedId(null)}
+                        onClick={closeDetail}
                         type="button"
                         aria-label="Back to list"
                       >
                         <ArrowLeft size={20} />
                       </button>
                       <div className="ib-header-titles">
-                        <h2>{draft.parsed?.merchant || 'Detected transaction'}</h2>
+                        <h2>
+                          {isTransfer
+                            ? 'Transfer between your accounts'
+                            : (draft.parsed?.merchant || 'Detected transaction')}
+                        </h2>
                         <span>
                           {draft.parsed?.bank || draft.sender || 'Unknown sender'}
                           {draft.parsed?.last4 ? ` • card ...${draft.parsed.last4}` : ''}
@@ -377,20 +475,30 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                     </div>
 
                     <div className="ib-form">
-                      <div className="ib-type-selector" data-type={type}>
-                        <button
-                          type="button"
-                          className={`ib-type-btn ${type === 0 ? 'expense-active' : ''}`}
-                          onClick={() => setField(draft.id, 'type', 0)}
-                        >Expense</button>
-                        <button
-                          type="button"
-                          className={`ib-type-btn ${type === 1 ? 'income-active' : ''}`}
-                          onClick={() => setField(draft.id, 'type', 1)}
-                        >Income</button>
-                      </div>
+                      {isTransfer ? (
+                        <div className="ib-transfer-note">
+                          <ArrowRightLeft size={14} />
+                          <span>
+                            Two messages, same amount, moments apart — matched as
+                            one transfer so the movement is not counted twice.
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="ib-type-selector" data-type={type}>
+                          <button
+                            type="button"
+                            className={`ib-type-btn ${type === 0 ? 'expense-active' : ''}`}
+                            onClick={() => setField(item.id, 'type', 0)}
+                          >Expense</button>
+                          <button
+                            type="button"
+                            className={`ib-type-btn ${type === 1 ? 'income-active' : ''}`}
+                            onClick={() => setField(item.id, 'type', 1)}
+                          >Income</button>
+                        </div>
+                      )}
 
-                      {!suggestion.directionKnown && (
+                      {!isTransfer && !suggestion.directionKnown && (
                         <div className="ib-warning">
                           <AlertTriangle size={14} />
                           <span>
@@ -402,7 +510,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
 
                       <div className="ib-form-row">
                         <div className="ib-form-group ib-flex-2 ib-relative">
-                          {amountValue && <label>Amount ({valueFor(draft, 'currency')})</label>}
+                          {amountValue && <label>Amount ({valueFor(item, 'currency')})</label>}
                           {isMobile ? (
                             <div onClick={() => setActiveField('amount')} style={{ cursor: 'pointer' }}>
                               <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
@@ -419,7 +527,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                                   type="text"
                                   placeholder="Amount"
                                   value={amountValue}
-                                  onChange={e => setField(draft.id, 'amount', formatAmountInput(e.target.value))}
+                                  onChange={e => setField(item.id, 'amount', formatAmountInput(e.target.value))}
                                 />
                               </div>
                               {showPreview && <div className="ib-math-preview">= {formatCurrency(evalResult)}</div>}
@@ -437,7 +545,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                             <Calendar size={18} className="input-icon" />
                             <input
                               type="text"
-                              value={formatDayMonthYear(valueFor(draft, 'date'))}
+                              value={formatDayMonthYear(valueFor(item, 'date'))}
                               readOnly
                               style={{ cursor: 'pointer', paddingLeft: '34px' }}
                             />
@@ -445,99 +553,151 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         </div>
                       </div>
 
-                      {isMobile ? (
-                        <TapField
-                          label="Account"
-                          value={valueFor(draft, 'account')}
-                          icon={Wallet}
-                          onOpen={() => setActiveField('account')}
-                        />
-                      ) : (
-                        <div className="ib-form-group">
-                          {valueFor(draft, 'account') && <label>Account</label>}
-                          <UnifiedDropdown
-                            value={valueFor(draft, 'account')}
-                            options={withCurrentValue(accounts, valueFor(draft, 'account'))}
-                            onChange={v => setField(draft.id, 'account', v)}
-                            placeholder="Choose account"
-                          />
+                      {isTransfer ? (
+                        <div className="ib-form-row ib-transfer-row">
+                          <div className="ib-form-group ib-flex-1">
+                            {isMobile ? (
+                              <TapField
+                                label="From"
+                                value={valueFor(item, 'from')}
+                                icon={Wallet}
+                                compact
+                                onOpen={() => setActiveField('account')}
+                              />
+                            ) : (
+                              <>
+                                {valueFor(item, 'from') && <label>From</label>}
+                                <UnifiedDropdown
+                                  value={valueFor(item, 'from')}
+                                  options={withCurrentValue(accounts, valueFor(item, 'from'))}
+                                  onChange={v => setField(item.id, 'from', v)}
+                                  placeholder="From account"
+                                />
+                              </>
+                            )}
+                          </div>
+                          <div className="ib-transfer-arrow">
+                            <ArrowRight size={16} />
+                          </div>
+                          <div className="ib-form-group ib-flex-1">
+                            {isMobile ? (
+                              <TapField
+                                label="To"
+                                value={valueFor(item, 'to')}
+                                icon={ArrowRightLeft}
+                                compact
+                                onOpen={() => setActiveField('transferTo')}
+                              />
+                            ) : (
+                              <>
+                                {valueFor(item, 'to') && <label>To</label>}
+                                <UnifiedDropdown
+                                  value={valueFor(item, 'to')}
+                                  options={withCurrentValue(accounts, valueFor(item, 'to'))}
+                                  onChange={v => setField(item.id, 'to', v)}
+                                  placeholder="To account"
+                                />
+                              </>
+                            )}
+                          </div>
                         </div>
-                      )}
-
-                      <div className="ib-form-group">
-                        {isMobile ? (
-                          <TapField
-                            label="Payee"
-                            value={valueFor(draft, 'payee')}
-                            icon={User}
-                            onOpen={() => setActiveField('payee')}
-                          />
-                        ) : (
-                          <>
-                            {valueFor(draft, 'payee') && <label>Payee</label>}
-                            <UnifiedDropdown
-                              value={valueFor(draft, 'payee')}
-                              options={withCurrentValue(payees, valueFor(draft, 'payee'))}
-                              onChange={v => setPayeeField(draft, v)}
-                              placeholder="Unspecified"
+                      ) : (
+                        <>
+                          {isMobile ? (
+                            <TapField
+                              label="Account"
+                              value={valueFor(item, 'account')}
+                              icon={Wallet}
+                              onOpen={() => setActiveField('account')}
                             />
-                          </>
-                        )}
-                        {(() => {
-                          const merchant = draft.parsed?.merchant;
-                          if (!merchant || !looksLikeIdentifier(merchant)) return null;
-                          const chosen = (valueFor(draft, 'payee') || '').trim();
-                          const named = chosen && chosen !== prettifyMerchant(merchant);
-                          return (
-                            <div className={`ib-hint ${named ? 'resolved' : ''}`}>
-                              <code>{merchant}</code>
-                              {named
-                                ? <span>will be remembered as <strong>{chosen}</strong>.</span>
-                                : <span>
-                                    is an account identifier, not a name. Whoever
-                                    you name here is remembered for every future
-                                    transfer from it.
-                                  </span>}
+                          ) : (
+                            <div className="ib-form-group">
+                              {valueFor(item, 'account') && <label>Account</label>}
+                              <UnifiedDropdown
+                                value={valueFor(item, 'account')}
+                                options={withCurrentValue(accounts, valueFor(item, 'account'))}
+                                onChange={v => setField(item.id, 'account', v)}
+                                placeholder="Choose account"
+                              />
                             </div>
-                          );
-                        })()}
-                      </div>
+                          )}
 
-                      {isMobile ? (
-                        <TapField
-                          label="Category"
-                          value={valueFor(draft, 'category')}
-                          icon={Tag}
-                          onOpen={() => setActiveField('category')}
-                        />
-                      ) : (
-                        <div className="ib-form-group">
-                          {valueFor(draft, 'category') && <label>Category</label>}
-                          <UnifiedDropdown
-                            value={valueFor(draft, 'category')}
-                            options={withCurrentValue(categories, valueFor(draft, 'category'))}
-                            onChange={v => setField(draft.id, 'category', v)}
-                            placeholder="Uncategorised"
-                          />
-                        </div>
+                          <div className="ib-form-group">
+                            {isMobile ? (
+                              <TapField
+                                label="Payee"
+                                value={valueFor(item, 'payee')}
+                                icon={User}
+                                onOpen={() => setActiveField('payee')}
+                              />
+                            ) : (
+                              <>
+                                {valueFor(item, 'payee') && <label>Payee</label>}
+                                <UnifiedDropdown
+                                  value={valueFor(item, 'payee')}
+                                  options={withCurrentValue(payees, valueFor(item, 'payee'))}
+                                  onChange={v => setPayeeField(item, v)}
+                                  placeholder="Unspecified"
+                                />
+                              </>
+                            )}
+                            {(() => {
+                              const merchant = draft.parsed?.merchant;
+                              if (!merchant || !looksLikeIdentifier(merchant)) return null;
+                              const chosen = (valueFor(item, 'payee') || '').trim();
+                              const named = chosen && chosen !== prettifyMerchant(merchant);
+                              return (
+                                <div className={`ib-hint ${named ? 'resolved' : ''}`}>
+                                  <code>{merchant}</code>
+                                  {named
+                                    ? <span>will be remembered as <strong>{chosen}</strong>.</span>
+                                    : <span>
+                                        is an account identifier, not a name. Whoever
+                                        you name here is remembered for every future
+                                        transfer from it.
+                                      </span>}
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          {isMobile ? (
+                            <TapField
+                              label="Category"
+                              value={valueFor(item, 'category')}
+                              icon={Tag}
+                              onOpen={() => setActiveField('category')}
+                            />
+                          ) : (
+                            <div className="ib-form-group">
+                              {valueFor(item, 'category') && <label>Category</label>}
+                              <UnifiedDropdown
+                                value={valueFor(item, 'category')}
+                                options={categoryOptions}
+                                onChange={v => setField(item.id, 'category', v)}
+                                placeholder="Uncategorised"
+                              />
+                            </div>
+                          )}
+                        </>
                       )}
 
                       {isMobile ? (
                         <TapField
                           label="Note"
-                          value={valueFor(draft, 'note')}
+                          value={valueFor(item, 'note')}
                           icon={AlignLeft}
                           onOpen={() => setActiveField('note')}
                         />
                       ) : (
                         <div className="ib-form-group">
-                          {valueFor(draft, 'note') && <label>Note</label>}
+                          {valueFor(item, 'note') && <label>Note</label>}
                           <div className="input-with-icon">
                             <AlignLeft size={18} className="input-icon" />
                             <input
                               type="text"
-                              value={valueFor(draft, 'note')}
-                              onChange={e => setField(draft.id, 'note', e.target.value)}
+                              value={valueFor(item, 'note')}
+                              onChange={e => setField(item.id, 'note', e.target.value)}
                               placeholder="Note"
                             />
                           </div>
@@ -547,8 +707,8 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                       <AnimatePresence>
                         {isCalendarOpen && (
                           <UnifiedCalendar
-                            value={valueFor(draft, 'date')}
-                            onChange={v => setField(draft.id, 'date', v)}
+                            value={valueFor(item, 'date')}
+                            onChange={v => setField(item.id, 'date', v)}
                             onClose={() => setIsCalendarOpen(false)}
                             // Must clear this modal's own z-index, or the
                             // calendar opens behind it and cannot be used.
@@ -562,16 +722,40 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         className="ib-raw-toggle"
                         onClick={() => setShowRaw(v => !v)}
                       >
-                        <span>Original message</span>
+                        <span>{isTransfer ? 'Both original messages' : 'Original message'}</span>
                         {showRaw ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
-                      {showRaw && <div className="ib-raw">{draft.rawText}</div>}
+                      {showRaw && (
+                        isTransfer ? (
+                          <>
+                            <div className="ib-raw">
+                              <strong>Sent</strong> {item.pair.debit.rawText}
+                            </div>
+                            <div className="ib-raw">
+                              <strong>Received</strong> {item.pair.credit.rawText}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="ib-raw">{draft.rawText}</div>
+                        )
+                      )}
+
+                      {isTransfer && (
+                        <button
+                          type="button"
+                          className="ib-unpair-btn"
+                          onClick={() => handleUnpair(item)}
+                          disabled={busy}
+                        >
+                          <Unlink size={14} /> Not a transfer — review separately
+                        </button>
+                      )}
 
                       <div className="ib-actions">
                         <button
                           type="button"
                           className="ib-cancel-btn"
-                          onClick={() => handleDismiss(draft)}
+                          onClick={() => handleDismiss(item)}
                           disabled={busy}
                         >
                           <Trash2 size={16} /> Dismiss
@@ -579,10 +763,11 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         <button
                           type="button"
                           className="ib-submit-btn"
-                          onClick={() => handleApprove(draft)}
+                          onClick={() => handleApprove(item)}
                           disabled={busy}
                         >
-                          <Check size={16} /> {busy ? 'Adding...' : 'Add transaction'}
+                          <Check size={16} />
+                          {busy ? 'Adding...' : isTransfer ? 'Add transfer' : 'Add transaction'}
                         </button>
                       </div>
                     </div>
@@ -601,16 +786,18 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
             items={
               activeField === 'category' ? categories
                 : activeField === 'payee' ? payees
-                : activeField === 'account' ? accounts
+                : (activeField === 'account' || activeField === 'transferTo') ? accounts
                 : []
             }
-            initialValue={valueFor(selected, activeField)}
+            initialValue={valueFor(selected, popoverFieldName(selected, activeField))}
             onSelect={(val) => {
-              if (activeField === 'payee') setPayeeField(selected, val);
-              else setField(selected.id, activeField, val);
+              const target = popoverFieldName(selected, activeField);
+              if (target === 'payee') setPayeeField(selected, val);
+              else setField(selected.id, target, val);
               setActiveField(null);
             }}
-            onSaveValue={(val) => setField(selected.id, activeField, val)}
+            onSaveValue={(val) =>
+              setField(selected.id, popoverFieldName(selected, activeField), val)}
             onAdd={async (val) => {
               // Creating from here works exactly as it does in the transaction
               // form: the payee or category becomes a real one immediately.
@@ -629,4 +816,14 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       </div>
     </ModalWrapper>
   );
+}
+
+// The popover is told which *kind* of field it is showing so it can offer the
+// right list, but a transfer stores its two accounts as from/to rather than
+// account/transferTo. This maps one to the other.
+function popoverFieldName(item, field) {
+  if (item?.kind !== 'transfer') return field;
+  if (field === 'account') return 'from';
+  if (field === 'transferTo') return 'to';
+  return field;
 }

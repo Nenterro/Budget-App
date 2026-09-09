@@ -36,7 +36,12 @@ const DEFAULT_SETTINGS = {
   // which account, which merchant string is which payee, and which category
   // that payee usually belongs to. Kept in settings so it syncs (encrypted)
   // to every device rather than being relearned on each one.
-  automation: { accountByLast4: {}, payeeByMerchant: {}, categoryByPayee: {} }
+  automation: {
+    accountByLast4: {}, payeeByMerchant: {}, categoryByPayee: {},
+    // Counterparty names that mean "me", used to spot a transfer between two
+    // of your own accounts.
+    selfLabels: []
+  }
 };
 
 const serializeFilters = (filters) => ({
@@ -289,7 +294,8 @@ export const useAutomationSettings = () => {
   const automationRules = {
     accountByLast4: automation?.accountByLast4 || {},
     payeeByMerchant: automation?.payeeByMerchant || {},
-    categoryByPayee: automation?.categoryByPayee || {}
+    categoryByPayee: automation?.categoryByPayee || {},
+    selfLabels: automation?.selfLabels || []
   };
 
   return { automationRules, setAutomationRules };

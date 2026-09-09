@@ -12,7 +12,11 @@ export const DEFAULT_AUTOMATION_RULES = {
   // normalised merchant text -> payee name
   payeeByMerchant: {},
   // payee name -> category name
-  categoryByPayee: {}
+  categoryByPayee: {},
+  // Names that mean "me" when they turn up as the counterparty. Wallets label
+  // a transfer between your own accounts with the account holder's name on
+  // both sides, so the counterparty says nothing about where the money went.
+  selfLabels: []
 };
 
 /** Lowercased, punctuation-stripped, collapsed. Merchant strings arrive with
@@ -429,6 +433,146 @@ export function learnFromApproval(rules, draft, chosen) {
   }
 
   return changed ? next : current;
+}
+
+// --- Transfers between your own accounts ----------------------------------
+//
+// Moving money from one of your own accounts to another produces two
+// messages, not one: a debit from the sending app and a credit from the
+// receiving one. Approved separately they become an expense and an income,
+// which double-counts the movement and leaves both balances wrong.
+//
+// Neither message can be recognised as a transfer on its own. SadaPay and
+// NayaPay both label the counterparty with the account holder's name — the
+// same name on both sides — so nothing in either message says where the money
+// went. What identifies it is the pair: two messages, equal amounts, opposite
+// directions, seconds apart, on different accounts.
+
+const TRANSFER_AMOUNT_EPSILON = 0.01;
+const SELF_NAME_THRESHOLD = 0.8;
+
+/** Has the user declared this counterparty to be themselves? */
+export function isSelfLabel(name, rules) {
+  if (!name) return false;
+  const labels = rules?.selfLabels || [];
+  if (labels.length === 0) return false;
+  const target = normaliseName(name);
+  return labels.some(label => {
+    const candidate = normaliseName(label);
+    return candidate === target || similarity(name, label) >= SELF_NAME_THRESHOLD;
+  });
+}
+
+/**
+ * Do these two drafts name the same counterparty, or someone declared to be
+ * the user?
+ *
+ * The name-on-both-sides check is what makes this work with no configuration:
+ * a wallet-to-wallet transfer carries the account holder's name on both
+ * messages, so the two sides recognise each other. Self labels are the escape
+ * hatch for when the two apps write that name differently.
+ */
+function looksLikeSelfTransfer(debit, credit, rules) {
+  const a = debit?.parsed?.merchant;
+  const b = credit?.parsed?.merchant;
+  if (isSelfLabel(a, rules) || isSelfLabel(b, rules)) return true;
+  if (a && b && similarity(a, b) >= SELF_NAME_THRESHOLD) return true;
+  return false;
+}
+
+function draftAmount(draft) {
+  const value = Number(draft?.parsed?.amount);
+  return Number.isFinite(value) ? Math.abs(value) : 0;
+}
+
+// Arrival time, not the date the message states. A bank SMS quoting only a
+// date parses to midnight, which would sit hours away from the partner
+// message even though both landed within seconds of each other.
+function draftTime(draft) {
+  const value = draft?.receivedAt || draft?.parsed?.occurredAt;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+/**
+ * Pair up drafts that are two halves of one transfer.
+ *
+ * Greedy and deterministic: debits oldest first, each taking the closest
+ * unclaimed credit inside the window. A draft is only ever in one pair.
+ */
+export function findTransferPairs(drafts, options = {}) {
+  const { accounts = [], rules, windowMinutes = 10 } = options;
+  const windowMs = windowMinutes * 60 * 1000;
+
+  const debits = [];
+  const credits = [];
+  for (const draft of drafts || []) {
+    if (!draftAmount(draft)) continue;
+    const direction = draft?.parsed?.direction;
+    if (direction === 'debit') debits.push(draft);
+    else if (direction === 'credit') credits.push(draft);
+  }
+
+  const claimed = new Set();
+  const pairs = [];
+
+  for (const debit of [...debits].sort((a, b) => draftTime(a) - draftTime(b))) {
+    let best = null;
+    let bestGap = Infinity;
+
+    for (const credit of credits) {
+      if (claimed.has(credit.id)) continue;
+      if (Math.abs(draftAmount(debit) - draftAmount(credit)) > TRANSFER_AMOUNT_EPSILON) continue;
+
+      const gap = Math.abs(draftTime(debit) - draftTime(credit));
+      if (gap > windowMs) continue;
+      if (!looksLikeSelfTransfer(debit, credit, rules)) continue;
+
+      // Money leaving and arriving in the same account is not a transfer;
+      // it is two unrelated transactions that happen to match.
+      const from = suggestAccount(debit, accounts, rules);
+      const to = suggestAccount(credit, accounts, rules);
+      if (from && to && from === to) continue;
+
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = credit;
+      }
+    }
+
+    if (best) {
+      claimed.add(best.id);
+      claimed.add(debit.id);
+      pairs.push({
+        id: `${debit.id}:${best.id}`,
+        debit,
+        credit: best,
+        gapMs: bestGap
+      });
+    }
+  }
+
+  return pairs;
+}
+
+/** The transfer form's starting values for a matched pair. */
+export function pairToTransferSuggestion(pair, options = {}) {
+  const { accounts = [], rules } = options;
+  const { debit, credit } = pair;
+
+  const from = suggestAccount(debit, accounts, rules);
+  const to = suggestAccount(credit, accounts, rules);
+  const fromRecord = findByName(accounts, from);
+
+  return {
+    type: 2,
+    amount: String(draftAmount(debit) || ''),
+    date: toDateInput(debit?.parsed?.occurredAt || debit?.receivedAt),
+    from,
+    to,
+    currency: fromRecord?.currency || debit?.parsed?.currency || 'PKR',
+    note: `Auto-added transfer from ${debit?.parsed?.bank || debit?.sender || 'SMS'}`
+  };
 }
 
 /**

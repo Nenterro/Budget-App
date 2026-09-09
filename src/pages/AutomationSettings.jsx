@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Wallet, User, Tag, Check, X } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Wallet, User, Tag, Check, X, ArrowRightLeft } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAutomationSettings } from '../context/SettingsContext';
 import UnifiedDropdown from '../components/UnifiedDropdown';
@@ -185,6 +185,93 @@ function MappingSection({
   );
 }
 
+/**
+ * A plain list rather than a mapping: these names have no target, they simply
+ * mean "this is me".
+ */
+function SelfLabelsSection({ labels, onChange }) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+
+  const add = () => {
+    const value = newLabel.trim();
+    if (!value) return;
+    if (!labels.some(l => l.toLowerCase() === value.toLowerCase())) {
+      onChange([...labels, value]);
+    }
+    setNewLabel('');
+    setIsAdding(false);
+  };
+
+  return (
+    <div className="am-section glass-panel">
+      <div className="am-section-head">
+        <div className="am-section-icon"><ArrowRightLeft size={16} /></div>
+        <div className="am-section-titles">
+          <h2>Names that mean you</h2>
+          <p>
+            Wallets label a transfer between your own accounts with the account
+            holder's name on both sides, so neither message says where the money
+            went. Two messages naming the same counterparty are already matched
+            automatically — add a name here only when the two apps write it
+            differently.
+          </p>
+        </div>
+      </div>
+
+      {labels.length === 0 && !isAdding ? (
+        <div className="am-empty">
+          No names added. Matching still works whenever both messages spell the
+          counterparty the same way.
+        </div>
+      ) : (
+        <div className="am-rows">
+          {labels.map(label => (
+            <div className="am-row" key={label}>
+              <div className="am-value">
+                <input type="text" value={label} readOnly />
+              </div>
+              <button
+                className="am-delete"
+                onClick={() => onChange(labels.filter(l => l !== label))}
+                title="Remove name"
+                type="button"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isAdding ? (
+        <div className="am-row am-row-new">
+          <div className="am-value">
+            <input
+              type="text"
+              value={newLabel}
+              onChange={e => setNewLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') add(); }}
+              placeholder="Huzaifa Sadeem"
+              autoFocus
+            />
+          </div>
+          <button className="am-confirm" onClick={add} disabled={!newLabel.trim()} type="button">
+            <Check size={16} />
+          </button>
+          <button className="am-delete" onClick={() => { setIsAdding(false); setNewLabel(''); }} type="button">
+            <X size={16} />
+          </button>
+        </div>
+      ) : (
+        <button className="am-add-btn" onClick={() => setIsAdding(true)} type="button">
+          <Plus size={16} /> Add name
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function AutomationSettings() {
   const navigate = useNavigate();
   const { accounts, categories, payees } = useData();
@@ -198,7 +285,8 @@ export default function AutomationSettings() {
   const total =
     Object.keys(automationRules.accountByLast4).length +
     Object.keys(automationRules.payeeByMerchant).length +
-    Object.keys(automationRules.categoryByPayee).length;
+    Object.keys(automationRules.categoryByPayee).length +
+    (automationRules.selfLabels?.length || 0);
 
   return (
     <div className="page-container manage-data-page">
@@ -254,6 +342,11 @@ export default function AutomationSettings() {
           keyPlaceholder={payees[0]?.name || 'Payee name'}
           valuePlaceholder="Choose category"
           onChange={(next) => update({ categoryByPayee: next })}
+        />
+
+        <SelfLabelsSection
+          labels={automationRules.selfLabels || []}
+          onChange={(next) => update({ selfLabels: next })}
         />
       </div>
     </div>
