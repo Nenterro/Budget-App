@@ -28,10 +28,16 @@ CURRENCY_ALIASES = {
     "AED": "AED", "SAR": "SAR", "INR": "INR", "₹": "INR",
 }
 
+# The trailing period matters: Askari writes "PKR. 100.00", and without it the
+# currency matched but the amount that followed did not.
 CURRENCY_PATTERN = (
-    r"(?:PKR|Rs\.?|RS\.?|USD|US\$|\$|EUR|€|GBP|£|AED|SAR|INR|₹|₨)"
+    r"(?:PKR|Rs|RS|USD|US\$|\$|EUR|€|GBP|£|AED|SAR|INR|₹|₨)\.?"
 )
-AMOUNT_PATTERN = r"\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?"
+
+# Comma-grouped first, then plain digits. Written as two alternatives ordered
+# the other way round, `\d{1,3}` won on "PKR 2009" and the amount silently
+# became 200 — any four-digit amount without a comma was being truncated.
+AMOUNT_PATTERN = r"\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?"
 
 # --- Direction -------------------------------------------------------------
 # Longest, most specific phrases first so "has been credited" is not read as a
@@ -183,6 +189,10 @@ def extract_datetime(text, fallback):
         r"\b(\d{1,2}[-/][A-Za-z]{3}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)?)",
         r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)?)",
         r"\b(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)",
+        # Space-separated, as Askari writes it: "on 09 09 26 at 22 39". The
+        # "on"/"dated" cue is required — on its own this shape also matches a
+        # time, a reference number, or any other run of digit pairs.
+        r"(?:\bon|\bdated)\s+(\d{2}\s+\d{2}\s+\d{2})\b",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)

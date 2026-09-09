@@ -1,54 +1,81 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, Check, Trash2, Inbox, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import {
+  X, Check, Trash2, Inbox, ChevronRight, ChevronDown, ChevronUp, ArrowLeft,
+  RefreshCw, User, Calendar, FileText, Banknote,
+  ArrowDownLeft, ArrowUpRight, AlertTriangle
+} from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import UnifiedDropdown from './UnifiedDropdown';
 import { useData } from '../context/DataContext';
 import { useAutomationSettings } from '../context/SettingsContext';
-import { fetchPendingDrafts, deleteDraft } from '../store/inbox';
+import { deleteDraft } from '../store/inbox';
 import {
   draftToSuggestion,
   learnFromApproval,
-  confidenceLabel
+  confidenceLabel,
+  looksLikeIdentifier,
+  prettifyMerchant
 } from '../utils/inboxDraft';
 import { generateId } from '../store/db';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
+import { format, parseISO } from 'date-fns';
 import './InboxReviewModal.css';
+
+const formatDateShort = (value) => {
+  if (!value) return '';
+  try {
+    return format(parseISO(value), 'dd/MM/yy');
+  } catch {
+    return String(value).substring(0, 10);
+  }
+};
+
+// A dropdown whose value is not among its options renders as its placeholder,
+// which makes a prefilled field look empty. Same fix as the sharing modal.
+const withCurrentValue = (items, current) => {
+  const options = items.map(i => ({ value: i.name, label: i.name }));
+  if (current && !options.some(o => o.value === current)) {
+    options.unshift({ value: current, label: current });
+  }
+  return options;
+};
 
 /**
  * The review queue for transactions detected from SMS and notifications.
  *
- * Nothing here is added without a tap. The parser is good but not trustworthy
- * enough to write to a ledger unsupervised, and a wrong transaction is far
- * more expensive to find later than a missing one is to add now.
+ * A list you scan, then one draft at a time opened into a full form — the same
+ * shape as the shared-expenses modal, because the job is the same: most rows
+ * need no attention, and the one that does needs all of it.
  *
- * Every approval teaches the rules: this card number is that account, this
- * merchant is that payee, that payee is that category. The second message
- * from a given merchant usually needs nothing but a tap on Add.
+ * Nothing is added without a tap. Every approval teaches the rules: this card
+ * is that account, this merchant is that payee, that payee is that category.
  */
 export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh }) {
-  const { accounts, categories, payees, addTransaction, savePayee, saveCategory } = useData();
+  const {
+    accounts, categories, payees, transactions,
+    addTransaction, savePayee, saveCategory
+  } = useData();
   const { automationRules, setAutomationRules } = useAutomationSettings();
 
-  // Per-draft edits, keyed by draft id. A draft the user has not touched is
-  // not in here at all and falls back to its suggestion.
+  const [selectedId, setSelectedId] = useState(null);
   const [edits, setEdits] = useState({});
-  const [expanded, setExpanded] = useState({});
-  const [busyId, setBusyId] = useState(null);
+  const [showRaw, setShowRaw] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const suggestions = useMemo(() => {
     const map = {};
     for (const draft of drafts) {
       map[draft.id] = draftToSuggestion(draft, {
-        accounts, categories, payees, rules: automationRules
+        accounts, categories, payees, transactions, rules: automationRules
       });
     }
     return map;
-  }, [drafts, accounts, categories, payees, automationRules]);
+  }, [drafts, accounts, categories, payees, transactions, automationRules]);
 
-  // Edits for drafts that have since left the queue are dead weight, and
-  // holding them would resurrect stale values if the same id ever came back.
+  // Edits for drafts that have left the queue are dead weight, and keeping
+  // them would resurrect stale values if an id ever came back.
   useEffect(() => {
     const live = new Set(drafts.map(d => d.id));
     setEdits(current => {
@@ -60,7 +87,13 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       }
       return dropped ? next : current;
     });
+    // The open draft being approved elsewhere (another device) must not leave
+    // the detail view showing something that no longer exists.
+    setSelectedId(current => (current && !live.has(current) ? null : current));
   }, [drafts]);
+
+  const selected = useMemo(
+    () => drafts.find(d => d.id === selectedId) || null, [drafts, selectedId]);
 
   const valueFor = useCallback((draft, field) => {
     const edited = edits[draft.id];
@@ -75,8 +108,8 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     }));
   }, []);
 
-  // Picking a payee should pull its usual category across, but only when the
-  // user has not already chosen one by hand.
+  // Picking a payee pulls its usual category across, unless the user has
+  // already chosen one by hand.
   const setPayeeField = useCallback((draft, value) => {
     setEdits(current => {
       const existing = current[draft.id] || {};
@@ -110,14 +143,14 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       return;
     }
 
-    setBusyId(draft.id);
+    setBusy(true);
     try {
       const type = valueFor(draft, 'type');
       const payee = (valueFor(draft, 'payee') || '').trim() || 'Unspecified';
       const category = (valueFor(draft, 'category') || '').trim() || 'Unspecified';
 
-      // A payee or category typed here should become a real one, exactly as
-      // it would if it had been typed into the Add Transaction form.
+      // A payee or category named here becomes a real one, exactly as it would
+      // if it had been typed into the Add Transaction form.
       if (payee !== 'Unspecified' && !payees.some(p => p.name.toLowerCase() === payee.toLowerCase())) {
         await savePayee({ name: payee, color: '#10b981' });
       }
@@ -125,12 +158,10 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
         await saveCategory({ name: category, color: '#6366f1' });
       }
 
-      const signedAmount = type === 1 ? Math.abs(amount) : -Math.abs(amount);
-
       await addTransaction({
         id: generateId(),
         type,
-        amount: signedAmount,
+        amount: type === 1 ? Math.abs(amount) : -Math.abs(amount),
         category,
         payee,
         note: valueFor(draft, 'note'),
@@ -154,176 +185,262 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       // The draft has served its purpose, and it is the only plaintext copy of
       // this message on the server. It goes as soon as the transaction exists.
       await deleteDraft(draft.id);
+      setSelectedId(null);
       await onRefresh();
     } catch (err) {
       console.error('Failed to add transaction from draft:', err);
       alert('Could not add this transaction. It is still in the queue — try again.');
     } finally {
-      setBusyId(null);
+      setBusy(false);
     }
   }, [valueFor, payees, categories, savePayee, saveCategory, addTransaction,
       automationRules, setAutomationRules, onRefresh]);
 
   const handleDismiss = useCallback(async (draft) => {
-    setBusyId(draft.id);
+    setBusy(true);
     try {
       await deleteDraft(draft.id);
+      setSelectedId(null);
       await onRefresh();
     } finally {
-      setBusyId(null);
+      setBusy(false);
     }
   }, [onRefresh]);
 
+  const openDraft = useCallback((draft) => {
+    setSelectedId(draft.id);
+    setShowRaw(false);
+  }, []);
+
   if (!isOpen) return null;
 
-  const accountOptions = accounts.map(a => ({ value: a.name, label: a.name }));
   const categoryOptions = [
     { value: '', label: 'Uncategorised' },
     ...categories.map(c => ({ value: c.name, label: c.name }))
   ];
-  const payeeOptions = payees.map(p => ({ value: p.name, label: p.name }));
 
   return (
-    <ModalWrapper onClose={onClose} zIndex={2400}>
+    <ModalWrapper onClose={selected ? () => setSelectedId(null) : onClose} zIndex={2400}>
       <div className="inbox-modal glass-panel" onClick={e => e.stopPropagation()}>
-        <div className="inbox-header">
-          <div className="inbox-title">
-            <Inbox size={20} />
-            <h3>Detected Transactions</h3>
-            {drafts.length > 0 && <span className="inbox-count">{drafts.length}</span>}
-          </div>
-          <div className="inbox-header-actions">
-            <button
-              className="inbox-icon-btn"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              title="Check for new messages"
+        <AnimatePresence mode="wait">
+          {!selected ? (
+            <motion.div
+              key="list"
+              className="ib-view"
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
             >
-              <RefreshCw size={18} className={isRefreshing ? 'spinning' : ''} />
-            </button>
-            <button className="inbox-icon-btn" onClick={onClose} title="Close">
-              <X size={20} />
-            </button>
-          </div>
-        </div>
+              <div className="ib-header">
+                <h2><Inbox size={18} /> Detected transactions</h2>
+                <div className="ib-header-actions">
+                  <button
+                    className="ib-icon-btn"
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    type="button"
+                    aria-label="Check for new messages"
+                  >
+                    <RefreshCw size={18} className={isRefreshing ? 'ib-spin' : ''} />
+                  </button>
+                  <button className="ib-icon-btn" onClick={onClose} type="button" aria-label="Close">
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
 
-        <div className="inbox-body">
-          {drafts.length === 0 ? (
-            <div className="inbox-empty">
-              <Inbox size={40} />
-              <p>Nothing waiting</p>
-              <span>
-                Transactions detected from your bank SMS and notifications will
-                appear here for you to confirm.
-              </span>
-            </div>
+              <div className="ib-list">
+                {drafts.length === 0 ? (
+                  <div className="ib-empty">
+                    <Inbox size={44} style={{ opacity: 0.3 }} />
+                    <p>Nothing waiting</p>
+                    <span>
+                      Transactions detected from your bank SMS and notifications
+                      appear here for you to confirm.
+                    </span>
+                  </div>
+                ) : drafts.map(draft => {
+                  const type = valueFor(draft, 'type');
+                  const isIncome = type === 1;
+                  const level = confidenceLabel(draft.confidence || 0);
+                  const payee = valueFor(draft, 'payee');
+                  const account = valueFor(draft, 'account');
+
+                  return (
+                    <button
+                      key={draft.id}
+                      type="button"
+                      className="ib-card"
+                      onClick={() => openDraft(draft)}
+                    >
+                      <div
+                        className="ib-card-icon"
+                        style={{ background: isIncome ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' }}
+                      >
+                        {isIncome
+                          ? <ArrowDownLeft size={16} style={{ color: '#10b981' }} />
+                          : <ArrowUpRight size={16} style={{ color: '#ef4444' }} />}
+                      </div>
+                      <div className="ib-card-info">
+                        <span className="ib-card-payee">
+                          {payee || draft.parsed?.merchant || 'Unknown payee'}
+                        </span>
+                        <span className="ib-card-meta">
+                          {draft.parsed?.bank || draft.sender || 'Unknown sender'}
+                          {' • '}
+                          {formatDateShort(valueFor(draft, 'date'))}
+                        </span>
+                      </div>
+                      <div className="ib-card-amounts">
+                        <span className={`ib-card-total ${isIncome ? 'income' : 'expense'}`}>
+                          {isIncome ? '+' : '-'}
+                          {getCurrencySymbol(valueFor(draft, 'currency'))}
+                          {formatCurrency(Math.abs(parseFloat(valueFor(draft, 'amount')) || 0))}
+                        </span>
+                        <span className={`ib-card-sub ${account ? '' : 'needs-input'}`}>
+                          {account || 'Needs account'}
+                          <i className={`ib-dot ${level}`} />
+                        </span>
+                      </div>
+                      <ChevronRight size={16} className="ib-card-chevron" />
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
           ) : (
-            <AnimatePresence initial={false}>
-              {drafts.map(draft => {
-                const suggestion = suggestions[draft.id] || {};
-                const level = confidenceLabel(draft.confidence || 0);
-                const isBusy = busyId === draft.id;
-                const isOpenRow = !!expanded[draft.id];
+            <motion.div
+              key="detail"
+              className="ib-view"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 16 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
+              {(() => {
+                const draft = selected;
                 const type = valueFor(draft, 'type');
+                const suggestion = suggestions[draft.id] || {};
+                const symbol = getCurrencySymbol(valueFor(draft, 'currency'));
 
                 return (
-                  <motion.div
-                    key={draft.id}
-                    layout
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    transition={{ duration: 0.18 }}
-                    className={`inbox-card ${isBusy ? 'busy' : ''}`}
-                  >
-                    <div className="inbox-card-top">
-                      <div className="inbox-meta">
-                        <span className="inbox-bank">
-                          {draft.parsed?.bank || draft.sender || 'Unknown sender'}
-                        </span>
-                        <span className={`inbox-confidence ${level}`}>{level} confidence</span>
-                      </div>
-                      <div className={`inbox-amount ${type === 1 ? 'income' : 'expense'}`}>
-                        {type === 1 ? '+' : '-'}
-                        {getCurrencySymbol(valueFor(draft, 'currency'))}
-                        {formatCurrency(Math.abs(parseFloat(valueFor(draft, 'amount')) || 0))}
-                      </div>
-                    </div>
-
-                    <button
-                      className="inbox-raw-toggle"
-                      onClick={() => setExpanded(c => ({ ...c, [draft.id]: !c[draft.id] }))}
-                    >
-                      <span className="inbox-raw-preview">{draft.rawText}</span>
-                      {isOpenRow ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
-                    {isOpenRow && <div className="inbox-raw-full">{draft.rawText}</div>}
-
-                    {!suggestion.directionKnown && (
-                      <div className="inbox-warning">
-                        Could not tell whether this was money in or out — check the
-                        type below.
-                      </div>
-                    )}
-
-                    <div className="inbox-type-toggle" data-type={type}>
+                  <>
+                    <div className="ib-header">
                       <button
-                        className={type === 0 ? 'active expense' : ''}
-                        onClick={() => setField(draft.id, 'type', 0)}
-                      >Expense</button>
-                      <button
-                        className={type === 1 ? 'active income' : ''}
-                        onClick={() => setField(draft.id, 'type', 1)}
-                      >Income</button>
-                    </div>
-
-                    <div className="inbox-fields">
-                      <label className="inbox-field">
-                        <span>Amount</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={valueFor(draft, 'amount')}
-                          onChange={e => setField(draft.id, 'amount', e.target.value)}
-                        />
-                      </label>
-                      <label className="inbox-field">
-                        <span>Date</span>
-                        <input
-                          type="date"
-                          value={valueFor(draft, 'date')}
-                          onChange={e => setField(draft.id, 'date', e.target.value)}
-                        />
-                      </label>
-                      <div className="inbox-field">
+                        className="ib-icon-btn"
+                        onClick={() => setSelectedId(null)}
+                        type="button"
+                        aria-label="Back to list"
+                      >
+                        <ArrowLeft size={20} />
+                      </button>
+                      <div className="ib-header-titles">
+                        <h2>{draft.parsed?.merchant || 'Detected transaction'}</h2>
                         <span>
-                          Account
-                          {draft.parsed?.last4 && (
-                            <em className="inbox-hint"> card ...{draft.parsed.last4}</em>
-                          )}
+                          {draft.parsed?.bank || draft.sender || 'Unknown sender'}
+                          {draft.parsed?.last4 ? ` • card ...${draft.parsed.last4}` : ''}
                         </span>
+                      </div>
+                    </div>
+
+                    <div className="ib-form">
+                      <div className="ib-type-selector" data-type={type}>
+                        <button
+                          type="button"
+                          className={`ib-type-btn ${type === 0 ? 'expense-active' : ''}`}
+                          onClick={() => setField(draft.id, 'type', 0)}
+                        >Expense</button>
+                        <button
+                          type="button"
+                          className={`ib-type-btn ${type === 1 ? 'income-active' : ''}`}
+                          onClick={() => setField(draft.id, 'type', 1)}
+                        >Income</button>
+                      </div>
+
+                      {!suggestion.directionKnown && (
+                        <div className="ib-warning">
+                          <AlertTriangle size={14} />
+                          <span>
+                            The message did not say whether this was money in or
+                            out. Check the type above.
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="ib-form-group">
+                        <label>Amount</label>
+                        <div className="input-with-icon">
+                          <Banknote size={18} className="input-icon" />
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={valueFor(draft, 'amount')}
+                            onChange={e => setField(draft.id, 'amount', e.target.value)}
+                            placeholder={`${symbol} 0.00`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="ib-form-group">
+                        <label>Date</label>
+                        <div className="input-with-icon">
+                          <Calendar size={18} className="input-icon" />
+                          <input
+                            type="date"
+                            value={valueFor(draft, 'date')}
+                            onChange={e => setField(draft.id, 'date', e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="ib-form-group">
+                        <label>Account</label>
                         <UnifiedDropdown
                           value={valueFor(draft, 'account')}
-                          options={accountOptions}
+                          options={withCurrentValue(accounts, valueFor(draft, 'account'))}
                           onChange={v => setField(draft.id, 'account', v)}
                           placeholder="Choose account"
                         />
                       </div>
-                      <div className="inbox-field">
-                        <span>Payee</span>
-                        <input
-                          type="text"
-                          list={`inbox-payees-${draft.id}`}
-                          value={valueFor(draft, 'payee')}
-                          onChange={e => setPayeeField(draft, e.target.value)}
-                          placeholder="Unspecified"
-                        />
-                        <datalist id={`inbox-payees-${draft.id}`}>
-                          {payeeOptions.map(p => <option key={p.value} value={p.value} />)}
+
+                      <div className="ib-form-group">
+                        <label>Payee</label>
+                        <div className="input-with-icon">
+                          <User size={18} className="input-icon" />
+                          <input
+                            type="text"
+                            list={`ib-payees-${draft.id}`}
+                            value={valueFor(draft, 'payee')}
+                            onChange={e => setPayeeField(draft, e.target.value)}
+                            placeholder="Unspecified"
+                          />
+                        </div>
+                        <datalist id={`ib-payees-${draft.id}`}>
+                          {payees.map(p => <option key={p.id || p.name} value={p.name} />)}
                         </datalist>
+                        {(() => {
+                          const merchant = draft.parsed?.merchant;
+                          if (!merchant || !looksLikeIdentifier(merchant)) return null;
+                          const chosen = (valueFor(draft, 'payee') || '').trim();
+                          const named = chosen && chosen !== prettifyMerchant(merchant);
+                          return (
+                            <div className={`ib-hint ${named ? 'resolved' : ''}`}>
+                              <code>{merchant}</code>
+                              {named
+                                ? <span>will be remembered as <strong>{chosen}</strong>.</span>
+                                : <span>
+                                    is an account identifier, not a name. Whoever
+                                    you name here is remembered for every future
+                                    transfer from it.
+                                  </span>}
+                            </div>
+                          );
+                        })()}
                       </div>
-                      <div className="inbox-field inbox-field-wide">
-                        <span>Category</span>
+
+                      <div className="ib-form-group">
+                        <label>Category</label>
                         <UnifiedDropdown
                           value={valueFor(draft, 'category')}
                           options={categoryOptions}
@@ -331,30 +448,55 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                           placeholder="Uncategorised"
                         />
                       </div>
-                    </div>
 
-                    <div className="inbox-actions">
+                      <div className="ib-form-group">
+                        <label>Note</label>
+                        <div className="input-with-icon">
+                          <FileText size={18} className="input-icon" />
+                          <input
+                            type="text"
+                            value={valueFor(draft, 'note')}
+                            onChange={e => setField(draft.id, 'note', e.target.value)}
+                            placeholder="Optional"
+                          />
+                        </div>
+                      </div>
+
                       <button
-                        className="inbox-btn dismiss"
-                        onClick={() => handleDismiss(draft)}
-                        disabled={isBusy}
+                        type="button"
+                        className="ib-raw-toggle"
+                        onClick={() => setShowRaw(v => !v)}
                       >
-                        <Trash2 size={16} /> Dismiss
+                        <span>Original message</span>
+                        {showRaw ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
-                      <button
-                        className="inbox-btn approve"
-                        onClick={() => handleApprove(draft)}
-                        disabled={isBusy}
-                      >
-                        <Check size={16} /> {isBusy ? 'Adding...' : 'Add'}
-                      </button>
+                      {showRaw && <div className="ib-raw">{draft.rawText}</div>}
+
+                      <div className="ib-actions">
+                        <button
+                          type="button"
+                          className="ib-cancel-btn"
+                          onClick={() => handleDismiss(draft)}
+                          disabled={busy}
+                        >
+                          <Trash2 size={16} /> Dismiss
+                        </button>
+                        <button
+                          type="button"
+                          className="ib-submit-btn"
+                          onClick={() => handleApprove(draft)}
+                          disabled={busy}
+                        >
+                          <Check size={16} /> {busy ? 'Adding...' : 'Add transaction'}
+                        </button>
+                      </div>
                     </div>
-                  </motion.div>
+                  </>
                 );
-              })}
-            </AnimatePresence>
+              })()}
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
       </div>
     </ModalWrapper>
   );

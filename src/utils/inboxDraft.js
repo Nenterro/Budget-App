@@ -57,6 +57,224 @@ function findByName(items, name) {
   return items.find(item => String(item.name).toLowerCase() === target) || null;
 }
 
+// --- Fuzzy name matching --------------------------------------------------
+//
+// The sender string on a message ("Askari Bank", "SadaPay") is rarely the
+// account name the user chose ("Askari Current", "SadaPay Card"). These match
+// the two up without needing a rule to have been taught first.
+
+function normaliseName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Words that say nothing about *which* account this is. Without excluding
+// them, "Bank Alfalah" and "Askari Bank" share a token and score as a match.
+const GENERIC_NAME_WORDS = new Set([
+  'bank', 'account', 'acc', 'card', 'current', 'savings', 'saving',
+  'limited', 'ltd', 'my', 'the', 'pk', 'pakistan', 'debit', 'credit', 'wallet'
+]);
+
+function bigrams(value) {
+  const set = new Set();
+  for (let i = 0; i < value.length - 1; i++) set.add(value.slice(i, i + 2));
+  return set;
+}
+
+/**
+ * One name's words wholly contained in the other's: "SadaPay" in "SadaPay
+ * Card", "Khunsa" in "Syeda Khunsa Usmani".
+ *
+ * Matched on whole words rather than raw substring, because a plain
+ * `includes` also matches "Ali" inside "Alibaba" — which is how a short payee
+ * name ends up attached to an unrelated merchant.
+ */
+function tokenContainment(x, y) {
+  const wordsX = x.split(' ').filter(Boolean);
+  const wordsY = y.split(' ').filter(Boolean);
+  const [shorter, longer] = wordsX.length <= wordsY.length
+    ? [wordsX, wordsY]
+    : [wordsY, wordsX];
+
+  if (shorter.length === 0) return 0;
+  const longerSet = new Set(longer);
+  if (!shorter.every(word => longerSet.has(word))) return 0;
+
+  // The shared part has to actually identify something. Without this, "Bank"
+  // is contained in every bank name there is.
+  const distinctive = shorter.some(
+    word => word.length >= 3 && !GENERIC_NAME_WORDS.has(word)
+  );
+  return distinctive ? 0.9 : 0;
+}
+
+/** 0..1 similarity between two names. Exported for testing. */
+export function similarity(a, b) {
+  const x = normaliseName(a);
+  const y = normaliseName(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+
+  const contained = tokenContainment(x, y);
+  if (contained) return contained;
+
+  // A shared distinctive word is strong evidence — "Askari Bank" against
+  // "Askari Current" — provided it is not a word every bank name contains.
+  const tokensOf = (value) => new Set(
+    value.split(' ').filter(t => t.length >= 3 && !GENERIC_NAME_WORDS.has(t))
+  );
+  const sharedTokens = [...tokensOf(x)].filter(t => tokensOf(y).has(t));
+  if (sharedTokens.length > 0) return Math.min(0.9, 0.6 + 0.1 * sharedTokens.length);
+
+  // Otherwise fall back to character-level overlap, which catches spelling
+  // drift ("Meezan" / "Meezaan") without matching unrelated names.
+  const setX = bigrams(x);
+  const setY = bigrams(y);
+  if (setX.size === 0 || setY.size === 0) return 0;
+  let shared = 0;
+  for (const gram of setX) if (setY.has(gram)) shared++;
+  return (2 * shared) / (setX.size + setY.size);
+}
+
+// Below this, "no idea" is the more useful answer than a wrong account.
+const ACCOUNT_MATCH_THRESHOLD = 0.55;
+
+/** Closest account to a free-text name, or null if nothing is close enough. */
+export function fuzzyFindAccount(name, accounts, threshold = ACCOUNT_MATCH_THRESHOLD) {
+  if (!name) return null;
+  let best = null;
+  let bestScore = 0;
+  let tied = false;
+
+  for (const account of accounts) {
+    const score = similarity(name, account.name);
+    if (score > bestScore) {
+      bestScore = score;
+      best = account;
+      tied = false;
+    } else if (score === bestScore && score > 0) {
+      tied = true;
+    }
+  }
+
+  // Two accounts equally close is not a match, it is a question for the user.
+  if (tied || bestScore < threshold) return null;
+  return best;
+}
+
+/**
+ * How often each payee name appears in the history.
+ *
+ * Used to break ties when several payees match a merchant equally well: the
+ * one already used twenty times is the likelier answer than the one used once.
+ */
+export function payeeUsage(transactions) {
+  const counts = new Map();
+  const record = (payee) => {
+    if (!payee) return;
+    const name = String(payee);
+    if (name.toLowerCase() === 'unspecified') return;
+    counts.set(name, (counts.get(name) || 0) + 1);
+  };
+
+  for (const tx of transactions || []) {
+    if (tx.deleted) continue;
+    record(tx.payee);
+    if (Array.isArray(tx.splits)) {
+      for (const split of tx.splits) record(split.payee);
+    }
+  }
+  return counts;
+}
+
+// Payees are freer-form than account names, so the bar is set a little higher:
+// a shared whole word or containment clears it, coincidental character overlap
+// does not.
+const PAYEE_MATCH_THRESHOLD = 0.62;
+
+/**
+ * The closest payee already in use, or null.
+ *
+ * Merchant strings are the bank's idea of a name; payees are the user's. They
+ * routinely differ — a transfer from "SYEDA KHUNSA USMANI" belongs to the
+ * payee filed as "Khunsa". Candidates come from both the payee list and the
+ * transaction history, since a payee used long ago may since have been removed
+ * from the list.
+ *
+ * Unlike accounts, a tie is resolved rather than refused: the more-used payee
+ * wins. A misfiled payee is visible on the review card and one tap to change,
+ * where a wrong account silently lands money in the wrong balance.
+ */
+export function fuzzyFindPayee(merchant, payees, transactions, threshold = PAYEE_MATCH_THRESHOLD) {
+  if (!merchant) return null;
+
+  const usage = payeeUsage(transactions);
+  const candidates = new Map();
+  for (const payee of payees || []) {
+    if (payee?.name) candidates.set(payee.name, usage.get(payee.name) || 0);
+  }
+  for (const [name, count] of usage) {
+    if (!candidates.has(name)) candidates.set(name, count);
+  }
+
+  let best = null;
+  let bestScore = 0;
+  let bestCount = -1;
+
+  for (const [name, count] of candidates) {
+    const score = similarity(merchant, name);
+    if (score > bestScore || (score === bestScore && score > 0 && count > bestCount)) {
+      bestScore = score;
+      bestCount = count;
+      best = name;
+    }
+  }
+
+  return bestScore >= threshold ? best : null;
+}
+
+/**
+ * The category this payee has most often been filed under before.
+ *
+ * The rules table only knows what has been approved through the review queue.
+ * The transaction history knows everything the user has ever categorised by
+ * hand, which on an established budget is far more.
+ */
+export function categoryFromHistory(payeeName, transactions) {
+  if (!payeeName || !transactions?.length) return '';
+  const target = String(payeeName).toLowerCase();
+  const counts = new Map();
+
+  const record = (payee, category) => {
+    if (!payee || !category) return;
+    if (String(payee).toLowerCase() !== target) return;
+    // "Unspecified" is the absence of a decision, not a decision.
+    if (String(category).toLowerCase() === 'unspecified') return;
+    counts.set(category, (counts.get(category) || 0) + 1);
+  };
+
+  for (const tx of transactions) {
+    if (tx.deleted) continue;
+    record(tx.payee, tx.category);
+    if (Array.isArray(tx.splits)) {
+      for (const split of tx.splits) record(split.payee, split.category);
+    }
+  }
+
+  let best = '';
+  let bestCount = 0;
+  for (const [category, count] of counts) {
+    if (count > bestCount) {
+      bestCount = count;
+      best = category;
+    }
+  }
+  return best;
+}
+
 /**
  * Guess the account a draft belongs to.
  *
@@ -76,13 +294,20 @@ export function suggestAccount(draft, accounts, rules) {
     if (byDigits) return byDigits.name;
   }
 
+  // Card digits are the strongest signal, but most messages from a wallet
+  // carry none. The sender name usually resembles the account name closely
+  // enough to match on: "SadaPay" -> "SadaPay Card".
+  const senderName = draft?.parsed?.bank || draft?.sender;
+  const fuzzy = fuzzyFindAccount(senderName, accounts);
+  if (fuzzy) return fuzzy.name;
+
   // A single-account budget has only one sensible answer.
   if (accounts.length === 1) return accounts[0].name;
   return '';
 }
 
-/** Payee: a learned mapping first, then the merchant string tidied up. */
-export function suggestPayee(draft, payees, rules) {
+/** Payee: a learned mapping, then an existing payee, then the tidied string. */
+export function suggestPayee(draft, payees, rules, transactions) {
   const merchant = draft?.parsed?.merchant;
   if (!merchant) return '';
 
@@ -94,15 +319,27 @@ export function suggestPayee(draft, payees, rules) {
   const existing = payees.find(payee => normaliseMerchant(payee.name) === key);
   if (existing) return existing.name;
 
+  // Then the closest payee already in use. The bank writes names in full;
+  // people do not.
+  const fuzzy = fuzzyFindPayee(merchant, payees, transactions);
+  if (fuzzy) return fuzzy;
+
   return prettifyMerchant(merchant);
 }
 
 /** Category comes from the payee, which is the association people actually
  *  think in — "Careem is Transport" — rather than from the raw merchant. */
-export function suggestCategory(payeeName, categories, rules) {
+export function suggestCategory(payeeName, categories, rules, transactions) {
   if (!payeeName) return '';
+
+  // An explicit decision made in the review queue outranks the aggregate,
+  // being both more specific and more recent.
   const learned = rules?.categoryByPayee?.[payeeName];
   if (learned && findByName(categories, learned)) return learned;
+
+  const historic = categoryFromHistory(payeeName, transactions);
+  if (historic && findByName(categories, historic)) return historic;
+
   return '';
 }
 
@@ -114,11 +351,14 @@ export function suggestCategory(payeeName, categories, rules) {
  * unreadable direction falls back to expense, which is what the overwhelming
  * majority of card messages are.
  */
-export function draftToSuggestion(draft, { accounts = [], categories = [], payees = [], rules } = {}) {
+export function draftToSuggestion(
+  draft,
+  { accounts = [], categories = [], payees = [], transactions = [], rules } = {}
+) {
   const parsed = draft?.parsed || {};
   const effectiveRules = rules || DEFAULT_AUTOMATION_RULES;
 
-  const payee = suggestPayee(draft, payees, effectiveRules);
+  const payee = suggestPayee(draft, payees, effectiveRules, transactions);
   const account = suggestAccount(draft, accounts, effectiveRules);
   const accountRecord = findByName(accounts, account);
 
@@ -129,7 +369,7 @@ export function draftToSuggestion(draft, { accounts = [], categories = [], payee
     date: toDateInput(parsed.occurredAt || draft?.receivedAt),
     account,
     payee,
-    category: suggestCategory(payee, categories, effectiveRules),
+    category: suggestCategory(payee, categories, effectiveRules, transactions),
     // The account's own currency wins over the one in the message: a PKR card
     // billed for a USD purchase still posts to a PKR account.
     currency: accountRecord?.currency || parsed.currency || 'PKR',
@@ -189,6 +429,31 @@ export function learnFromApproval(rules, draft, chosen) {
   }
 
   return changed ? next : current;
+}
+
+/**
+ * Does this merchant string look like an account identifier rather than a name?
+ *
+ * Banks write the counterparty however it appears on the account, which for a
+ * Raast or IBFT transfer is often something like "PK*SADA5107". There is no
+ * way to turn that into a person's name from the text alone — but it is worth
+ * pointing out, because naming it once is what stops every future transfer
+ * from the same person arriving anonymous.
+ */
+export function looksLikeIdentifier(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+
+  // A masked account number.
+  if (raw.includes('*')) return true;
+
+  // A token welding letters to a run of digits: SADA5107, AC0462.
+  if (/[A-Za-z]{2,}\d{3,}|\d{3,}[A-Za-z]{2,}/.test(raw)) return true;
+
+  // Mostly digits.
+  const compact = raw.replace(/\s/g, '');
+  const digits = (compact.match(/\d/g) || []).length;
+  return digits >= 4 && digits / compact.length > 0.4;
 }
 
 /** Confidence, as something a person can read. */

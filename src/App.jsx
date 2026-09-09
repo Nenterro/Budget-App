@@ -19,6 +19,7 @@ const SyncSettings = lazy(() => import('./pages/SyncSettings'));
 const AppearanceSettings = lazy(() => import('./pages/AppearanceSettings'));
 const CurrencySettings = lazy(() => import('./pages/CurrencySettings'));
 const SecuritySettings = lazy(() => import('./pages/SecuritySettings'));
+const AutomationSettings = lazy(() => import('./pages/AutomationSettings'));
 
 function RouteFallback() {
   return (
@@ -84,6 +85,7 @@ export default function App() {
             <Route path="settings/appearance" element={<AppearanceSettings />} />
             <Route path="settings/currency" element={<CurrencySettings />} />
             <Route path="settings/security" element={<SecuritySettings />} />
+            <Route path="settings/automation" element={<AutomationSettings />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -14,6 +14,12 @@ import {
   draftToSuggestion,
   learnFromApproval,
   confidenceLabel,
+  similarity,
+  fuzzyFindAccount,
+  fuzzyFindPayee,
+  payeeUsage,
+  looksLikeIdentifier,
+  categoryFromHistory,
   DEFAULT_AUTOMATION_RULES
 } from '../src/utils/inboxDraft.js';
 
@@ -54,6 +60,142 @@ console.log('\n--- Merchant normalisation ---');
   eq('mixed case untouched', prettifyMerchant('eBay Marketplace'), 'eBay Marketplace');
 }
 
+console.log('\n--- Fuzzy name matching ---');
+{
+  check('identical', similarity('SadaPay', 'sadapay') === 1);
+  check('contained', similarity('SadaPay', 'SadaPay Card') >= 0.85);
+  check('shared distinctive word', similarity('Askari Bank', 'Askari Current') >= 0.6);
+
+  // The one that matters: two different banks both containing "Bank" must not
+  // match on that word alone.
+  check('generic word is not evidence',
+    similarity('Bank Alfalah', 'Askari Bank') < 0.55,
+    String(similarity('Bank Alfalah', 'Askari Bank')));
+  check('unrelated names score low',
+    similarity('Meezan Bank', 'Wise USD') < 0.55,
+    String(similarity('Meezan Bank', 'Wise USD')));
+}
+
+console.log('\n--- Fuzzy account lookup ---');
+{
+  const accounts = [
+    { name: 'Askari Current' },
+    { name: 'SadaPay Card' },
+    { name: 'Wise USD' }
+  ];
+  check('sender to account',
+    fuzzyFindAccount('SadaPay', accounts)?.name === 'SadaPay Card');
+  check('bank name to account',
+    fuzzyFindAccount('Askari Bank', accounts)?.name === 'Askari Current');
+  check('no plausible match returns null',
+    fuzzyFindAccount('Meezan Bank', accounts) === null);
+  check('empty name returns null', fuzzyFindAccount('', accounts) === null);
+
+  // An ambiguous name is a question for the user, not a coin flip.
+  const ambiguous = [{ name: 'Askari One' }, { name: 'Askari Two' }];
+  check('a tie is not a match', fuzzyFindAccount('Askari', ambiguous) === null);
+}
+
+console.log('\n--- Fuzzy payee matching ---');
+{
+  // The motivating case: the bank writes the full legal name, the payee was
+  // filed under a short form.
+  const people = [{ name: 'Khunsa' }, { name: 'Careem' }];
+  eq('full name finds short payee',
+    fuzzyFindPayee('SYEDA KHUNSA USMANI', people, []), 'Khunsa');
+  eq('reversed works too',
+    fuzzyFindPayee('Khunsa', [{ name: 'Syeda Khunsa Usmani' }], []),
+    'Syeda Khunsa Usmani');
+
+  // The false match the word-aware containment exists to prevent: "Ali" is a
+  // substring of "Alibaba", but not a word in it.
+  check('short name not matched inside a longer word',
+    fuzzyFindPayee('Alibaba Group', [{ name: 'Ali' }], []) === null,
+    String(similarity('Alibaba Group', 'Ali')));
+
+  eq('unrelated merchant matches nothing',
+    fuzzyFindPayee('METRO CASH CARRY', people, []), null);
+  eq('no merchant, no match', fuzzyFindPayee('', people, []), null);
+
+  // Payees seen only in history still count — one may have been removed from
+  // the payee list but still be the right answer.
+  const history = [{ payee: 'Khunsa', category: 'Gifts' }];
+  eq('historical payee is a candidate',
+    fuzzyFindPayee('SYEDA KHUNSA USMANI', [], history), 'Khunsa');
+
+  // Two candidates matching equally well: the more-used one wins, rather than
+  // whichever happened to be enumerated first.
+  const tiedPayees = [{ name: 'Khunsa Work' }, { name: 'Khunsa Home' }];
+  const usageHistory = [
+    { payee: 'Khunsa Home' },
+    { payee: 'Khunsa Home' },
+    { payee: 'Khunsa Work' }
+  ];
+  eq('more-used payee wins a tie',
+    fuzzyFindPayee('KHUNSA', tiedPayees, usageHistory), 'Khunsa Home');
+
+  // Usage counts skip deleted rows and Unspecified.
+  const counts = payeeUsage([
+    { payee: 'Careem' },
+    { payee: 'Careem' },
+    { payee: 'Gone', deleted: true },
+    { payee: 'Unspecified' },
+    { payee: 'Parent', splits: [{ payee: 'Shell' }] }
+  ]);
+  eq('counted twice', counts.get('Careem'), 2);
+  eq('deleted not counted', counts.get('Gone'), undefined);
+  eq('Unspecified not counted', counts.get('Unspecified'), undefined);
+  eq('split payee counted', counts.get('Shell'), 1);
+}
+
+console.log('\n--- Payee suggestion uses the fuzzy match ---');
+{
+  const d = draft({ merchant: 'SYEDA KHUNSA USMANI' });
+  eq('suggestPayee finds the short form',
+    suggestPayee(d, [{ name: 'Khunsa' }], DEFAULT_AUTOMATION_RULES, []), 'Khunsa');
+
+  // A learned rule still outranks the fuzzy match.
+  const rules = {
+    ...DEFAULT_AUTOMATION_RULES,
+    payeeByMerchant: { 'syeda khunsa usmani': 'Khunsa Usmani' }
+  };
+  eq('learned rule still wins',
+    suggestPayee(d, [{ name: 'Khunsa' }], rules, []), 'Khunsa Usmani');
+
+  // Nothing close: fall back to tidying the merchant string.
+  eq('falls back to prettified merchant',
+    suggestPayee(draft({ merchant: 'METRO CASH CARRY' }), [{ name: 'Khunsa' }],
+      DEFAULT_AUTOMATION_RULES, []),
+    'Metro Cash Carry');
+}
+
+console.log('\n--- Category from transaction history ---');
+{
+  const history = [
+    { payee: 'Careem', category: 'Transport' },
+    { payee: 'Careem', category: 'Transport' },
+    { payee: 'Careem', category: 'Travel' },
+    { payee: 'careem', category: 'Transport' },
+    { payee: 'K-Electric', category: 'Utilities' },
+    // Deleted rows and "Unspecified" are not evidence of anything.
+    { payee: 'Careem', category: 'Groceries', deleted: true },
+    { payee: 'Foodpanda', category: 'Unspecified' }
+  ];
+
+  eq('most common wins', categoryFromHistory('Careem', history), 'Transport');
+  eq('case-insensitive match', categoryFromHistory('CAREEM', history), 'Transport');
+  eq('single occurrence', categoryFromHistory('K-Electric', history), 'Utilities');
+  eq('Unspecified is ignored', categoryFromHistory('Foodpanda', history), '');
+  eq('unknown payee', categoryFromHistory('Nobody', history), '');
+  eq('no history at all', categoryFromHistory('Careem', []), '');
+
+  // Split rows carry their own payee and category and must count too.
+  const withSplits = [
+    { payee: 'Parent', category: 'Misc', splits: [{ payee: 'Shell', category: 'Fuel' }] }
+  ];
+  eq('splits are counted', categoryFromHistory('Shell', withSplits), 'Fuel');
+}
+
 console.log('\n--- Account suggestion ---');
 {
   const rules = { ...DEFAULT_AUTOMATION_RULES, accountByLast4: { '1234': 'HBL Current' } };
@@ -64,21 +206,39 @@ console.log('\n--- Account suggestion ---');
   eq('digits in account name',
     suggestAccount(draft({ last4: '4321' }), ACCOUNTS, DEFAULT_AUTOMATION_RULES), 'Meezan 4321');
 
-  // The important one: an unknown card must NOT be guessed onto some
-  // arbitrary account. Blank forces the user to choose.
-  eq('unknown card stays blank',
-    suggestAccount(draft({ last4: '9999' }), ACCOUNTS, DEFAULT_AUTOMATION_RULES), '');
-  eq('no card at all stays blank',
-    suggestAccount(draft({}), ACCOUNTS, DEFAULT_AUTOMATION_RULES), '');
+  // With no card match, the sender name is the next best signal: the default
+  // draft sender is "HBL", which resolves to "HBL Current".
+  eq('falls back to fuzzy sender match',
+    suggestAccount(draft({ last4: '9999' }), ACCOUNTS, DEFAULT_AUTOMATION_RULES), 'HBL Current');
+  eq('fuzzy match works with no card at all',
+    suggestAccount(draft({}), ACCOUNTS, DEFAULT_AUTOMATION_RULES), 'HBL Current');
+
+  // parsed.bank is preferred over the raw sender, being the cleaned-up name.
+  eq('parsed bank beats sender',
+    suggestAccount(
+      { ...draft({ bank: 'Wise' }), sender: 'HBL' }, ACCOUNTS, DEFAULT_AUTOMATION_RULES),
+    'Wise USD');
+
+  // The important one: when nothing resembles a known account, it must NOT be
+  // guessed onto an arbitrary one. Blank forces the user to choose.
+  eq('nothing plausible stays blank',
+    suggestAccount(
+      { ...draft({ last4: '9999' }), sender: 'Faysal Bank' },
+      ACCOUNTS, DEFAULT_AUTOMATION_RULES),
+    '');
 
   // A single-account budget has only one possible answer.
   eq('single account is unambiguous',
-    suggestAccount(draft({ last4: '9999' }), [ACCOUNTS[0]], DEFAULT_AUTOMATION_RULES), 'HBL Current');
+    suggestAccount(
+      { ...draft({ last4: '9999' }), sender: 'Faysal Bank' },
+      [ACCOUNTS[1]], DEFAULT_AUTOMATION_RULES),
+    'Meezan 4321');
 
-  // A rule pointing at an account that has since been deleted must not be used.
+  // A rule pointing at an account that has since been deleted must not be
+  // used — it falls through to the fuzzy match instead.
   const stale = { ...DEFAULT_AUTOMATION_RULES, accountByLast4: { '1234': 'Deleted Account' } };
   eq('stale rule ignored',
-    suggestAccount(draft({ last4: '1234' }), ACCOUNTS, stale), '');
+    suggestAccount(draft({ last4: '1234' }), ACCOUNTS, stale), 'HBL Current');
 }
 
 console.log('\n--- Payee suggestion ---');
@@ -107,6 +267,25 @@ console.log('\n--- Category suggestion ---');
   // A category the user has since deleted must not be reapplied.
   const stale = { ...DEFAULT_AUTOMATION_RULES, categoryByPayee: { Careem: 'Gone' } };
   eq('stale category ignored', suggestCategory('Careem', CATEGORIES, stale), '');
+
+  // With no rule, history fills the gap.
+  const history = [
+    { payee: 'Careem', category: 'Transport' },
+    { payee: 'Careem', category: 'Transport' }
+  ];
+  eq('history used when no rule',
+    suggestCategory('Careem', CATEGORIES, DEFAULT_AUTOMATION_RULES, history), 'Transport');
+
+  // An explicit review-queue decision is more specific and more recent than
+  // the aggregate, so it outranks it.
+  const conflicting = { ...DEFAULT_AUTOMATION_RULES, categoryByPayee: { Careem: 'Groceries' } };
+  eq('rule beats history',
+    suggestCategory('Careem', CATEGORIES, conflicting, history), 'Groceries');
+
+  // History naming a category that no longer exists must not be applied.
+  const goneHistory = [{ payee: 'Careem', category: 'Vanished' }];
+  eq('deleted category from history ignored',
+    suggestCategory('Careem', CATEGORIES, DEFAULT_AUTOMATION_RULES, goneHistory), '');
 }
 
 console.log('\n--- Full suggestion ---');
@@ -197,6 +376,24 @@ console.log('\n--- Learning from an approval ---');
   });
   eq('no merchant, no payee rule', Object.keys(noMerchant.payeeByMerchant).length, 0);
   eq('but card still learned', noMerchant.accountByLast4['5555'], 'HBL Current');
+}
+
+console.log('\n--- Account identifiers vs real names ---');
+{
+  // Real counterparty strings from Askari messages.
+  check('masked identifier', looksLikeIdentifier('PK*SADA5107') === true);
+  check('account marker', looksLikeIdentifier('A C *8940') === true);
+  check('letters welded to digits', looksLikeIdentifier('PKASCM5664') === true);
+
+  // These are names and must not be flagged, or the hint cries wolf on every
+  // ordinary transfer.
+  check('person name', looksLikeIdentifier('NAVEERA SEERAT') === false);
+  check('company name', looksLikeIdentifier('PREMIER CHOICE') === false);
+  check('merchant', looksLikeIdentifier('LUMS') === false);
+  check('ticker', looksLikeIdentifier('FFC') === false);
+  check('merchant with one digit', looksLikeIdentifier('7-ELEVEN') === false);
+  check('empty', looksLikeIdentifier('') === false);
+  check('null', looksLikeIdentifier(null) === false);
 }
 
 console.log('\n--- Confidence labels ---');

@@ -161,6 +161,97 @@ def test_template_date_group_wins():
     check("named bank kept", result["parsed"]["bank"], "JazzCash")
 
 
+# --- Askari, from real messages -------------------------------------------
+
+def test_askari_raast_credit():
+    result = parse(
+        "PKR. 100.00 received from PK*SADA5107 in AKBL PKASCM*5664 "
+        "HUZAIFA SADEEM via Raast on 09 09 26 at 22 39 Ref# 152239292343",
+        sender="Askari Bank",
+    )
+    check("raast template", result["templateId"], "askari-transfer-credit")
+    check("raast amount", result["parsed"]["amount"], 100.0)
+    check("raast direction", result["parsed"]["direction"], "credit")
+    # The counterparty, not the recipient: the message names both.
+    check("raast merchant", result["parsed"]["merchant"], "PK*SADA5107")
+    # Own account, not the sender's.
+    check("raast last4", result["parsed"]["last4"], "5664")
+    check("raast date", result["parsed"]["occurredAt"][:10], "2026-09-09")
+
+
+def test_askari_pos_debit():
+    result = parse(
+        "Dear Customer, you have performed a POS transaction of PKR. 4,000.00 "
+        "from Account: 017516***664 on LUMS, at 16:29:12 Dated: 09-SEP-26",
+        sender="Askari Bank",
+    )
+    check("pos template", result["templateId"], "askari-pos-debit")
+    check("pos amount", result["parsed"]["amount"], 4000.0)
+    check("pos direction", result["parsed"]["direction"], "debit")
+    check("pos merchant", result["parsed"]["merchant"], "LUMS")
+    check("pos date", result["parsed"]["occurredAt"][:10], "2026-09-09")
+
+
+def test_askari_ibft_credit_named_person():
+    # The hard one: the sender's name runs straight into their account
+    # details, and the recipient's name follows. Only the first belongs.
+    result = parse(
+        "PKR 1,155.00 received from NAVEERA SEERAT AKBL A C *0462 in "
+        "HUZAIFA SADEEM AKBL AC# 175*5664  on 09 09 26 at 00 04 "
+        "Ref# 252639172568",
+        sender="Askari Bank",
+    )
+    check("ibft amount", result["parsed"]["amount"], 1155.0)
+    check("ibft merchant is the sender", result["parsed"]["merchant"], "NAVEERA SEERAT")
+    check("ibft last4 is own account", result["parsed"]["last4"], "5664")
+    check("ibft direction", result["parsed"]["direction"], "credit")
+
+
+def test_askari_ibft_credit_company():
+    result = parse(
+        "IBFT of PKR. 16,129.00 received from PREMIER CHOICE A C *8940 in "
+        "HUZAIFA SADEEM AKBL A C *5664 on 01 09 26  11 10 Ref# 000000437278",
+        sender="Askari Bank",
+    )
+    check("ibft company amount", result["parsed"]["amount"], 16129.0)
+    check("ibft company merchant", result["parsed"]["merchant"], "PREMIER CHOICE")
+    check("ibft company last4", result["parsed"]["last4"], "5664")
+    check("ibft company date", result["parsed"]["occurredAt"][:10], "2026-09-01")
+
+
+def test_askari_dividend_credit():
+    result = parse(
+        "2ND INTERIM DIV PAYMENT AMOUNTING TO PKR 2009 FOR FY2026 (D-157) "
+        "AGAINST SHARES OF FFC HAS BEEN CREDITED IN YOUR A/C PK37*****5664 "
+        "VIA AKBL",
+        sender="Askari Bank",
+    )
+    check("dividend template", result["templateId"], "askari-dividend-credit")
+    # The regression this pins: an uncommaed four-digit amount used to parse
+    # as its first three digits, so PKR 2009 became 200.
+    check("dividend amount", result["parsed"]["amount"], 2009.0)
+    check("dividend merchant", result["parsed"]["merchant"], "FFC")
+    check("dividend direction", result["parsed"]["direction"], "credit")
+
+
+def test_uncommaed_amounts_are_not_truncated():
+    for text, expected in [
+        ("PKR 2009 debited", 2009.0),
+        ("PKR 12345 debited", 12345.0),
+        ("Rs. 400 debited", 400.0),
+        ("PKR 1,234.50 debited", 1234.5),
+        ("PKR 1,00,000 debited", 100000.0),
+    ]:
+        amount, _ = parsers.extract_amount_and_currency(text)
+        check(f"amount in {text!r}", amount, expected)
+
+
+def test_currency_with_trailing_period():
+    amount, currency = parsers.extract_amount_and_currency("PKR. 100.00 received")
+    check("PKR. amount", amount, 100.0)
+    check("PKR. currency", currency, "PKR")
+
+
 def test_unknown_sender_generic_path():
     result = parse(
         "Your account has been debited with PKR 899.00 at FOODPANDA on "
