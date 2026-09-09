@@ -120,53 +120,42 @@ JSON fields:
 | --- | --- | --- |
 | `text` | Text | **Shortcut Input** (the message body) |
 | `sender` | Text | a fixed string — see the table below |
-| `user` | Text | your routing key, if more than one person uses this server |
+| `user` | Text | your budget account email, if more than one person uses this server |
 
 `receivedAt` is optional; leave it out and the server timestamps on arrival.
 
 ### Routing to the right person
 
-With one person on the server, skip `user` entirely — everything goes to
-`BUDGET_USER_EMAIL`.
+Everyone on this server has a budget account already, so the shortcut just
+names it. Add a third field to the Request Body:
 
-For more than one, set `INGEST_USERS` to a JSON object of key to email and have
-each phone send its own key:
-
-```
-INGEST_USERS={"huzaifa":"me@example.com","sara":"sara@example.com"}
-```
-
-The key is an opaque handle rather than an email, so a shortcut sitting on
-someone's phone does not carry their address around in plain text. An
-unrecognised key is rejected with a 400 rather than falling back to the
-default: filing one person's spending into another person's budget is worse
-than dropping the message, and far harder to notice afterwards.
-
-`GET /health` lists the configured keys (names only) so a typo is visible.
-
-Name them `Budget - Askari`, `Budget - SadaPay`, `Budget - NayaPay`.
-
-### Wire up the automations
-
-**Shortcuts ▸ Automation ▸ New ▸ Message**, one per bank:
-
-- *When*: **Message contains** — set **Sender** to that bank's SMS short code
-  (whatever appears as the sender in Messages).
-- *Do*: **Run Shortcut** ▸ the matching shortcut above.
-- Turn **Run Immediately** on, and **Notify When Run** off. Without the first,
-  every bank SMS waits on a tap.
-
-Use exactly these `sender` values — they are what the templates match on, and
-what shows as the bank name on the review card:
-
-| Bank | `sender` value | Matches |
+| Key | Type | Value |
 | --- | --- | --- |
-| Askari | `Askari Bank` | `pk-bank-askari`, plus `generic-card-purchase` for card txns |
-| SadaPay | `SadaPay` | `sadapay-card` |
-| NayaPay | `NayaPay` | `nayapay-paid` |
+| `user` | Text | the email that account signs into the budget app with |
 
-Adding a fourth bank later is the same three steps, plus its sender in
-`templates/20-banks.json`.
+Nothing needs configuring here first — a family member sets up their own
+shortcut with their own email and it works. Adding someone is a change to their
+phone, not to this service.
+
+Leave `user` out entirely and the draft goes to `BUDGET_USER_EMAIL`, which is
+what a single-person server wants.
+
+An address matching no account is rejected with a 400 rather than falling back
+to the default: filing one person's spending into another person's budget is
+worse than dropping the message, and far harder to notice afterwards. Emails
+are resolved once and remembered, so a newly registered account starts working
+without restarting the service.
+
+`INGEST_USERS` still accepts a JSON object of short alias to email if a
+shorter handle is ever wanted, but it is optional and no longer the main path.
+
+**One thing to be aware of**: the ingest token is shared by everyone, so anyone
+holding it can file drafts into any account on this server by naming its email.
+Within a family that is a reasonable trade for not having to register each
+person, and a draft still has to be confirmed by hand in the app before it
+becomes a transaction — but it is the reason the token should not be handed
+out beyond the people who already share this budget server. Per-person tokens
+are the fix if that ever stops being true.
 
 ### Notifications
 
@@ -249,7 +238,7 @@ reason:
 | `PB_URL` | `http://pocketbase:8090` | PocketBase, by container name |
 | `PB_ADMIN_EMAIL` / `PB_ADMIN_PASSWORD` | — | Admin login, required |
 | `BUDGET_USER_EMAIL` | — | Whose queue drafts go into when none is named |
-| `INGEST_USERS` | `{}` | JSON of routing key -> email, for more than one person |
+| `INGEST_USERS` | `{}` | Optional JSON of short alias -> email |
 | `INGEST_TOKEN` | — | Shared secret for the Shortcut |
 | `INBOX_COLLECTION` | `inbox_messages` | Collection name |
 | `INBOX_RETENTION_DAYS` | `30` | Age at which unreviewed drafts are swept |

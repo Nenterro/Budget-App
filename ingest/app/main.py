@@ -40,29 +40,62 @@ state = {
     "client": None,
     # The user a message goes to when it names none.
     "user_id": None,
-    # Routing keys from INGEST_USERS, resolved to PocketBase ids at startup.
+    # Optional short aliases from INGEST_USERS, resolved at startup.
     "user_ids": {},
+    # Emails resolved on demand and remembered. A PocketBase id never changes,
+    # so this only ever grows, and it stays empty for the single-user case.
+    "email_ids": {},
     "ready": False,
     "last_error": None,
 }
 
+# Deliberately loose — this is not validating deliverability, it is keeping
+# quotes and backslashes out of the PocketBase filter string below.
+EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
-def resolve_target_user(user_key):
-    """Which budget the draft belongs in.
 
-    An unrecognised key is an error, not a reason to use the default: silently
-    filing one person's spending into another person's budget is worse than
-    losing the message, and much harder to notice.
+async def resolve_target_user(user_key):
+    """Which person's budget the draft belongs in.
+
+    The phone sends the email of the budget account. Everyone on this server
+    has one already, so nobody needs registering here before their shortcut
+    works — and adding a family member is a change to their phone, not to this
+    service.
+
+    An address that matches no account is an error, not a reason to use the
+    default. Silently filing one person's spending into another person's budget
+    is worse than losing the message, and much harder to notice afterwards.
     """
     if not user_key:
         return state["user_id"]
 
-    user_id = state["user_ids"].get(str(user_key).strip())
-    if not user_id:
+    key = str(user_key).strip()
+
+    # A short alias, if one happens to be configured.
+    if key in state["user_ids"]:
+        return state["user_ids"][key]
+
+    if not EMAIL_PATTERN.match(key):
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown user key '{user_key}'. Configure it in INGEST_USERS.",
+            detail=f"'{key}' is not a valid account email.",
         )
+
+    cached = state["email_ids"].get(key.lower())
+    if cached:
+        return cached
+
+    try:
+        user_id = await state["client"].resolve_user_id(key)
+    except PocketBaseError:
+        # Not cached: a newly registered account should start working without
+        # restarting the service.
+        raise HTTPException(
+            status_code=400,
+            detail=f"No budget account found for {key}.",
+        ) from None
+
+    state["email_ids"][key.lower()] = user_id
     return user_id
 
 
@@ -72,7 +105,7 @@ class SmsPayload(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
     sender: str | None = Field(None, max_length=200)
     receivedAt: str | None = None
-    user: str | None = Field(None, max_length=100)
+    user: str | None = Field(None, max_length=254)
 
 
 class NotificationPayload(BaseModel):
@@ -80,7 +113,7 @@ class NotificationPayload(BaseModel):
     title: str | None = Field(None, max_length=300)
     app: str | None = Field(None, max_length=200)
     receivedAt: str | None = None
-    user: str | None = Field(None, max_length=100)
+    user: str | None = Field(None, max_length=254)
 
 
 class ParseTestPayload(BaseModel):
@@ -171,7 +204,7 @@ async def store_draft(source, sender, text, received_at, user_key=None):
         )
 
     client = state["client"]
-    user_id = resolve_target_user(user_key)
+    user_id = await resolve_target_user(user_key)
 
     result = parsers.parse_message(text, sender=sender, received_at=received_at)
 
@@ -225,7 +258,11 @@ async def store_draft(source, sender, text, received_at, user_key=None):
 
 async def purge_all():
     """Sweep expired drafts for every budget this service files into."""
-    targets = {state["user_id"], *state["user_ids"].values()}
+    targets = {
+        state["user_id"],
+        *state["user_ids"].values(),
+        *state["email_ids"].values(),
+    }
     for user_id in targets:
         if user_id:
             await state["client"].purge_older_than(settings.retention_days, user_id)
@@ -312,8 +349,9 @@ async def health():
         "status": "ok" if state["ready"] else "starting",
         "templates": len(parsers.get_templates()),
         "collection": settings.collection,
-        # Names only — never the ids or emails behind them.
-        "routingKeys": sorted(state["user_ids"]),
+        # Aliases only, never the emails or ids behind them.
+        "aliases": sorted(state["user_ids"]),
+        "resolvedAccounts": len(state["email_ids"]),
         "error": state["last_error"],
     }
 
