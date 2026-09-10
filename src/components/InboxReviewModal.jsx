@@ -312,11 +312,6 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
 
   if (!isOpen) return null;
 
-  const categoryOptions = [
-    { value: '', label: 'Uncategorised' },
-    ...categories.map(c => ({ value: c.name, label: c.name }))
-  ];
-
   const closeDetail = () => { setSelectedId(null); setActiveField(null); };
 
   return (
@@ -637,12 +632,19 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                             ) : (
                               <>
                                 {valueFor(item, 'payee') && <label>Payee</label>}
-                                <UnifiedDropdown
-                                  value={valueFor(item, 'payee')}
-                                  options={withCurrentValue(payees, valueFor(item, 'payee'))}
-                                  onChange={v => setPayeeField(item, v)}
-                                  placeholder="Unspecified"
-                                />
+                                <div
+                                  className="input-with-icon"
+                                  onClick={() => setActiveField('payee')}
+                                >
+                                  <User size={18} className="input-icon" />
+                                  <input
+                                    type="text"
+                                    placeholder="Unspecified"
+                                    value={valueFor(item, 'payee')}
+                                    readOnly
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                </div>
                               </>
                             )}
                             {(() => {
@@ -675,12 +677,19 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                           ) : (
                             <div className="ib-form-group">
                               {valueFor(item, 'category') && <label>Category</label>}
-                              <UnifiedDropdown
-                                value={valueFor(item, 'category')}
-                                options={categoryOptions}
-                                onChange={v => setField(item.id, 'category', v)}
-                                placeholder="Uncategorised"
-                              />
+                              <div
+                                className="input-with-icon"
+                                onClick={() => setActiveField('category')}
+                              >
+                                <Tag size={18} className="input-icon" />
+                                <input
+                                  type="text"
+                                  placeholder="Uncategorised"
+                                  value={valueFor(item, 'category')}
+                                  readOnly
+                                  style={{ cursor: 'pointer' }}
+                                />
+                              </div>
                             </div>
                           )}
                         </>
