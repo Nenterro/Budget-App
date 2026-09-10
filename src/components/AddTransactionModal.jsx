@@ -267,6 +267,14 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       expenseShares: finalExpenseShares.length > 0 ? finalExpenseShares : null,
       repayments: initialData?.repayments || [],
       writeOffs: initialData?.writeOffs || [],
+      // A repayment or write-off transaction knows which shared expense it
+      // belongs to only through these three fields. Rebuilding the record
+      // without them turned a repayment back into ordinary income, so a loan
+      // that had been paid off reappeared in the income totals and graphs the
+      // moment anyone opened it in this form and saved.
+      parentExpenseShareTxId: initialData?.parentExpenseShareTxId || null,
+      isRepayment: initialData?.isRepayment || false,
+      isWriteOff: initialData?.isWriteOff || false,
       updatedAt: new Date().toISOString(),
       pendingSync: true
     };

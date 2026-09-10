@@ -11,6 +11,9 @@
  *      alongside the write-off carries that portion instead.
  * 2. Child Repayment Transactions (isRepayment = true):
  *    - Excluded from income reporting since the corresponding loan expense is also neutralized ($0 net effect).
+ *    - Also matched against the ids in each parent's `repayments[]` ledger, so a
+ *      repayment whose flags were stripped (editing one through the transaction
+ *      form used to do exactly that) is still wiped from income.
  */
 
 export function getEffectiveReportingItems(transactions = []) {
@@ -18,11 +21,20 @@ export function getEffectiveReportingItems(transactions = []) {
     return [];
   }
 
+  // The parents' own ledgers are the authoritative record of which transactions
+  // are repayments — a flag on the child can go missing, this cannot.
+  const repaymentTxIds = new Set();
+  for (const tx of transactions) {
+    for (const record of tx.repayments || []) {
+      if (record.linkedTxId) repaymentTxIds.add(record.linkedTxId);
+    }
+  }
+
   const result = [];
 
   for (const tx of transactions) {
     // 1. Exclude child repayment income transactions (linked to parent shared expenses)
-    if (tx.isRepayment || (tx.parentExpenseShareTxId && tx.type === 1 && !tx.isWriteOff)) {
+    if (tx.isRepayment || repaymentTxIds.has(tx.id) || (tx.parentExpenseShareTxId && tx.type === 1 && !tx.isWriteOff)) {
       continue;
     }
 

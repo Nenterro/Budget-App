@@ -305,7 +305,12 @@ export function RetainedSavings({ advancedFilteredTransactions, dateRange, accou
       });
     }
     
-    const sorted = [...advancedFilteredTransactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Same reporting view the Income/Expense stats use: a shared expense counts
+    // only your own portion, and a loan that has been paid back contributes
+    // neither its outflow nor its repayment. Reading the raw list here made
+    // this tile disagree with the Total Income and Total Expense beside it.
+    const sorted = getEffectiveReportingItems(advancedFilteredTransactions)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
     const startT = dateRange && dateRange.start ? dateRange.start.getTime() : null;
     const endT = dateRange && dateRange.end ? dateRange.end.getTime() : null;
     
@@ -346,7 +351,12 @@ export function RetainedSavingsRate({ advancedFilteredTransactions, dateRange, a
       });
     }
     
-    const sorted = [...advancedFilteredTransactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Same reporting view the Income/Expense stats use: a shared expense counts
+    // only your own portion, and a loan that has been paid back contributes
+    // neither its outflow nor its repayment. Reading the raw list here made
+    // this tile disagree with the Total Income and Total Expense beside it.
+    const sorted = getEffectiveReportingItems(advancedFilteredTransactions)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
     const startT = dateRange && dateRange.start ? dateRange.start.getTime() : null;
     const endT = dateRange && dateRange.end ? dateRange.end.getTime() : null;
     
