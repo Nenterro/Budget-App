@@ -27,6 +27,20 @@ const formatCompactNumber = (amount) => {
   }).format(amount);
 };
 
+// Measures a string the way the browser will actually paint it, so the legend
+// can pick a font size that is guaranteed to fit on one line. One shared
+// canvas: creating one per measurement is what makes this pattern slow.
+let measureCanvasCtx = null;
+const measureTextWidth = (text, font) => {
+  if (typeof document === 'undefined') return 0;
+  if (!measureCanvasCtx) {
+    measureCanvasCtx = document.createElement('canvas').getContext('2d');
+  }
+  if (!measureCanvasCtx) return 0;
+  measureCanvasCtx.font = font;
+  return measureCanvasCtx.measureText(text).width;
+};
+
 const generateGoldenHueColor = (index) => {
   const h = (index * 222.5) % 360;
   const s = 55 + (index % 10);
@@ -492,6 +506,62 @@ function CustomPieChartWidget({ data, baseCurrency, isIncome = false }) {
     return () => ro.disconnect();
   }, [data.length > 0]);
 
+  // ─── Legend amount sizing ────────────────────────────────────────────────
+  // The amount column used to be a fixed 80px, so "PKR 30.1K" wrapped onto a
+  // second line the moment the currency code and a five-character figure did
+  // not fit. It is now sized to its own content, and the font shrinks only
+  // once the legend is genuinely too narrow to hold it at full size.
+  const legendLabels = useMemo(
+    () => data.map(entry => formatCompactCurrency(entry.value, baseCurrency)),
+    [data, baseCurrency]
+  );
+
+  const [legendWidth, setLegendWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const apply = (w) => setLegendWidth(prev => (Math.abs(prev - w) < 0.5 ? prev : w));
+    apply(el.clientWidth);
+    const ro = new ResizeObserver(([entry]) => apply(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [data.length > 0]);
+
+  const amountFit = useMemo(() => {
+    // Everything in a legend row that is not the amount: the row's horizontal
+    // padding, the colour dot and its gap, the percentage column and its gap,
+    // and the smallest the (ellipsised) category name is allowed to get.
+    const RESERVED = 20 + 10 + 12 + 48 + 12;
+    const MIN_NAME = 56;
+    const MAX_FONT = 13;
+    const MIN_FONT = 9;
+
+    if (!legendWidth || legendLabels.length === 0) {
+      return { fontSize: MAX_FONT, width: null };
+    }
+
+    const fontFamily = (listRef.current && getComputedStyle(listRef.current).fontFamily) || 'sans-serif';
+    // The width the amount can have before the name is squeezed below what is
+    // worth reading. Past that the font shrinks instead; past MIN_FONT the name
+    // gives up the rest of its room, because the amount keeps whatever width it
+    // measured — it is the one column that must stay whole.
+    const available = Math.max(32, legendWidth - RESERVED - MIN_NAME);
+
+    let fontSize = MAX_FONT;
+    let widest = 0;
+    while (true) {
+      widest = legendLabels.reduce(
+        (max, label) => Math.max(max, measureTextWidth(label, `700 ${fontSize}px ${fontFamily}`)),
+        0
+      );
+      if (widest <= available || fontSize <= MIN_FONT) break;
+      fontSize -= 0.5;
+    }
+
+    return { fontSize, width: Math.ceil(widest) + 2 };
+  }, [legendLabels, legendWidth]);
+
   const handlePieMouseEnter = (_, index) => {
     if (lockedIndex === -1) {
       setHoveredIndex(index);
@@ -593,8 +663,15 @@ function CustomPieChartWidget({ data, baseCurrency, isIncome = false }) {
               </div>
               <div className="pie-legend-name">{entry.name}</div>
               <div className="pie-legend-percent">{percent}%</div>
-              <div className="pie-legend-amount" style={{ color: isHighlighted ? '#fff' : 'var(--text-secondary)' }}>
-                {formatCompactCurrency(entry.value, baseCurrency)}
+              <div
+                className="pie-legend-amount"
+                style={{
+                  color: isHighlighted ? '#fff' : 'var(--text-secondary)',
+                  fontSize: `${amountFit.fontSize}px`,
+                  ...(amountFit.width !== null ? { width: `${amountFit.width}px` } : {})
+                }}
+              >
+                {legendLabels[index]}
               </div>
             </div>
           );
@@ -620,7 +697,15 @@ export function SpendingByPayee({ transactions, accounts }) {
   return <CustomPieChartWidget data={data} baseCurrency={baseCurrency} />;
 }
 
-// 7. Income By Payee
+// 7. Income By Category
+export function IncomeByCategory({ transactions, accounts }) {
+  const { baseCurrency } = useAppearanceSettings();
+  const { exchangeRates } = useData();
+  const data = usePieData(transactions, tx => tx.type === 1, 'category', baseCurrency, exchangeRates, accounts);
+  return <CustomPieChartWidget data={data} baseCurrency={baseCurrency} isIncome={true} />;
+}
+
+// 8. Income By Payee
 export function IncomeByPayee({ transactions, accounts }) {
   const { baseCurrency } = useAppearanceSettings();
   const { exchangeRates } = useData();

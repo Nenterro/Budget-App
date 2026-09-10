@@ -7,6 +7,7 @@ import {
   InvestmentPerMonth,
   SpendingByCategory,
   SpendingByPayee,
+  IncomeByCategory,
   IncomeByPayee
 } from './ChartWidgets';
 
@@ -27,6 +28,8 @@ export default function ChartCard({ graph, onRemove, transactions, advancedFilte
         return <SpendingByCategory transactions={transactions} accounts={accounts} />;
       case 'spending_by_payee':
         return <SpendingByPayee transactions={transactions} accounts={accounts} />;
+      case 'income_by_category':
+        return <IncomeByCategory transactions={transactions} accounts={accounts} />;
       case 'income_by_payee':
         return <IncomeByPayee transactions={transactions} accounts={accounts} />;
       default:

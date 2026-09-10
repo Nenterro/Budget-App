@@ -270,7 +270,8 @@
 }
 
 .pie-legend-name {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   color: var(--text-secondary);
   font-size: 13px;
   white-space: nowrap;
@@ -296,10 +297,12 @@
 
 .pie-legend-percent {
   width: 48px;
+  flex: 0 0 auto;
   text-align: right;
   color: var(--text-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   margin-right: 12px;
   transition: color 0.2s;
 }
@@ -307,12 +310,18 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* Width and font-size are measured and set inline by CustomPieChartWidget so
+   the figure always fits on one line; these are the pre-measurement defaults.
+   `nowrap` is the backstop — whatever the measurement says, this never wraps. */
 .pie-legend-amount {
-  width: 80px;
+  flex: 0 0 auto;
+  min-width: 0;
   text-align: right;
+  font-size: 13px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  transition: font-size 0.2s, color 0.2s;
+  white-space: nowrap;
+  transition: color 0.2s;
 }
 
 @media (max-width: 600px) {

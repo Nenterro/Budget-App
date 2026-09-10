@@ -39,6 +39,12 @@ export const GRAPH_TYPES = [
     icon: PieChart
   },
   {
+    id: 'income_by_category',
+    title: 'Income by Category',
+    desc: 'A pie chart breaking down your income by category.',
+    icon: PieChart
+  },
+  {
     id: 'income_by_payee',
     title: 'Income by Payee',
     desc: 'A pie chart showing your income sources.',
