@@ -69,7 +69,11 @@ NOISE_PATTERNS = [
 ]
 
 LAST4_PATTERNS = [
-    r"(?:card|a/c|acct|account|ac)\s*(?:no\.?|number)?\s*(?:ending(?:\s+(?:in|with))?)?\s*[*x•\-]{0,8}\s*(\d{4})\b",
+    # The mask length is not worth being strict about: Askari writes a RAAST
+    # debit as "A/C **********5664", ten stars, and at a cap of 8 this pattern
+    # missed it entirely - so the unanchored rule below won and returned the
+    # counterparty's masked id instead of the user's own account.
+    r"(?:card|a/c|acct|account|ac)\s*(?:no\.?|number)?\s*(?:ending(?:\s+(?:in|with))?)?\s*[*x•\-]{0,24}\s*(\d{4})\b",
     r"[*x•]{2,}\s*(\d{4})\b",
     r"ending\s+(?:in\s+)?(\d{4})\b",
 ]

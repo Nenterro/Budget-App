@@ -179,6 +179,39 @@ def test_askari_raast_credit():
     check("raast date", result["parsed"]["occurredAt"][:10], "2026-09-09")
 
 
+def test_askari_raast_debit():
+    # The mirror image of the credit above, and it used to parse badly on
+    # every field but the amount: the merchant came out as the user's own
+    # account ("your Askari A/C **********5664"), last4 as the payee's RAAST
+    # id, and the date as the time the message arrived.
+    result = parse(
+        "FUNDS TRANSFERRED PKR 400 sent to ZAIN QADIR RAAST ID "
+        "********************3875 from your Askari A/C **********5664 "
+        "on 10-Sep-2026 04:36:12 PM via RAAST Tx ID 253619413978",
+        sender="Askari Bank",
+    )
+    check("raast debit template", result["templateId"], "askari-transfer-debit")
+    check("raast debit amount", result["parsed"]["amount"], 400.0)
+    check("raast debit direction", result["parsed"]["direction"], "debit")
+    # The payee, not the account it left.
+    check("raast debit merchant", result["parsed"]["merchant"], "ZAIN QADIR")
+    # Own account (5664), not the payee's RAAST id (3875).
+    check("raast debit last4", result["parsed"]["last4"], "5664")
+    check("raast debit date", result["parsed"]["occurredAt"][:10], "2026-09-10")
+    check("raast debit time", result["parsed"]["occurredAt"][11:19], "16:36:12")
+    check("raast debit reference", result["parsed"]["reference"], "253619413978")
+
+
+def test_masked_account_binds_to_its_own_cue():
+    # A ten-star mask overflowed the account-anchored rule, so the unanchored
+    # one won and returned whichever four digits came first in the message.
+    check(
+        "long mask still anchors to A/C",
+        parsers.extract_last4("RAAST ID *******3875 from your Askari A/C **********5664"),
+        "5664",
+    )
+
+
 def test_askari_pos_debit():
     result = parse(
         "Dear Customer, you have performed a POS transaction of PKR. 4,000.00 "
