@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronRight, ArrowLeft, Users, Plus, Trash2, Calendar, Check, AlertTriangle, User, Edit2 } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
@@ -15,6 +15,12 @@ import {
 } from '../utils/expenseShares';
 import { format, parseISO } from 'date-fns';
 import './ExpenseSharingModal.css';
+
+// Shared by both views and by the panel height animation below, so the
+// crossfade and the resize are the same length and the same curve.
+const VIEW_TRANSITION = { duration: 0.28, ease: [0.16, 1, 0.3, 1] };
+const PANEL_RESIZE_MS = 280;
+const PANEL_RESIZE_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
 const today = () => new Date().toISOString().substring(0, 10);
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -55,6 +61,100 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
   const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const closeDrawer = () => { setDrawer(null); setForm(EMPTY_FORM); setShowCalendar(false); };
+
+  // ─── Panel height ────────────────────────────────────────────────────────
+  // The panel has no fixed height, so every change of content — switching tab,
+  // opening an expense, going back, opening a drawer — used to snap it to the
+  // new size while the views themselves cross-faded. This eases the window
+  // between the two heights instead.
+  const panelRef = useRef(null);
+  const drawerRef = useRef(null);
+  const lastHeightRef = useRef(null);
+  const heightAnimationRef = useRef(null);
+
+  // A drawer is an overlay positioned inside the panel, so it cannot push the
+  // panel taller. On a desktop-sized window the panel is only as tall as the
+  // list behind it, which left the repayment form scrolling inside a box far
+  // smaller than it needed. Give the panel a floor equal to what the sheet
+  // actually measures; `max-height` still caps it, so a short window falls
+  // back to scrolling rather than running off the screen.
+  //
+  // Declared before the height effect below so the floor is already applied
+  // when that one measures — React runs layout effects in declaration order.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    // Keyed on the state, not on the ref: AnimatePresence keeps the sheet
+    // mounted while it slides out, so a ref check would hold the floor in
+    // place after the drawer had already closed.
+    if (!drawer) {
+      panel.style.minHeight = '';
+      return;
+    }
+
+    const sheet = drawerRef.current;
+    if (!sheet) return;
+
+    // Measure from the natural height, then grow the panel by exactly what the
+    // sheet is short of. Deriving it from the overflow rather than setting the
+    // panel to the sheet's own scrollHeight is what closes the last couple of
+    // pixels: the panel is border-box with a 1px border top and bottom, and
+    // the sheet's overlay is inset inside that border, so a floor equal to the
+    // content height still left the sheet ~2px short and scrollable.
+    panel.style.minHeight = '';
+    const overflow = sheet.scrollHeight - sheet.clientHeight;
+
+    // The +1 absorbs sub-pixel rounding: both readings are integers, so a
+    // fractional shortfall reports as zero and leaves a sliver of scroll.
+    panel.style.minHeight = `${panel.offsetHeight + overflow + 1}px`;
+  }, [drawer, form]);
+
+  // Deliberately runs after every commit rather than keying on the selected
+  // expense or tab. AnimatePresence is in `mode="wait"`, so the new view is
+  // not mounted in the commit where the state changes — it arrives one commit
+  // later, when the outgoing view has finished its exit. Keying on the state
+  // measured the panel while it was still showing the *old* view, found no
+  // change, and left the list-to-detail resize unanimated. Watching the panel
+  // itself catches whichever commit actually changes its height.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    // An animation in flight owns the computed height, so read the current
+    // visual position first, then cancel to expose the natural target. This is
+    // what lets a resize interrupt another one and re-aim from where it is.
+    const running = heightAnimationRef.current;
+    const from = running ? panel.offsetHeight : lastHeightRef.current;
+    if (running) {
+      running.cancel();
+      heightAnimationRef.current = null;
+    }
+
+    const to = panel.offsetHeight;
+    lastHeightRef.current = to;
+
+    if (from === null || from === to) return;
+
+    // min-height travels with height: the drawer floor set above is an inline
+    // min-height, and it would otherwise clamp the first half of a growth
+    // animation and make the panel jump straight to full size. Keyframes sit
+    // above inline styles in the cascade, so the floor reapplies on its own
+    // once the animation finishes.
+    const animation = panel.animate(
+      [
+        { height: `${from}px`, minHeight: `${from}px` },
+        { height: `${to}px`, minHeight: `${to}px` }
+      ],
+      { duration: PANEL_RESIZE_MS, easing: PANEL_RESIZE_EASING }
+    );
+    heightAnimationRef.current = animation;
+    animation.finished
+      .then(() => {
+        if (heightAnimationRef.current === animation) heightAnimationRef.current = null;
+      })
+      .catch(() => {});
+  });
 
   const allSharedExpenses = useMemo(() => (
     transactions
@@ -238,8 +338,15 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
   return (
     <ModalWrapper onClose={drawer ? closeDrawer : onClose}>
-      <div className="expense-sharing-modal glass-panel" onClick={e => e.stopPropagation()}>
-        <AnimatePresence mode="wait">
+      <div className="modal-content expense-sharing-modal" ref={panelRef} onClick={e => e.stopPropagation()}>
+        {/* popLayout, not wait. With "wait" the outgoing view had to finish
+            leaving before the incoming one mounted, so the panel stood still
+            for 200ms and only then started resizing — two separate beats, and
+            the resize landed on top of the enter animation instead of running
+            with it. popLayout takes the outgoing view out of flow immediately,
+            so the incoming one is in place at its natural height in the same
+            commit: the crossfade and the resize become one gesture. */}
+        <AnimatePresence mode="popLayout">
           {!selectedTxId || !selectedTx ? (
             <motion.div
               key="main-list"
@@ -247,7 +354,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
               initial={{ opacity: 0, x: -16 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -16 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
+              transition={VIEW_TRANSITION}
             >
               <div className="es-header">
                 <h2><Users size={18} /> Shared expenses</h2>
@@ -256,7 +363,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                 </button>
               </div>
 
-              <div className="es-tabs">
+              <div className="es-tabs" data-tab={activeTab}>
                 <button
                   type="button"
                   className={`es-tab ${activeTab === 'unsettled' ? 'active' : ''}`}
@@ -322,7 +429,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
               initial={{ opacity: 0, x: 16 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 16 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
+              transition={VIEW_TRANSITION}
             >
               {(() => {
                 const tx = selectedTx;
@@ -510,6 +617,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
             >
               <motion.div
                 className="es-drawer"
+                ref={drawerRef}
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}

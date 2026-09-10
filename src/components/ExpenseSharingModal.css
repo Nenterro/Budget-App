@@ -1,14 +1,6 @@
+/* Panel chrome comes from the shared `.modal-content` shell in index.css. */
 .expense-sharing-modal {
-  width: 100%;
   max-width: 560px;
-  /* dvh, not vh: on mobile the browser chrome is counted by vh, so an "85vh"
-     panel still ran off the bottom of the screen. */
-  max-height: calc(100dvh - 48px);
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow: hidden;
-  position: relative;
 }
 
 .es-view-container {
@@ -25,7 +17,7 @@
   align-items: center;
   gap: 12px;
   padding: 18px 20px 14px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
@@ -64,15 +56,17 @@
   text-overflow: ellipsis;
 }
 
-/* One icon button style for back, close and row actions, so they stop each
-   looking slightly different. */
+/* Back, close and row actions all use the shared `.icon-btn-ghost` shape from
+   index.css. This class is kept as an alias so the markup does not have to
+   change, and so it can never drift from the shared one again. */
 .es-icon-btn {
-  width: 34px;
-  height: 34px;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
   flex-shrink: 0;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--surface-input);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -82,35 +76,60 @@
 }
 
 .es-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.11);
+  background: var(--surface-active);
   color: var(--text-primary);
 }
 
 .es-icon-btn.small {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: var(--icon-btn-size-sm);
+  height: var(--icon-btn-size-sm);
+  border-radius: var(--radius-sm);
 }
 
 .es-icon-btn.danger:hover {
   background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  color: var(--expense-color);
 }
 
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
 .es-tabs {
   display: flex;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-track);
   padding: 4px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
   margin: 14px 20px 0 20px;
   flex-shrink: 0;
+  position: relative;
+}
+
+/* The active pill slides between the two tabs rather than the background
+   simply appearing under the new one, matching the transaction type selector.
+   Widths are exact: the track is 4px padding either side with a 6px gap, so
+   each tab is half the padding box less 7px, and the second one sits its own
+   width plus the gap to the right. */
+.es-tabs::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 7px);
+  border-radius: 9px;
+  background: var(--surface-active);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 0;
+}
+
+.es-tabs[data-tab="settled"]::before {
+  transform: translateX(calc(100% + 6px));
 }
 
 .es-tab {
   flex: 1;
+  position: relative;
+  z-index: 1;
   background: transparent;
   border: none;
   color: var(--text-secondary);
@@ -126,16 +145,24 @@
   transition: background 0.2s, color 0.2s;
 }
 
+/* The sliding pill above provides the fill. */
 .es-tab.active {
-  background: rgba(255, 255, 255, 0.1);
+  background: transparent;
   color: var(--text-primary);
 }
 
 .es-tab-count {
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-input);
   padding: 1px 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
+  transition: background 0.28s ease;
+}
+
+/* On the active tab the badge sits on the pill, so it has to be brighter than
+   the pill to stay legible rather than sharing its fill. */
+.es-tab.active .es-tab-count {
+  background: rgba(255, 255, 255, 0.16);
 }
 
 /* ── List ───────────────────────────────────────────────────────────────── */
@@ -157,26 +184,26 @@
   width: 100%;
   text-align: left;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-sunken);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 
 .es-card:hover {
   border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
 }
 
 .es-card:active {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-hover);
 }
 
 .es-card-icon {
   width: 36px;
   height: 36px;
-  border-radius: 11px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -263,9 +290,9 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
   padding: 13px 12px;
 }
 
@@ -317,9 +344,9 @@
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
 }
 
 .es-person-row.yours {
@@ -393,9 +420,9 @@
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
 }
 
 .es-record-row.writeoff {
@@ -448,14 +475,14 @@
 /* ── Bottom bar ─────────────────────────────────────────────────────────── */
 .es-detail-bottom-bar {
   padding: 12px 20px 16px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .es-primary-btn {
   width: 100%;
   height: 46px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--accent-gradient);
   color: #ffffff;
   font-size: 14.5px;
@@ -491,8 +518,8 @@
   max-height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--bg-surface, #18181b);
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--surface-popover);
+  border-top: 1px solid var(--border-strong);
   border-radius: 20px 20px 0 0;
   padding: 10px 20px 20px 20px;
   display: flex;
@@ -587,7 +614,7 @@
 .es-btn-confirm {
   flex: 1;
   min-height: 44px;
-  border-radius: 11px;
+  border-radius: var(--radius-lg);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -596,12 +623,12 @@
 
 .es-btn-cancel {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border-strong);
   color: var(--text-secondary);
 }
 
 .es-btn-cancel:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface-hover);
   color: var(--text-primary);
 }
 
