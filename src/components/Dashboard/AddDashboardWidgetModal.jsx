@@ -47,38 +47,39 @@ export default function AddDashboardWidgetModal({ onClose, onAdd, activeWidgets 
 
   return (
     <ModalWrapper onClose={onClose}>
-      <div 
-        className="modal-content glass-panel"
+      <div
+        className="modal-content"
         onClick={e => e.stopPropagation()}
-        style={{ maxWidth: '600px', padding: '24px' }}
+        style={{ maxWidth: '560px' }}
       >
-        <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0 }}>Add Dashboard Widget</h2>
-          <button className="icon-btn" onClick={onClose}><X size={24} /></button>
+        <div className="modal-header">
+          <h2>Add Dashboard Widget</h2>
+          <button className="close-btn" onClick={onClose} type="button"><X size={20} /></button>
         </div>
 
-        <div className="stat-type-list">
+        <div className="modal-body">
           {availableWidgets.length === 0 ? (
-            <p style={{ color: 'var(--text-secondary)', textAlign: 'center', gridColumn: '1 / -1', padding: '20px 0' }}>
-              All available widgets are already on your dashboard!
-            </p>
+            <div className="empty-state">All available widgets are already on your dashboard.</div>
           ) : (
-            availableWidgets.map(widget => {
-              const Icon = widget.icon;
-              return (
-                <div 
-                  key={widget.id} 
-                  className="stat-type-item"
-                  onClick={() => onAdd(widget.id)}
-                >
-                  <div className="stat-type-icon"><Icon size={24} /></div>
-                  <div className="stat-type-details">
-                    <h4>{widget.title}</h4>
-                    <p>{widget.desc}</p>
-                  </div>
-                </div>
-              );
-            })
+            <div className="picker-list">
+              {availableWidgets.map(widget => {
+                const Icon = widget.icon;
+                return (
+                  <button
+                    key={widget.id}
+                    type="button"
+                    className="picker-item"
+                    onClick={() => onAdd(widget.id)}
+                  >
+                    <div className="picker-icon"><Icon size={22} /></div>
+                    <div className="picker-details">
+                      <h4>{widget.title}</h4>
+                      <p>{widget.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>

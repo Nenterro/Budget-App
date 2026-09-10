@@ -1,14 +1,11 @@
 /* Single-date picker: deliberately compact. This is the one embedded in the
-   Add Transaction form, where a wide calendar just crowds the modal. */
+   Add Transaction form, where a wide calendar just crowds the modal.
+
+   Panel chrome (background, border, radius, shadow) comes from the shared
+   `.modal-content` shell in index.css; ModalWrapper animates it in, so the
+   local scaleIn keyframe that used to run on top of that is gone. */
 .unified-calendar {
-  width: 100%;
   max-width: 340px;
-  background: rgba(30, 30, 40, 0.95);
-  border-radius: 24px;
-  padding: 24px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   /* A six-row month must never push the Done button off a short screen. */
   max-height: calc(100dvh - 48px);
 }
@@ -19,13 +16,13 @@
 }
 
 .unified-calendar .calendar-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
   min-height: 0;
   overflow-y: auto;
-}
-
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
+  overscroll-behavior: contain;
 }
 
 .calendar-header {
@@ -37,29 +34,32 @@
 
 .calendar-header h3 {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
+/* The rounded square every other icon button in the app uses. These were the
+   one remaining pair of circular chrome buttons. Day cells below stay round —
+   a date is conceptually a dot on a grid, not a button in a toolbar. */
 .cal-nav-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: none;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
+  background: var(--surface-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.15s, color 0.15s;
   flex-shrink: 0;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .cal-nav-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
+    background: var(--surface-active);
+    color: var(--text-primary);
   }
 }
 
@@ -97,7 +97,7 @@
 
 @media (hover: hover) and (pointer: fine) {
   .cal-day:not(.empty):hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-active);
   }
 }
 
@@ -131,7 +131,7 @@
 }
 
 .cal-day.in-range {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
   border-radius: 50%;
 }
 
@@ -145,9 +145,9 @@
 /* ── Range-mode sidebar ─────────────────────────────────────────────────── */
 .calendar-sidebar {
   width: 200px;
-  background: rgba(0, 0, 0, 0.25);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 28px 24px;
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--border-color);
+  padding: 24px 20px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -175,46 +175,13 @@
   line-height: 1.15;
 }
 
+/* Buttons themselves come from the shared .cancel-btn / .primary-btn set. */
 .calendar-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 24px;
-  gap: 12px;
-}
-
-.calendar-actions button {
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s;
-}
-
-.calendar-actions .cancel-btn {
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.calendar-actions .cancel-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-}
-
-.calendar-actions .apply-btn {
-  background: var(--accent-gradient);
-  color: white;
-}
-
-.calendar-actions .apply-btn:hover:not(:disabled) {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
-
-.calendar-actions .apply-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  margin-top: auto;
+  padding-top: 20px;
+  gap: 10px;
 }
 
 /* ── Mobile ─────────────────────────────────────────────────────────────
@@ -235,7 +202,7 @@
     flex-direction: row;
     justify-content: space-between;
     border-right: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--border-color);
     padding: 14px 20px;
     gap: 16px;
   }
@@ -243,19 +210,15 @@
   .range-mode .sidebar-group { align-items: center; }
   .range-mode .sidebar-value { font-size: 22px; }
 
+  .unified-calendar .calendar-main { padding: 16px; }
+
   .calendar-actions {
     margin-top: 16px;
   }
 
-  /* Cancel also matches the global `.cancel-btn { height: 44px }` from the
-     transaction modal's stylesheet, so pin both to the same height rather than
-     letting one be padding-sized and the other fixed. */
+  /* Full-width on a phone; the height and radius come from the shared button. */
   .calendar-actions button {
     flex: 1;
-    min-height: 44px;
-    padding: 12px 16px;
-    font-size: 15px;
-    border-radius: 12px;
   }
 }
 
@@ -269,7 +232,7 @@
 
   .range-mode .calendar-sidebar {
     width: 220px;
-    padding: 32px 24px;
+    padding: 28px 22px;
     gap: 36px;
   }
 

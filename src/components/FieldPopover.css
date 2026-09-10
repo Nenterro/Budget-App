@@ -50,10 +50,10 @@
 }
 
 .popped-container {
-  background: var(--bg-surface-elevated);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  background: var(--surface-popover);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-panel);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -71,8 +71,8 @@
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: transparent;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .popped-input {
@@ -89,7 +89,7 @@
   color: white;
   border: none;
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -115,7 +115,7 @@
   padding: 12px;
   background: transparent;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   color: var(--text-primary);
   font-size: 16px;
@@ -125,13 +125,13 @@
 }
 
 .popped-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
 }
 
 .popped-icon-wrap {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -8,9 +8,9 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: var(--surface-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
   padding: 12px;
   cursor: pointer;
   transition: all 0.2s;
@@ -18,15 +18,15 @@
 }
 
 .color-picker-trigger:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 
 .color-preview-circle {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.1);
+  border: 2px solid var(--border-strong);
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 
@@ -43,7 +43,7 @@
   width: 100%;
   min-width: 260px;
   padding: 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   z-index: 100;
   display: flex;
   flex-direction: column;
@@ -59,9 +59,9 @@
 .hex-input-wrapper {
   display: flex;
   align-items: center;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  background: var(--surface-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   padding: 8px 12px;
   gap: 8px;
 }

@@ -249,7 +249,7 @@ export default function FilterModal({
   return (
     <ModalWrapper onClose={onClose} zIndex={2000}>
       <div
-        className="filter-modal"
+        className="modal-content filter-modal"
         onClick={e => e.stopPropagation()}
       >
         <div className="filter-header">
@@ -395,7 +395,7 @@ export default function FilterModal({
 
         <div className="filter-actions">
           <button className="cancel-btn" onClick={onClose}>Cancel</button>
-          <button className="apply-btn" onClick={handleApply}>Apply Filters</button>
+          <button className="primary-btn" onClick={handleApply}>Apply Filters</button>
         </div>
       </div>
     </ModalWrapper>

@@ -94,23 +94,23 @@ export default function ManageData() {
       <AnimatePresence>
         {pendingDelete && (
           <ModalWrapper onClose={() => setPendingDelete(null)}>
-            <div className="modal-content manage-modal glass-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: '380px' }}>
+            <div className="modal-content manage-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
               <div className="modal-header">
                 <h2>Delete {type}?</h2>
-                <button className="close-btn" onClick={() => setPendingDelete(null)}><X size={24} /></button>
+                <button className="close-btn" onClick={() => setPendingDelete(null)} type="button"><X size={20} /></button>
               </div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.5, margin: 0 }}>
+              <p className="modal-body" style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.5 }}>
                 <strong style={{ color: 'var(--text-primary)' }}>{pendingDelete.item.name}</strong>
                 {pendingDelete.usageCount > 0
                   ? ` is used by ${pendingDelete.usageCount} transaction${pendingDelete.usageCount === 1 ? '' : 's'}. Those transactions keep the name as plain text but stop being linked to this ${type.toLowerCase()}. Renaming it instead keeps them connected.`
                   : ` is not used by any transaction. This cannot be undone.`}
               </p>
-              <div className="modal-actions" style={{ marginTop: '20px' }}>
+              <div className="modal-footer">
                 <button type="button" className="cancel-btn" onClick={() => setPendingDelete(null)}>Cancel</button>
                 <button
                   type="button"
                   className="submit-btn"
-                  style={{ background: '#ef4444', color: '#fff', border: 'none' }}
+                  style={{ background: 'var(--expense-color)' }}
                   onClick={confirmDelete}
                 >
                   Delete

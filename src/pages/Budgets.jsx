@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
 import { useAppearanceSettings } from '../context/SettingsContext';
@@ -11,6 +10,7 @@ import { generateId } from '../store/db';
 import UnifiedDropdown from '../components/UnifiedDropdown';
 import ManageGoalsModal from '../components/ManageGoalsModal';
 import EditBudgetModal from '../components/EditBudgetModal';
+import ModalWrapper from '../components/ModalWrapper';
 import { NavLink } from 'react-router-dom';
 import './Budgets.css';
 
@@ -297,10 +297,10 @@ export default function Budgets() {
                 
                 <div className="col-val" data-label="Actions" style={{ display: 'flex', justifyContent: 'center' }}>
                   <div className="actions-wrapper" style={{ display: 'flex', gap: '8px' }}>
-                    <button className="icon-btn" onClick={() => openEditBudgetModal(cat.name, cat.assigned)} title="Edit Budget" style={{ padding: '6px' }}>
+                    <button className="icon-btn-ghost small" onClick={() => openEditBudgetModal(cat.name, cat.assigned)} title="Edit Budget">
                       <Edit2 size={16} color="var(--text-secondary)" />
                     </button>
-                    <button className="icon-btn" onClick={() => handleDeleteAssignment(cat.name)} title="Remove Assignment" style={{ padding: '6px' }}>
+                    <button className="icon-btn-ghost small danger" onClick={() => handleDeleteAssignment(cat.name)} title="Remove Assignment">
                       <Trash2 size={16} color="#ef4444" />
                     </button>
                   </div>
@@ -338,22 +338,23 @@ export default function Budgets() {
         </div>
       </div>
 
-      {isAssignModalOpen && createPortal(
-        <div className="modal-overlay" onClick={() => setIsAssignModalOpen(false)}>
-          <div className="modal-content glass-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', width: '100%' }}>
-            <div className="modal-header" style={{ padding: '24px 20px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ margin: 0, fontSize: '22px' }}>New Budget</h2>
-              <button className="icon-btn" onClick={() => setIsAssignModalOpen(false)} style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '50%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
+      <AnimatePresence>
+        {isAssignModalOpen && (
+        <ModalWrapper onClose={() => setIsAssignModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="modal-header">
+              <h2>New Budget</h2>
+              <button className="close-btn" type="button" onClick={() => setIsAssignModalOpen(false)}><X size={20} /></button>
             </div>
-            
-            <div className="edit-budget-modal" style={{ padding: '0 20px 20px' }}>
+
+            <div className="edit-budget-modal modal-body">
               <div style={{
                 background: leftToBudget >= 0 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
                 border: `1px solid ${leftToBudget >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-                borderRadius: '16px',
-                padding: '24px 20px',
+                borderRadius: 'var(--radius-xl)',
+                padding: '20px',
                 textAlign: 'center',
-                marginBottom: '28px',
+                marginBottom: '20px',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -385,7 +386,7 @@ export default function Budgets() {
 
               <div style={{ marginBottom: '4px' }}>
                 <label style={{ display: 'block', fontSize: '12px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', letterSpacing: '0.5px', fontWeight: 600 }}>Assigned Amount</label>
-                <div className="input-with-icon" style={{ background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div className="input-with-icon" style={{ background: 'var(--surface-input)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-strong)' }}>
                   <span className="input-icon" style={{ fontSize: '18px', fontWeight: 500, color: 'var(--text-secondary)' }}>
                     {getCurrencySymbol(baseCurrency)}
                   </span>
@@ -402,26 +403,37 @@ export default function Budgets() {
                 </div>
               </div>
               
-              <button className="primary-btn" onClick={handleSaveBudget} style={{ width: '100%', padding: '14px', fontSize: '16px', borderRadius: '12px', marginTop: '16px' }} disabled={!editingCategory}>
+              <button className="primary-btn" onClick={handleSaveBudget} style={{ width: '100%', marginTop: '16px' }} disabled={!editingCategory}>
                 Save Assignment
               </button>
             </div>
           </div>
-        </div>,
-        document.body
-      )}
+        </ModalWrapper>
+        )}
+      </AnimatePresence>
       
-      <ManageGoalsModal isOpen={isGoalsModalOpen} onClose={() => setIsGoalsModalOpen(false)} budgetData={budgetData} />
-      
-      <EditBudgetModal 
-        isOpen={isEditBudgetModalOpen} 
-        onClose={() => setIsEditBudgetModalOpen(false)} 
-        categoryName={editingCategory}
-        currentAmount={editAmount}
-        monthStr={monthStr}
-        budgetData={budgetData}
-        leftToBudget={leftToBudget}
-      />
+      {/* Both now render through ModalWrapper, which animates its exit only
+          from inside an AnimatePresence — without this they would vanish
+          instantly while every other modal fades out. */}
+      <AnimatePresence>
+        {isGoalsModalOpen && (
+          <ManageGoalsModal isOpen onClose={() => setIsGoalsModalOpen(false)} budgetData={budgetData} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isEditBudgetModalOpen && (
+          <EditBudgetModal 
+            isOpen
+            onClose={() => setIsEditBudgetModalOpen(false)} 
+            categoryName={editingCategory}
+            currentAmount={editAmount}
+            monthStr={monthStr}
+            budgetData={budgetData}
+            leftToBudget={leftToBudget}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

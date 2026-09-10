@@ -85,7 +85,7 @@
 }
 
 .pin-btn {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
@@ -94,7 +94,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   transition: all 0.2s;
 }
 .pin-btn:hover {
@@ -114,7 +114,7 @@
   align-items: center;
   gap: 16px;
   padding: 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   color: var(--text-secondary);
   text-decoration: none;
   font-weight: 500;
@@ -132,7 +132,7 @@
 }
 
 .sidebar .nav-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--surface-input);
   color: var(--text-primary);
 }
 
@@ -174,14 +174,14 @@
   border-radius: 32px;
   
   /* Ultra Premium Glassmorphism */
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+  background: linear-gradient(135deg, var(--surface-hover) 0%, var(--surface-sunken) 100%);
   backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
   
   /* Glass Edge Highlights */
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border-strong);
+  border-left: 1px solid var(--border-strong);
   
   /* Floating Drop Shadow + Inner Glow */
   box-shadow: 
@@ -303,13 +303,13 @@
   background: var(--bg-surface-elevated, #2a2a35);
   color: var(--text-primary, #fff);
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-strong);
   z-index: 60;
 }
 .fab-container { position: relative; }
@@ -328,7 +328,7 @@
   margin-bottom: 16px;
   padding: 12px 14px;
   border: 1px solid rgba(139, 92, 246, 0.35);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   background: rgba(139, 92, 246, 0.12);
   color: var(--text-primary);
   font-family: inherit;
@@ -372,7 +372,7 @@
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--accent-color);
   color: #fff;
   font-size: 0.62rem;
@@ -392,7 +392,7 @@
   margin-bottom: 16px;
   padding: 12px 14px;
   border: 1px solid rgba(239, 68, 68, 0.4);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   background: rgba(239, 68, 68, 0.12);
   color: var(--text-primary);
 }
@@ -428,7 +428,7 @@
   flex-shrink: 0;
   padding: 8px 14px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: #ef4444;
   color: #fff;
   font-family: inherit;

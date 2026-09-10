@@ -52,27 +52,38 @@ export const GRAPH_TYPES = [
   }
 ];
 
-export default function AddGraphModal({ onClose, onAdd }) {
+// `usedTypes` are the graphs already on the board. A graph carries no
+// per-instance configuration, so a second copy of one would render exactly the
+// same chart — they are dropped from the list rather than offered again.
+export default function AddGraphModal({ onClose, onAdd, usedTypes = [] }) {
+  const available = GRAPH_TYPES.filter(type => !usedTypes.includes(type.id));
+
   return (
     <ModalWrapper onClose={onClose}>
-      <div className="modal-content glass-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px', padding: '24px' }}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
         <div className="modal-header">
           <h2>Select Graph Type</h2>
-          <button className="close-btn" onClick={onClose} type="button"><X size={24} /></button>
+          <button className="close-btn" onClick={onClose} type="button"><X size={20} /></button>
         </div>
-        
-        <div className="graph-type-list">
-          {GRAPH_TYPES.map(type => (
-            <div key={type.id} className="graph-type-item" onClick={() => onAdd(type.id)}>
-              <div className="graph-type-icon">
-                <type.icon size={24} />
-              </div>
-              <div className="graph-type-details">
-                <h4>{type.title}</h4>
-                <p>{type.desc}</p>
-              </div>
+
+        <div className="modal-body">
+          {available.length === 0 ? (
+            <div className="empty-state">Every graph has already been added.</div>
+          ) : (
+            <div className="picker-list">
+              {available.map(type => (
+                <button key={type.id} type="button" className="picker-item" onClick={() => onAdd(type.id)}>
+                  <div className="picker-icon">
+                    <type.icon size={22} />
+                  </div>
+                  <div className="picker-details">
+                    <h4>{type.title}</h4>
+                    <p>{type.desc}</p>
+                  </div>
+                </button>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       </div>
     </ModalWrapper>

@@ -316,7 +316,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
 
   return (
     <ModalWrapper onClose={selected ? closeDetail : onClose} zIndex={2400}>
-      <div className="inbox-modal glass-panel" onClick={e => e.stopPropagation()}>
+      <div className="modal-content inbox-modal" onClick={e => e.stopPropagation()}>
         <AnimatePresence mode="wait">
           {!selected ? (
             <motion.div

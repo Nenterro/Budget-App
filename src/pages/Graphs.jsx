@@ -3,7 +3,7 @@ import { Plus, Filter, Settings, Home } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { NavLink } from 'react-router-dom';
 import ChartCard from '../components/Graphs/ChartCard';
-import AddGraphModal from '../components/Graphs/AddGraphModal';
+import AddGraphModal, { GRAPH_TYPES } from '../components/Graphs/AddGraphModal';
 import UnifiedDropdown from '../components/UnifiedDropdown';
 import UnifiedCalendar from '../components/UnifiedCalendar';
 import FilterModal from '../components/FilterModal';
@@ -109,6 +109,12 @@ export default function Graphs() {
     setActiveGraphs(activeGraphs.filter(w => w.id !== id));
   };
 
+  // A graph has no per-instance settings, so the same one twice draws the same
+  // chart. Types already on the board drop out of the picker, and once there is
+  // nothing left to pick the Add card goes away with them.
+  const usedGraphTypes = useMemo(() => activeGraphs.map(g => g.type), [activeGraphs]);
+  const allGraphsAdded = GRAPH_TYPES.every(type => usedGraphTypes.includes(type.id));
+
   const hasActiveFilters = filterState.excludedCategories.size > 0 ||
     filterState.excludedPayees.size > 0 ||
     filterState.excludedAccounts.size > 0 ||
@@ -166,13 +172,15 @@ export default function Graphs() {
           />
         ))}
 
-        <div className="add-graph-card" onClick={() => setIsAddModalOpen(true)}>
-          <div className="add-graph-icon">
-            <Plus size={32} />
+        {!allGraphsAdded && (
+          <div className="add-graph-card" onClick={() => setIsAddModalOpen(true)}>
+            <div className="add-graph-icon">
+              <Plus size={32} />
+            </div>
+            <h3>Add Graph</h3>
+            <span style={{ fontSize: '14px' }}>Choose a metric to visualize</span>
           </div>
-          <h3>Add Graph</h3>
-          <span style={{ fontSize: '14px' }}>Choose a metric to visualize</span>
-        </div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -180,6 +188,7 @@ export default function Graphs() {
           <AddGraphModal
             onClose={() => setIsAddModalOpen(false)}
             onAdd={handleAddGraph}
+            usedTypes={usedGraphTypes}
           />
         )}
       </AnimatePresence>

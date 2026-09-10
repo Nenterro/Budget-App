@@ -7,17 +7,9 @@
  * open first. The shared `.input-with-icon` primitives do come from index.css,
  * which is always loaded. */
 
+/* Panel chrome comes from the shared `.modal-content` shell in index.css. */
 .inbox-modal {
-  width: 100%;
   max-width: 560px;
-  /* dvh, not vh: mobile browser chrome is counted by vh, so an 85vh panel
-     still runs off the bottom of the screen. */
-  max-height: calc(100dvh - 48px);
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow: hidden;
-  position: relative;
 }
 
 .ib-view {
@@ -35,7 +27,7 @@
   align-items: center;
   gap: 12px;
   padding: 18px 20px 14px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
@@ -80,13 +72,15 @@
   flex-shrink: 0;
 }
 
+/* Alias of the shared `.icon-btn-ghost` shape in index.css. */
 .ib-icon-btn {
-  width: 34px;
-  height: 34px;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
   flex-shrink: 0;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--surface-input);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -96,7 +90,7 @@
 }
 
 .ib-icon-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.11);
+  background: var(--surface-active);
   color: var(--text-primary);
 }
 
@@ -133,9 +127,9 @@
   width: 100%;
   text-align: left;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-sunken);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
   font-family: inherit;
@@ -143,13 +137,13 @@
 
 .ib-card:hover {
   border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
 }
 
 .ib-card-icon {
   width: 36px;
   height: 36px;
-  border-radius: 11px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -272,8 +266,9 @@
    indicator is half-width. */
 .ib-type-selector {
   display: flex;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 12px;
+  background: var(--surface-track);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
   padding: 4px;
   gap: 4px;
   position: relative;
@@ -286,7 +281,7 @@
   top: 4px;
   bottom: 4px;
   width: calc(50% - 6px);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 0;
 }
@@ -308,7 +303,7 @@
   background: none;
   border: none;
   padding: 9px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 600;
@@ -349,7 +344,7 @@
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.3);
   color: #fbbf24;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   font-size: 12.5px;
   line-height: 1.45;
@@ -366,9 +361,9 @@
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   cursor: pointer;
   color: var(--text-secondary);
@@ -378,13 +373,13 @@
 }
 
 .ib-raw-toggle:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface-hover);
   color: var(--text-primary);
 }
 
 .ib-raw {
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 10px;
+  background: var(--surface-code);
+  border-radius: var(--radius-md);
   padding: 12px;
   font-size: 12.5px;
   line-height: 1.55;
@@ -404,14 +399,14 @@
   position: sticky;
   bottom: 0;
   z-index: 2;
-  background: linear-gradient(to top, rgba(30, 30, 40, 0.98) 65%, rgba(30, 30, 40, 0));
+  background: linear-gradient(to top, var(--surface-panel) 65%, rgba(28, 28, 36, 0));
   padding-top: 12px;
 }
 
 .ib-cancel-btn,
 .ib-submit-btn {
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -428,7 +423,7 @@
 
 .ib-cancel-btn {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-strong);
   color: var(--text-secondary);
   padding: 0 20px;
 }
@@ -489,7 +484,7 @@
   gap: 6px;
   margin-top: 8px;
   padding: 9px 11px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: rgba(139, 92, 246, 0.1);
   border: 1px solid rgba(139, 92, 246, 0.25);
   font-size: 12px;
@@ -506,7 +501,7 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
   color: var(--text-primary);
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--surface-code);
   padding: 2px 6px;
   border-radius: 6px;
   word-break: break-all;
@@ -558,7 +553,7 @@
   background: rgba(168, 85, 247, 0.1);
   border: 1px solid rgba(168, 85, 247, 0.28);
   color: #c4b5fd;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   font-size: 12.5px;
   line-height: 1.45;
@@ -593,7 +588,7 @@
   padding: 9px;
   background: transparent;
   border: 1px dashed rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 12.5px;
   font-weight: 600;
@@ -603,7 +598,7 @@
 }
 
 .ib-unpair-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   color: var(--text-primary);
 }
 

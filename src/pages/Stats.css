@@ -5,7 +5,7 @@
 }
 
 .stat-card {
-  border-radius: 20px;
+  border-radius: var(--radius-panel);
   padding: 24px;
   display: flex;
   flex-direction: column;
@@ -41,7 +41,7 @@
   color: var(--text-muted);
   cursor: pointer;
   padding: 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   transition: all 0.2s;
   display: flex;
   align-items: center;
@@ -73,9 +73,9 @@
 }
 
 .add-stat-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 2px dashed rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+  background: var(--surface-sunken);
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-panel);
   min-height: 140px;
   display: flex;
   flex-direction: column;
@@ -88,14 +88,14 @@
 }
 
 .add-stat-card:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   border-color: var(--accent-color);
   color: var(--text-primary);
   transform: translateY(-2px);
 }
 
 .add-stat-icon {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   padding: 12px;
   border-radius: 50%;
   color: var(--text-secondary);
@@ -107,70 +107,7 @@
   color: var(--accent-color);
 }
 
-/* Modal styling for stats */
-.stat-type-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 60vh;
-  overflow-y: auto;
-  padding-right: 8px;
-}
+/* The "choose a stat" list is shared markup now: see .picker-list in index.css.
+   It lived here, but the dashboard's widget picker used the same class names
+   without importing this stylesheet, so that modal rendered unstyled. */
 
-.stat-type-item {
-  display: flex;
-  gap: 16px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
-  cursor: pointer;
-  transition: all 0.2s;
-  align-items: center;
-}
-
-.stat-type-item:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: var(--accent-color);
-  transform: translateX(4px);
-}
-
-.stat-type-icon {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 12px;
-  border-radius: 12px;
-  color: var(--text-primary);
-}
-
-.stat-type-item:hover .stat-type-icon {
-  background: var(--accent-color);
-  color: white;
-}
-
-.stat-type-details h4 {
-  margin: 0 0 4px 0;
-  color: var(--text-primary);
-  font-size: 16px;
-}
-
-.stat-type-details p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-/* Custom scrollbar for list */
-.stat-type-list::-webkit-scrollbar {
-  width: 6px;
-}
-.stat-type-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.stat-type-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-.stat-type-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}

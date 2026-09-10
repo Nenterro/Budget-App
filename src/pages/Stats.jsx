@@ -3,7 +3,7 @@ import { Plus, Filter, Settings, Home } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { NavLink } from 'react-router-dom';
 import StatCard from '../components/Stats/StatCard';
-import AddStatModal from '../components/Stats/AddStatModal';
+import AddStatModal, { STAT_TYPES } from '../components/Stats/AddStatModal';
 import UnifiedDropdown from '../components/UnifiedDropdown';
 import UnifiedCalendar from '../components/UnifiedCalendar';
 import FilterModal from '../components/FilterModal';
@@ -115,6 +115,12 @@ export default function Stats() {
     setActiveStats(activeStats.filter(w => w.id !== id));
   };
 
+  // A stat has no per-instance settings, so the same one twice is just a
+  // duplicate tile. Types already on the board drop out of the picker, and once
+  // there is nothing left to pick the Add card goes away with them.
+  const usedStatTypes = useMemo(() => activeStats.map(s => s.type), [activeStats]);
+  const allStatsAdded = STAT_TYPES.every(type => usedStatTypes.includes(type.id));
+
   const hasActiveFilters = filterState.excludedCategories.size > 0 ||
     filterState.excludedPayees.size > 0 ||
     filterState.excludedAccounts.size > 0 ||
@@ -172,12 +178,14 @@ export default function Stats() {
           />
         ))}
 
-        <div className="add-stat-card" onClick={() => setIsAddModalOpen(true)}>
-          <div className="add-stat-icon">
-            <Plus size={32} />
+        {!allStatsAdded && (
+          <div className="add-stat-card" onClick={() => setIsAddModalOpen(true)}>
+            <div className="add-stat-icon">
+              <Plus size={32} />
+            </div>
+            <h3>Add Stat</h3>
           </div>
-          <h3>Add Stat</h3>
-        </div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -185,6 +193,7 @@ export default function Stats() {
           <AddStatModal
             onClose={() => setIsAddModalOpen(false)}
             onAdd={handleAddStat}
+            usedTypes={usedStatTypes}
           />
         )}
       </AnimatePresence>

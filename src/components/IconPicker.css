@@ -8,9 +8,9 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: var(--surface-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
   padding: 12px;
   cursor: pointer;
   transition: all 0.2s;
@@ -18,8 +18,8 @@
 }
 
 .icon-picker-trigger:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 
 .current-icon-wrap {
@@ -42,7 +42,7 @@
   width: 100%;
   min-width: 260px;
   padding: 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   z-index: 100;
   animation: slideDownFade 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -66,9 +66,9 @@
 
 .icon-swatch {
   aspect-ratio: 1;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -78,7 +78,7 @@
 }
 
 .icon-swatch:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
   color: var(--text-primary);
   transform: scale(1.1);
 }

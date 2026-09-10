@@ -52,13 +52,13 @@
   border: none;
   cursor: pointer;
   padding: 8px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   transition: all 0.2s;
   width: 100%;
 }
 
 .theme-card:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
 }
 
 .theme-preview {

@@ -4,8 +4,9 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -13,9 +14,10 @@
 }
 
 .more-modal-content {
-  background: var(--bg-surface);
-  border-top-left-radius: 24px;
-  border-top-right-radius: 24px;
+  background: var(--surface-popover);
+  border-top-left-radius: var(--radius-panel);
+  border-top-right-radius: var(--radius-panel);
+  border-top: 1px solid var(--border-color);
   padding: 24px;
   padding-bottom: calc(24px + var(--safe-area-bottom));
   box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
@@ -25,26 +27,15 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .more-modal-header h3 {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
 }
 
-.more-modal-header .close-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: none;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
+/* Shape comes from the shared .close-btn in index.css. */
 
 .more-modal-body {
   display: flex;
@@ -57,23 +48,23 @@
   align-items: center;
   gap: 16px;
   padding: 12px 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   text-decoration: none;
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-raised);
   transition: background 0.2s;
   font-weight: 500;
 }
 
 .more-menu-item:hover, .more-menu-item:active {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-hover);
 }
 
 .more-icon-circle {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -82,6 +73,6 @@
 
 .more-menu-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   margin: 8px 0;
 }

@@ -11,9 +11,9 @@
 }
 
 .add-graph-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 2px dashed rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
+  background: var(--surface-sunken);
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-panel);
   min-height: 350px;
   display: flex;
   flex-direction: column;
@@ -26,14 +26,14 @@
 }
 
 .add-graph-card:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   border-color: var(--accent-color);
   color: var(--text-primary);
   transform: translateY(-2px);
 }
 
 .add-graph-icon {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   padding: 16px;
   border-radius: 50%;
   color: var(--text-secondary);
@@ -49,8 +49,8 @@
   background: rgba(30, 30, 40, 0.6);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-panel);
   padding: 24px;
   min-height: 350px;
   display: flex;
@@ -78,7 +78,7 @@
   color: var(--text-secondary);
   cursor: pointer;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -97,27 +97,8 @@
   position: relative;
 }
 
-/* Add Graph Modal Styles */
-.graph-type-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 16px;
-  max-height: 60vh;
-  overflow-y: auto;
-  padding-right: 8px;
-}
+/* The "choose a graph" list is shared markup now: see .picker-list in index.css. */
 
-.graph-type-list::-webkit-scrollbar {
-  width: 6px;
-}
-.graph-type-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.graph-type-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
 
 @media (max-width: 768px) {
   .chart-card {
@@ -141,60 +122,7 @@
   }
 }
 
-.graph-type-item {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-align: left;
-  color: white;
-}
 
-.graph-type-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
-  transform: translateX(4px);
-}
-
-.graph-type-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent-color);
-  flex-shrink: 0;
-}
-
-.graph-type-details h4 {
-  margin: 0 0 4px 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.graph-type-details p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-/* Recharts Custom Tooltip */
-.custom-tooltip {
-  background: rgba(20, 20, 30, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 12px 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
 
 .custom-tooltip .label {
   color: var(--text-secondary);
@@ -241,7 +169,7 @@
   background: transparent;
 }
 .custom-pie-legend::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
   border-radius: 4px;
 }
 
@@ -250,7 +178,7 @@
   align-items: center;
   padding: 6px 10px;
   margin-bottom: 2px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s ease;
   min-height: 36px;

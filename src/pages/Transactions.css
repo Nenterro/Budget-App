@@ -26,10 +26,10 @@
 
 .period-select {
   flex: 1;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 8px 16px;
   font-size: 14px;
   outline: none;
@@ -37,43 +37,16 @@
   appearance: none;
 }
 
-.icon-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-  aspect-ratio: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-}
+/* .icon-btn now lives in index.css — Budgets and Settings use it too and do
+   not import this stylesheet. */
 
-.icon-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-}
-
-.icon-btn.active-filter {
-  color: var(--accent-color);
-  background: rgba(168, 85, 247, 0.15);
-  border-color: rgba(168, 85, 247, 0.4);
-  box-shadow: 0 0 12px var(--accent-glow);
-}
-.icon-btn.active-filter svg {
-  filter: drop-shadow(0 0 4px var(--accent-color));
-}
 
 .tx-search-bar {
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 0 12px;
   transition: border-color 0.2s;
 }
@@ -103,15 +76,7 @@
   gap: 16px;
 }
 
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 0;
-  color: var(--text-secondary);
-  gap: 12px;
-}
+/* .empty-state is shared — see index.css. */
 
 .empty-icon {
   color: rgba(255, 255, 255, 0.1);
@@ -142,7 +107,7 @@
   align-items: center;
   padding: 12px 16px;
   gap: 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
@@ -151,8 +116,8 @@
 
 .tx-row:hover {
   transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 
 .tx-icon {
@@ -192,7 +157,7 @@
 .tx-category {
   font-weight: 500;
   padding: 2px 6px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   border-radius: 4px;
   white-space: nowrap;
   overflow: hidden;
@@ -275,7 +240,7 @@
   height: 8px;
   background-color: #ef4444; /* red-500 */
   border-radius: 50%;
-  border: 2px solid var(--surface-color);
+  border: 2px solid var(--bg-dark);
 }
 
 .action-btn {
@@ -292,7 +257,7 @@
 }
 
 .action-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
 }
 
 .action-btn.delete:hover {
@@ -328,12 +293,12 @@
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-strong);
     margin: 0; /* Reset any browser default margins */
   }
 
   .tx-search-bar {
-    border-radius: 16px;
+    border-radius: var(--radius-xl);
     padding: 4px 16px;
     width: 100%;
   }
@@ -349,7 +314,7 @@
     justify-content: space-between;
     background: var(--bg-surface-elevated);
     padding: 22px 24px;
-    border-radius: 16px;
+    border-radius: var(--radius-xl);
     border: 1px solid var(--border-color);
     backdrop-filter: blur(12px);
   }

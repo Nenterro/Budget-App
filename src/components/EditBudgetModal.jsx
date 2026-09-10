@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { useData } from '../context/DataContext';
 import { useAppearanceSettings } from '../context/SettingsContext';
 import { formatCurrency, getCurrencySymbol, formatAmountInput } from '../utils/format';
 import { X, ArrowRightLeft } from 'lucide-react';
 import UnifiedDropdown from './UnifiedDropdown';
+import ModalWrapper from './ModalWrapper';
 
 export default function EditBudgetModal({ isOpen, onClose, categoryName, currentAmount, monthStr, budgetData, leftToBudget }) {
   const { budgets, saveBudget } = useData();
@@ -129,15 +129,15 @@ export default function EditBudgetModal({ isOpen, onClose, categoryName, current
   const otherAssignedCategories = budgetData.categories
     .filter(c => c.name !== categoryName && c.assigned > 0);
 
-  return createPortal(
-    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1000 }}>
-      <div className="modal-content glass-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', width: '100%' }}>
-        <div className="modal-header" style={{ padding: '24px 20px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+  return (
+    <ModalWrapper onClose={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+        <div className="modal-header">
           <h2 style={{ margin: 0, fontSize: '20px' }}>Move Funds: {categoryName}</h2>
-          <button className="icon-btn" onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '50%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
+          <button className="close-btn" onClick={onClose} type="button"><X size={20} /></button>
         </div>
         
-        <div className="edit-budget-modal" style={{ padding: '0 20px 20px' }}>
+        <div className="edit-budget-modal modal-body">
           
           <div style={{ marginBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', justifyContent: 'center' }}>
@@ -179,7 +179,7 @@ export default function EditBudgetModal({ isOpen, onClose, categoryName, current
             </div>
 
             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
-              <div className="input-with-icon" style={{ flex: 1, background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <div className="input-with-icon" style={{ flex: 1, background: 'var(--surface-input)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-strong)' }}>
                 <span className="input-icon" style={{ fontSize: '18px', fontWeight: 500, color: 'var(--text-secondary)' }}>
                   {getCurrencySymbol(baseCurrency)}
                 </span>
@@ -196,14 +196,13 @@ export default function EditBudgetModal({ isOpen, onClose, categoryName, current
               </div>
             </div>
             
-            <button className="primary-btn" onClick={handleMoveMoney} style={{ width: '100%', padding: '14px', fontSize: '16px', borderRadius: '12px', background: 'var(--accent-color)' }} disabled={!targetCategory || !moveAmount}>
+            <button className="primary-btn" onClick={handleMoveMoney} style={{ width: '100%' }} disabled={!targetCategory || !moveAmount}>
               Confirm Transfer
             </button>
           </div>
           
         </div>
       </div>
-    </div>,
-    document.body
+    </ModalWrapper>
   );
 }

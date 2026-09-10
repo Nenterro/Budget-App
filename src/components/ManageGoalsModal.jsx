@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useData } from '../context/DataContext';
 import { useAppearanceSettings } from '../context/SettingsContext';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
 import { X, Plus, Trash2, Target, Check, Edit2 } from 'lucide-react';
 import UnifiedDropdown from './UnifiedDropdown';
+import ModalWrapper from './ModalWrapper';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ManageGoalsModal({ isOpen, onClose, budgetData }) {
@@ -68,29 +68,26 @@ export default function ManageGoalsModal({ isOpen, onClose, budgetData }) {
     setEditingId(null);
   };
 
-  return createPortal(
-    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1000 }}>
-      <motion.div 
-        className="modal-content glass-panel" 
-        onClick={e => e.stopPropagation()} 
-        style={{ maxWidth: '480px', width: '100%', padding: 0, overflow: 'hidden' }}
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+  return (
+    <ModalWrapper onClose={onClose}>
+      <div
+        className="modal-content"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: '480px' }}
       >
-        <div className="modal-header" style={{ padding: '24px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '40px', height: '40px', background: 'var(--accent-glow)', borderRadius: '12px', color: 'var(--accent-color)', flexShrink: 0 }}>
-              <Target size={24} />
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+            <div className="modal-header-icon">
+              <Target size={20} />
             </div>
-            <h2 style={{ margin: 0, fontSize: '20px' }}>Manage Goals</h2>
+            <h2>Manage Goals</h2>
           </div>
-          <button className="icon-btn" onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '50%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button className="close-btn" onClick={onClose} type="button">
             <X size={20} />
           </button>
         </div>
-        
-        <div style={{ padding: '24px', maxHeight: '60vh', overflowY: 'auto' }}>
+
+        <div className="modal-body">
           
           <AnimatePresence>
             {isAdding && (
@@ -233,8 +230,7 @@ export default function ManageGoalsModal({ isOpen, onClose, budgetData }) {
             </div>
           )}
         </div>
-      </motion.div>
-    </div>,
-    document.body
+      </div>
+    </ModalWrapper>
   );
 }

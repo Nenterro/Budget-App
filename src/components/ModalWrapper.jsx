@@ -78,16 +78,12 @@ export default function ModalWrapper({ children, onClose, zIndex = 1000, classNa
       animate="visible"
       exit="exit"
       transition={transition}
-      style={{
-        zIndex,
-        position: 'fixed',
-        top: 0, left: 0, right: 0, bottom: 0,
-        background: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px'
-      }}
+      // Only the stacking order is set here. The overlay's colour, blur and
+      // padding come from `.modal-overlay` in index.css, so the two modals
+      // that portal themselves without this wrapper look identical to the
+      // ones that use it — inline styles here used to win over that rule and
+      // give ModalWrapper modals a lighter, unblurred backdrop.
+      style={{ zIndex }}
     >
       <motion.div
         variants={panelVariants}

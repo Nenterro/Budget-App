@@ -12,12 +12,13 @@
 }
 
 .back-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
+  background: var(--surface-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   cursor: pointer;
-  padding: 8px;
-  border-radius: 50%;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -25,7 +26,7 @@
 }
 
 .back-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
 }
 
 .manage-header h1 {
@@ -50,8 +51,8 @@
   width: 100%;
   padding: 16px;
   background: var(--bg-surface-elevated);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
   color: var(--accent-color);
   font-weight: 600;
   font-size: 16px;
@@ -60,7 +61,7 @@
 }
 
 .add-item-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
   border-color: var(--accent-color);
 }
 
@@ -75,15 +76,15 @@
   align-items: center;
   justify-content: space-between;
   background: var(--bg-surface-elevated);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
   padding: 16px;
   transition: all 0.2s;
 }
 
 .data-item-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 
 .item-info {
@@ -95,7 +96,7 @@
 .item-icon-wrap {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -140,7 +141,7 @@
 }
 
 .action-btn.edit:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
   color: white;
 }
 
@@ -152,33 +153,34 @@
   background: rgba(239, 68, 68, 0.15);
 }
 
-.empty-state {
-  text-align: center;
-  color: var(--text-secondary);
-  margin-top: 32px;
-  font-style: italic;
-}
+/* .empty-state is shared — see index.css. */
 
-/* Modal specific */
+/* Modal specific. Panel chrome comes from the shared `.modal-content` shell. */
 .manage-modal {
-  width: 100%;
   max-width: 400px;
-  background: rgba(30, 30, 40, 0.9);
-  border-radius: 24px;
-  padding: 24px;
 }
 
 .manage-form {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+
+.manage-form .form-group label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .manage-form input[type="text"] {
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: var(--surface-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
   padding: 12px;
   color: var(--text-primary);
   font-size: 15px;
@@ -189,14 +191,14 @@
 
 .manage-form input[type="text"]:focus {
   border-color: var(--accent-color);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-hover);
 }
 
 .color-picker {
   padding: 0 !important;
   height: 48px;
   width: 100%;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   margin-top: 6px;
   background: transparent;
@@ -208,5 +210,5 @@
 }
 .color-picker::-webkit-color-swatch {
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }

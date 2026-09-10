@@ -360,7 +360,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       <div className="modal-content tx-form-modal glass-panel" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{initialData ? 'Edit Transaction' : 'New Transaction'}</h2>
-          <button className="close-btn" onClick={handleClose} type="button"><X size={24} /></button>
+          <button className="close-btn" onClick={handleClose} type="button"><X size={20} /></button>
         </div>
         
         <form onSubmit={handleSubmit} className="tx-form">

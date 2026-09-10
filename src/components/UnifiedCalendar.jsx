@@ -144,13 +144,9 @@ export default function UnifiedCalendar({ value, onChange, onClose, mode = 'sing
   return (
     <ModalWrapper onClose={onClose} zIndex={zIndex}>
       <div 
-        className={`unified-calendar glass-panel ${mode === 'range' ? 'range-mode' : ''}`}
+        className={`modal-content unified-calendar ${mode === 'range' ? 'range-mode' : ''}`}
         onClick={e => e.stopPropagation()} 
-        style={{ 
-          display: 'flex', 
-          padding: 0, 
-          overflow: 'hidden'
-        }}
+        style={{ flexDirection: 'row' }}
       >
         {mode === 'range' && (
           <div className="calendar-sidebar">
@@ -165,7 +161,7 @@ export default function UnifiedCalendar({ value, onChange, onClose, mode = 'sing
           </div>
         )}
 
-        <div className="calendar-main" style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div className="calendar-main">
           <div className="calendar-header">
             <button type="button" className="cal-nav-btn" onClick={handlePrevMonth}><ChevronLeft size={20} /></button>
             <h3>{monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}</h3>
@@ -275,10 +271,10 @@ export default function UnifiedCalendar({ value, onChange, onClose, mode = 'sing
             );
           })()}
 
-          <div className="calendar-actions" style={{ marginTop: 'auto', paddingTop: '24px' }}>
+          <div className="calendar-actions">
             <button className="cancel-btn" onClick={onClose}>Cancel</button>
             <button 
-              className="apply-btn" 
+              className="primary-btn" 
               disabled={mode === 'range' ? (!rangeStart || !rangeEnd) : !selectedSingleDate}
               onClick={() => {
                 if (mode === 'range') {

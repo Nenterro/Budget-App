@@ -1,60 +1,70 @@
+/* Filter modal. The panel, header, footer, buttons, inputs and empty state all
+   come from the shared modal shell in index.css — the root carries
+   `modal-content` for exactly that reason. What is left here is the tab strip,
+   the list rows and the sizing this modal needs.
+
+   Everything in this file is scoped to `.filter-modal`. It used to declare
+   `.form-group`, `.empty-state` and `.input-with-icon input` unscoped, which
+   silently restyled the transaction form and the shared primitives for
+   whichever component happened to render after it. */
+
 .filter-modal {
-  width: 100%;
   max-width: 500px;
   /* dvh: vh includes the area behind the mobile browser chrome, so 85vh could
      still exceed what is actually visible. */
   max-height: calc(100dvh - 32px);
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow: hidden;
-  background: var(--surface-color, #1e1e28);
-  border-radius: 24px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .filter-header {
-  padding: 24px;
+  padding: 18px 20px 14px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.2);
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .filter-header h2 {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
-  color: var(--text-primary, white);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .reset-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--expense-color, #ef4444);
-  border: none;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--expense-color);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-family: inherit;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  white-space: nowrap;
+  transition: background 0.15s;
 }
 
 .reset-btn:hover {
-  background: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.22);
 }
 
+/* ── Tabs ────────────────────────────────────────────────────────────────
+   The segmented track shared with the rest of the app. This was an underline
+   tab bar on a near-black strip — the single biggest reason this modal read
+   as belonging to a different app than the shared-expense one. */
 .filter-tabs {
   display: flex;
-  overflow-x: auto;
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 6px;
+  background: var(--surface-track);
+  border: 1px solid var(--border-subtle);
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  margin: 14px 20px 0 20px;
   flex-shrink: 0;
 }
 
@@ -63,22 +73,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 16px;
+  gap: 6px;
+  padding: 9px;
   background: transparent;
   border: none;
-  color: var(--text-secondary, #9ca3af);
-  font-size: 14px;
+  border-radius: 9px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: inherit;
   font-weight: 600;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-  min-width: max-content;
+  min-width: 0;
+  transition: background 0.2s, color 0.2s;
 }
 
 .filter-tab.active {
-  color: var(--accent-color, #a855f7);
-  border-bottom-color: var(--accent-color, #a855f7);
+  background: var(--surface-active);
+  color: var(--text-primary);
 }
 
 .filter-body {
@@ -98,48 +109,37 @@
 }
 
 .amount-tab {
-  padding: 24px;
+  padding: 16px 20px;
 }
 
 .tab-description {
-  color: var(--text-secondary, #9ca3af);
-  margin-bottom: 24px;
-  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 
 .amount-inputs {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
-.form-group {
+.filter-modal .form-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.form-group label {
-  font-size: 14px;
-  color: var(--text-secondary, #9ca3af);
+.filter-modal .form-group label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
-/* Scoped to this modal. Unscoped, it overrode the shared primitive in
-   index.css for every other component that happened to render afterwards. */
-.filter-modal .input-with-icon input {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 12px 12px 12px 36px;
-  border-radius: 8px;
-  font-size: 16px;
-}
-
-.filter-modal .input-icon {
-  left: 10px;
-}
-
+/* ── List tabs ───────────────────────────────────────────────────────────── */
 .filter-list-header {
-  padding: 16px 16px 12px 16px;
-  background: rgba(0, 0, 0, 0.2);
+  padding: 14px 20px 10px 20px;
   flex-shrink: 0;
 }
 
@@ -152,37 +152,46 @@
 .filter-modal .search-icon {
   position: absolute;
   left: 12px;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
+  display: flex;
 }
 
 .filter-modal .search-box input {
   width: 100%;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 12px 12px 12px 36px;
-  border-radius: 8px;
-  color: white;
+  background: var(--surface-input);
+  border: 1px solid var(--border-strong);
+  padding: 12px 12px 12px 40px;
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.filter-modal .search-box input:focus {
+  border-color: var(--accent-color);
+  background: var(--surface-hover);
 }
 
 .filter-list-actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 16px 16px 16px;
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 0 20px 12px 20px;
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 
 .count-label {
-  font-size: 13px;
-  color: var(--text-secondary, #9ca3af);
+  font-size: 12.5px;
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
 .action-buttons {
   display: flex;
-  gap: 16px;
+  gap: 14px;
 }
 
 .action-buttons button {
@@ -191,8 +200,9 @@
   gap: 6px;
   background: transparent;
   border: none;
-  color: var(--accent-color, #a855f7);
-  font-size: 13px;
+  color: var(--accent-color);
+  font-size: 12.5px;
+  font-family: inherit;
   font-weight: 600;
   cursor: pointer;
 }
@@ -200,99 +210,86 @@
 .filter-list-body {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 12px;
 }
 
-.filter-list-body::-webkit-scrollbar {
-  width: 6px;
-}
-.filter-list-body::-webkit-scrollbar-track {
-  background: transparent;
-}
+.filter-list-body::-webkit-scrollbar { width: 6px; }
+.filter-list-body::-webkit-scrollbar-track { background: transparent; }
 .filter-list-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
   border-radius: 4px;
 }
-
 .filter-list-body::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Rows are cards on the panel, matching the person rows in the shared-expense
+   modal and the draft rows in the review queue, rather than full-bleed strips
+   divided by hairlines. */
 .filter-item {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 24px;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-  color: var(--text-secondary, #9ca3af);
+  padding: 11px 12px;
+  margin-bottom: 4px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
-  font-size: 15px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-size: 14px;
+  font-family: inherit;
+  text-align: left;
 }
 
 .filter-item:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-hover);
 }
 
 .filter-item.selected {
-  color: var(--text-primary, white);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
 }
 
 .checkbox {
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-muted);
   display: flex;
+  flex-shrink: 0;
 }
 
 .filter-item.selected .checkbox {
-  color: var(--accent-color, #a855f7);
-}
-
-.empty-state {
-  padding: 40px 24px;
-  text-align: center;
-  color: var(--text-secondary, #9ca3af);
-  font-style: italic;
+  color: var(--accent-color);
 }
 
 .filter-actions {
-  padding: 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 12px 20px 16px 20px;
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.2);
+  gap: 10px;
+  flex-shrink: 0;
 }
 
-.filter-actions button {
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  border: none;
-}
-
-.filter-actions .cancel-btn {
-  background: transparent;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.filter-actions .apply-btn {
-  background: var(--accent-gradient, linear-gradient(135deg, #6366f1 0%, #a855f7 100%));
-  color: white;
-  box-shadow: 0 4px 12px var(--accent-glow, rgba(99, 102, 241, 0.4));
+@media (max-width: 600px) {
+  .filter-header { padding: 16px 16px 12px 16px; }
+  .filter-tabs { margin: 12px 16px 0 16px; }
+  .amount-tab { padding: 14px 16px; }
+  .filter-list-header { padding: 12px 16px 10px 16px; }
+  .filter-list-actions { padding: 0 16px 12px 16px; }
+  .filter-list-body { padding: 6px 10px; }
+  .filter-actions { padding: 12px 16px 14px 16px; }
 }
 
 @media (max-width: 480px) {
   .filter-tab {
-    padding: 12px 4px;
+    padding: 9px 4px;
     gap: 4px;
     font-size: 12px;
-    min-width: 0;
   }
-  
+
   .filter-tab svg {
     width: 16px;
     height: 16px;

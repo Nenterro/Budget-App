@@ -100,27 +100,39 @@ export const STAT_TYPES = [
   }
 ];
 
-export default function AddStatModal({ onClose, onAdd }) {
+// `usedTypes` are the stats already on the board. They are dropped from the
+// list rather than shown disabled: a stat is a single tile with no per-instance
+// settings, so a second copy would be an identical duplicate. The Dashboard's
+// quick-stat slots pass nothing and keep the full list.
+export default function AddStatModal({ onClose, onAdd, usedTypes = [] }) {
+  const available = STAT_TYPES.filter(type => !usedTypes.includes(type.id));
+
   return (
     <ModalWrapper onClose={onClose}>
-      <div className="modal-content glass-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px', padding: '24px' }}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
         <div className="modal-header">
           <h2>Select Stat Type</h2>
-          <button className="close-btn" onClick={onClose} type="button"><X size={24} /></button>
+          <button className="close-btn" onClick={onClose} type="button"><X size={20} /></button>
         </div>
-        
-        <div className="stat-type-list">
-          {STAT_TYPES.map(type => (
-            <div key={type.id} className="stat-type-item" onClick={() => onAdd(type.id)}>
-              <div className="stat-type-icon">
-                <type.icon size={24} />
-              </div>
-              <div className="stat-type-details">
-                <h4>{type.title}</h4>
-                <p>{type.desc}</p>
-              </div>
+
+        <div className="modal-body">
+          {available.length === 0 ? (
+            <div className="empty-state">Every stat has already been added.</div>
+          ) : (
+            <div className="picker-list">
+              {available.map(type => (
+                <button key={type.id} type="button" className="picker-item" onClick={() => onAdd(type.id)}>
+                  <div className="picker-icon">
+                    <type.icon size={22} />
+                  </div>
+                  <div className="picker-details">
+                    <h4>{type.title}</h4>
+                    <p>{type.desc}</p>
+                  </div>
+                </button>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       </div>
     </ModalWrapper>

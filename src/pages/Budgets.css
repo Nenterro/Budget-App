@@ -40,7 +40,7 @@
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid var(--border-strong) !important;
   }
 }
 
@@ -51,8 +51,8 @@
     z-index: 40;
     background: var(--bg-surface-elevated, var(--surface-color));
     padding: 22px 24px;
-    border-radius: 16px;
-    border: 1px solid var(--border-color, rgba(255,255,255,0.1));
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border-color, var(--border-strong));
     backdrop-filter: blur(12px);
   }
   
@@ -70,7 +70,7 @@
   justify-content: space-between;
   background: var(--surface-color);
   padding: 6px 16px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 @keyframes slideFadeIn {
@@ -88,12 +88,12 @@
   color: var(--text-primary);
   cursor: pointer;
   padding: 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
 }
 .month-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
 }
 
 .budget-summary {
@@ -103,11 +103,11 @@
 }
 .budget-summary > div {
   flex: 1;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
   backdrop-filter: blur(10px);
   padding: 16px 20px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   text-align: center;
   box-shadow: 0 4px 6px rgba(0,0,0,0.1);
   transition: transform 0.2s;
@@ -141,7 +141,7 @@
   align-items: center;
   background: var(--surface-color);
   padding: 16px 20px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   gap: 16px;
 }
 
@@ -170,8 +170,8 @@
   display: inline-block;
 }
 .col-assigned:hover {
-  border-color: rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.02);
+  border-color: var(--border-strong);
+  background: var(--surface-sunken);
 }
 
 .col-available {
@@ -282,10 +282,10 @@
 }
 .eb-input {
   background: rgba(0,0,0,0.2);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--border-strong);
   color: white;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 20px;
   text-align: center;
   width: 100%;
@@ -296,15 +296,15 @@
 }
 
 .add-widget-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 2px dashed rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+  background: var(--surface-raised);
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-panel);
   display: flex;
   align-items: center;
   transition: all 0.2s;
 }
 .add-widget-card:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   border-color: var(--primary-color);
   color: var(--primary-color);
 }
@@ -316,21 +316,21 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-input);
   transition: transform 0.2s;
 }
 
 .col-activity {
   padding: 4px 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
 }
 
 .rollover-toggle {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-input);
+  border: 1px solid var(--border-strong);
   color: var(--text-secondary);
   padding: 4px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -342,7 +342,7 @@
   white-space: nowrap;
 }
 .rollover-toggle:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-active);
 }
 .rollover-toggle.active {
   background: rgba(16, 185, 129, 0.1);
@@ -366,9 +366,11 @@
   position: absolute;
   cursor: pointer;
   top: 0; left: 0; right: 0; bottom: 0;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--surface-active);
   transition: .3s;
-  border-radius: 24px;
+  /* A pill, not a token radius: the track is 24px tall and must stay fully
+     rounded at that height. */
+  border-radius: 999px;
 }
 .toggle-slider:before {
   position: absolute;
@@ -390,8 +392,9 @@ input:checked + .toggle-slider:before {
 
 .move-direction-selector {
   display: flex;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 12px;
+  background: var(--surface-track);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
   padding: 4px;
   gap: 4px;
   position: relative;
@@ -404,7 +407,7 @@ input:checked + .toggle-slider:before {
   top: 4px;
   bottom: 4px;
   width: calc(50% - 6px);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 0;
 }
@@ -422,7 +425,7 @@ input:checked + .toggle-slider:before {
 .move-btn {
   flex: 1;
   padding: 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: none;
   background: transparent;
   color: var(--text-secondary);

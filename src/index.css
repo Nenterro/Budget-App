@@ -19,6 +19,67 @@
 
   /* Spacing */
   --safe-area-bottom: env(safe-area-inset-bottom, 20px);
+
+  /* ── Design tokens ────────────────────────────────────────────────────
+     Every surface, border, radius and control size in the app resolves to
+     one of these. They were previously spelled out as literals in fifteen
+     stylesheets, which is why two modals built a year apart looked like two
+     different apps: the same "card" was rgba(255,255,255,0.03) with an 8px
+     radius in one and rgba(0,0,0,0.2) with 24px in another.
+
+     Surfaces stack by depth: a panel holds raised cards, a card holds sunken
+     rows. Going deeper alternates lighter/darker rather than piling on more
+     of the same, so nesting stays readable. */
+  --surface-panel: rgba(28, 28, 36, 0.92);
+  --surface-raised: rgba(255, 255, 255, 0.04);
+  --surface-sunken: rgba(255, 255, 255, 0.02);
+  --surface-hover: rgba(255, 255, 255, 0.07);
+  --surface-active: rgba(255, 255, 255, 0.10);
+  --surface-input: rgba(255, 255, 255, 0.05);
+  /* The tinted track behind a segmented control, and code blocks. */
+  --surface-track: rgba(255, 255, 255, 0.03);
+  --surface-code: rgba(0, 0, 0, 0.25);
+  /* Menus and popovers float above the page, so they are opaque. */
+  --surface-popover: rgba(30, 30, 40, 0.98);
+
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  /* --border-color (0.08) is declared above and is the default divider. */
+  --border-strong: rgba(255, 255, 255, 0.12);
+
+  /* Radii scale by the size of what they wrap: rows and chips at the small
+     end, modal panels at the large end. */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-panel: 20px;
+
+  --control-height: 44px;
+  --icon-btn-size: 34px;
+  --icon-btn-size-sm: 30px;
+
+  /* Semantic colours. Expense/income keep their meaning everywhere — the
+     transaction form, the shared-expense modal and the charts all read from
+     these rather than repeating the hex. */
+  --expense-color: #ef4444;
+  --income-color: #10b981;
+  --warning-color: #f59e0b;
+
+  --shadow-panel: 0 16px 48px rgba(0, 0, 0, 0.45);
+  --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.4);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Names used across the app that were never actually declared anywhere.
+     Until now they resolved to nothing: the currency dropdown and the login
+     card had no background at all, and the "+" glyph on every Add card had no
+     colour. Kept as aliases rather than renamed at ~30 call sites. */
+  --bg-color: var(--bg-dark);
+  --bg-secondary: var(--bg-surface);
+  --surface-color: var(--surface-raised);
+  --primary-color: var(--accent-color);
+  --text-tertiary: var(--text-muted);
 }
 
 * {
@@ -90,13 +151,14 @@ body {
   }
 }
 
-/* Glassmorphism utility */
+/* Glassmorphism utility — the page-level card. Modal panels use the larger
+   --radius-panel; see the modal shell below. */
 .glass-panel {
   background: rgba(30, 30, 40, 0.7);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
 
@@ -110,9 +172,9 @@ body {
 }
 
 .glass-icon-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: 16px;
+  width: var(--control-height);
+  height: var(--control-height);
+  border-radius: var(--radius-xl);
   background: rgba(30, 30, 40, 0.7);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -176,9 +238,9 @@ body {
 
 .input-with-icon input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: var(--surface-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
   padding: 12px 12px 12px 40px;
   color: var(--text-primary);
   font-size: 15px;
@@ -189,4 +251,454 @@ body {
 .input-with-icon input:focus {
   border-color: var(--accent-color);
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Modal shell ─────────────────────────────────────────────────────────
+   The overlay, panel, header, body, footer and close button used to live in
+   AddTransactionModal.css. Every other modal referenced those class names
+   without owning them, so once modals were code-split into their own chunks
+   the pickers and confirm dialogs rendered unstyled unless the transaction
+   form's stylesheet happened to already be loaded. They belong here, where
+   they are always present, and defining them once is what makes the modals
+   look like one family. */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+}
+
+/* The panel. Sized by the modal that uses it; everything else is shared. */
+.modal-content {
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+  background: var(--surface-panel);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+/* .glass-panel is the page-level card treatment. On a modal root it used to
+   fight the panel styles above — same specificity, so whichever stylesheet
+   loaded last won and the radius changed depending on which modal you opened
+   first. The panel wins on a modal, always. */
+.modal-content.glass-panel {
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px 14px 20px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.modal-header h2,
+.modal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Header subtitle, for modals that name the record they are editing. */
+.modal-header-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
+.modal-header-titles h2 { font-size: 16px; }
+
+.modal-header-titles span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px 16px 20px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .modal-overlay { padding: 16px; }
+  .modal-header { padding: 16px 16px 12px 16px; }
+  .modal-body { padding: 14px 16px; }
+  .modal-footer { padding: 12px 16px 14px 16px; }
+}
+
+/* ── Icon buttons ────────────────────────────────────────────────────────
+   One shape for every icon-only button inside a surface: close, back, row
+   actions, calendar month arrows. These were a mix of 50%-round and squared,
+   32/34/36px, bordered and not — the single most visible inconsistency
+   between the older and newer modals. Circles are reserved for things that
+   are conceptually round, like calendar day cells. */
+.close-btn,
+.icon-btn-ghost {
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--surface-input);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.close-btn:hover:not(:disabled),
+.icon-btn-ghost:hover:not(:disabled) {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.icon-btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.icon-btn-ghost.small {
+  width: var(--icon-btn-size-sm);
+  height: var(--icon-btn-size-sm);
+  border-radius: var(--radius-sm);
+}
+
+.icon-btn-ghost.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--expense-color);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────
+   .modal-actions is the older footer row; it keeps working and now matches
+   .modal-footer. */
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.btn,
+.cancel-btn,
+.submit-btn,
+.primary-btn {
+  height: var(--control-height);
+  padding: 0 20px;
+  border-radius: var(--radius-lg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s, filter 0.2s, color 0.2s, transform 0.1s;
+}
+
+.btn-secondary,
+.cancel-btn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.btn-secondary:hover,
+.cancel-btn:hover {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.btn-primary,
+.submit-btn,
+.primary-btn {
+  background: var(--accent-gradient);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled),
+.submit-btn:hover:not(:disabled),
+.primary-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-primary:active:not(:disabled),
+.submit-btn:active:not(:disabled),
+.primary-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-primary:disabled,
+.submit-btn:disabled,
+.primary-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--expense-color);
+}
+
+.btn-danger:hover { background: rgba(239, 68, 68, 0.22); }
+
+/* ── Segmented control ───────────────────────────────────────────────────
+   The one toggle shape in the app: a tinted track holding pill segments.
+   Replaces the underline tabs in the filter modal and the ad-hoc pill rows
+   elsewhere, so a two-way and a three-way toggle read as the same control. */
+.segmented {
+  display: flex;
+  gap: 6px;
+  background: var(--surface-track);
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.segment {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 9px;
+  border-radius: 9px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  transition: background 0.2s, color 0.2s;
+}
+
+.segment.active {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.segment-count {
+  font-size: 11px;
+  background: var(--surface-active);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+/* ── Surfaces inside a panel ─────────────────────────────────────────────── */
+.surface-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+}
+
+.surface-row {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────
+   Declared once instead of re-stated in six stylesheets with three widths. */
+.modal-body::-webkit-scrollbar,
+.scroll-y::-webkit-scrollbar { width: 6px; }
+
+.modal-body::-webkit-scrollbar-track,
+.scroll-y::-webkit-scrollbar-track { background: transparent; }
+
+.modal-body::-webkit-scrollbar-thumb,
+.scroll-y::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover,
+.scroll-y::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* ── Picker list ─────────────────────────────────────────────────────────
+   The "choose a stat / graph / widget" lists. All three were separate: the
+   stat rows sat on a light surface and pulled an accent border on hover, the
+   graph rows sat on a dark one and pulled a grey border, and the icon was
+   padding-sized in one and a fixed 48px box in the other. Worse, both lived
+   in page stylesheets (Stats.css, Graphs.css) while the dashboard's picker
+   borrowed the stat classes without importing them — so that modal rendered
+   unstyled on the Dashboard, where Stats.css is not loaded. */
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.picker-item:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.picker-icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-active);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-color);
+  transition: background 0.2s, color 0.2s;
+}
+
+.picker-item:hover .picker-icon {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.picker-details {
+  min-width: 0;
+}
+
+.picker-details h4 {
+  margin: 0 0 3px 0;
+  color: var(--text-primary);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.picker-details p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Header badge for modals that lead with an icon (Manage Goals, and anywhere
+   else the title needs a glyph). Sized to sit level with the close button. */
+.modal-header-icon {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--accent-glow);
+  color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Page-level icon button ──────────────────────────────────────────────
+   The larger sibling of `.icon-btn-ghost`: same treatment, sized for a page
+   toolbar rather than a modal header. It used to live in Transactions.css,
+   which Budgets and Settings never import — so the buttons on those pages
+   were unstyled. */
+.icon-btn {
+  background: var(--surface-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.icon-btn.active-filter {
+  color: var(--accent-color);
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.4);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.icon-btn.active-filter svg {
+  filter: drop-shadow(0 0 4px var(--accent-color));
 }

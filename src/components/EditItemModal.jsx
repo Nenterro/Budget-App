@@ -44,13 +44,13 @@ export default function EditItemModal({ item, type, existingItems = [], onSave, 
 
   return (
     <ModalWrapper onClose={onClose}>
-      <div className="modal-content manage-modal glass-panel" onClick={e => e.stopPropagation()}>
+      <div className="modal-content manage-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{item.isNew ? 'Add' : 'Edit'} {type}</h2>
-          <button className="close-btn" onClick={onClose}><X size={24} /></button>
+          <button className="close-btn" onClick={onClose} type="button"><X size={20} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="manage-form">
+        <form id="edit-item-form" onSubmit={handleSubmit} className="manage-form">
           <div className="form-group">
             <label>Name</label>
             <input
@@ -92,11 +92,12 @@ export default function EditItemModal({ item, type, existingItems = [], onSave, 
             </div>
           )}
 
-          <div className="modal-actions">
-            <button type="button" className="cancel-btn" onClick={onClose}>Cancel</button>
-            <button type="submit" className="submit-btn bg-primary" disabled={!trimmed || isDuplicate} style={{ opacity: (!trimmed || isDuplicate) ? 0.5 : 1 }}>Save</button>
-          </div>
         </form>
+
+        <div className="modal-footer">
+          <button type="button" className="cancel-btn" onClick={onClose}>Cancel</button>
+          <button type="submit" form="edit-item-form" className="submit-btn" disabled={!trimmed || isDuplicate}>Save</button>
+        </div>
       </div>
     </ModalWrapper>
   );
