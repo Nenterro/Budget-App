@@ -6,6 +6,8 @@
 // module does the rest, on the device, and remembers each decision so the same
 // message next month needs no decision at all.
 
+import { todayString, toDayString } from './date';
+
 export const DEFAULT_AUTOMATION_RULES = {
   // "1234" -> account name
   accountByLast4: {},
@@ -419,10 +421,10 @@ export function draftToSuggestion(
 }
 
 function toDateInput(value) {
-  if (!value) return new Date().toISOString().substring(0, 10);
+  if (!value) return todayString();
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return new Date().toISOString().substring(0, 10);
-  return date.toISOString().substring(0, 10);
+  if (Number.isNaN(date.getTime())) return todayString();
+  return toDayString(date);
 }
 
 /** A short provenance line, so a transaction added this way can be recognised

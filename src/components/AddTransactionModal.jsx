@@ -7,6 +7,7 @@ import UnifiedCalendar from './UnifiedCalendar';
 import ModalWrapper from './ModalWrapper';
 import FieldPopover, { useIsMobile, TapField } from './FieldPopover';
 import { formatAmountInput, formatCurrency, getCurrencySymbol } from '../utils/format';
+import { todayString, dayToStoredDate } from '../utils/date';
 import { evalMath } from '../utils/math';
 import { generateId } from '../store/db';
 import './AddTransactionModal.css';
@@ -63,7 +64,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   const [category, setCategory] = useState('');
   const [payee, setPayee] = useState('');
   const [note, setNote] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().substring(0,10));
+  const [date, setDate] = useState(todayString());
   
   const [selectedAccount, setSelectedAccount] = useState(accounts.length > 0 ? accounts[0].name : '');
   const [selectedTransferTo, setSelectedTransferTo] = useState(accounts.length > 1 ? accounts[1].name : (accounts.length > 0 ? accounts[0].name : ''));
@@ -97,7 +98,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
     setCategory('');
     setPayee('');
     setNote('');
-    setDate(new Date().toISOString().substring(0,10));
+    setDate(todayString());
     setSelectedAccount(accts.length > 0 ? accts[0].name : '');
     setSelectedTransferTo(accts.length > 1 ? accts[1].name : (accts.length > 0 ? accts[0].name : ''));
     setReceivedAmount('');
@@ -124,7 +125,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
         setCategory(isTransfer ? '' : (initialData.category || ''));
         setPayee(isTransfer ? '' : (initialData.payee || ''));
         setNote(initialData.note || '');
-        setDate(initialData.date ? String(initialData.date).substring(0,10) : new Date().toISOString().substring(0,10));
+        setDate(initialData.date ? String(initialData.date).substring(0,10) : todayString());
         setSelectedAccount(initialData.account || (accountsRef.current.length > 0 ? accountsRef.current[0].name : ''));
         if (isTransfer) {
            setSelectedTransferTo(initialData.transferTo || initialData.transferAccount || (accountsRef.current.length > 1 ? accountsRef.current[1].name : ''));
@@ -258,7 +259,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       category: finalCat,
       payee: finalPayee,
       note: note,
-      date: new Date(date).toISOString(),
+      date: dayToStoredDate(date),
       account: selectedAccount,
       transferTo: transferAccount,
       currency: sourceCurrency,

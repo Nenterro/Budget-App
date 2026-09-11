@@ -15,6 +15,7 @@ import {
 } from '../utils/expenseShares';
 import { format, parseISO } from 'date-fns';
 import './ExpenseSharingModal.css';
+import { todayString } from '../utils/date';
 
 // Shared by both views and by the panel height animation below, so the
 // crossfade and the resize are the same length and the same curve.
@@ -22,7 +23,7 @@ const VIEW_TRANSITION = { duration: 0.28, ease: [0.16, 1, 0.3, 1] };
 const PANEL_RESIZE_MS = 280;
 const PANEL_RESIZE_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
-const today = () => new Date().toISOString().substring(0, 10);
+const today = () => todayString();
 const round2 = (n) => Math.round(n * 100) / 100;
 
 const formatDateShort = (value) => {

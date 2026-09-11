@@ -10,6 +10,7 @@ import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
 import FieldPopover, { useIsMobile, TapField } from './FieldPopover';
 import { useData } from '../context/DataContext';
+import { dayToStoredDate } from '../utils/date';
 import { useAutomationSettings } from '../context/SettingsContext';
 import { deleteDraft } from '../store/inbox';
 import {
@@ -207,7 +208,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
           category: 'Transfer',
           payee: `Transfer to ${to}`,
           note: valueFor(item, 'note'),
-          date: new Date(valueFor(item, 'date')).toISOString(),
+          date: dayToStoredDate(valueFor(item, 'date')),
           account: from,
           transferTo: to,
           currency: valueFor(item, 'currency'),
@@ -252,7 +253,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
           category,
           payee,
           note: valueFor(item, 'note'),
-          date: new Date(valueFor(item, 'date')).toISOString(),
+          date: dayToStoredDate(valueFor(item, 'date')),
           account,
           transferTo: null,
           currency: valueFor(item, 'currency'),
