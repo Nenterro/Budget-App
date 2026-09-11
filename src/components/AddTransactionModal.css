@@ -161,6 +161,21 @@
 
 /* Math Preview */
 .relative { position: relative; }
+
+/* The preview hangs 20px below the amount field rather than taking space in
+   the flow, so it relies on whatever sits underneath leaving the left side
+   free. A plain expense or income does: the Split/Share row underneath keeps
+   its controls hard right. Transfer has no such row — the From/To accounts
+   follow immediately — and in split or share mode that row gains a left-hand
+   counter. Both collided with the answer.
+
+   24px covers it: the preview drops 20px and the next row's floating label
+   overhangs its input by 9px, against the 12px the form's row gap already
+   gives, leaving a few pixels of breathing room. */
+.split-row.reserves-math-preview {
+  margin-bottom: 24px;
+}
+
 .math-preview {
   position: absolute;
   bottom: -20px;

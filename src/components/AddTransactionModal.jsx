@@ -370,7 +370,11 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
             <button type="button" className={`type-btn ${type === 2 ? 'transfer-active' : ''}`} onClick={() => handleTypeChange(2)}>Transfer</button>
           </div>
 
-          <div className="form-row split-row">
+          {/* The preview needs the left side under the amount field to itself.
+              Plain expense and income leave it free; transfer puts the From/To
+              accounts there, and split/share puts the "Split 1 of 2" counter
+              there. Reserve the clearance in those three. */}
+          <div className={`form-row split-row ${showPreview && (type === 2 || isSplit || isExpenseShare) ? 'reserves-math-preview' : ''}`}>
             <div className="form-group flex-2 relative">
               {amount && <label>Amount ({sourceCurrency})</label>}
               {isMobile ? (
