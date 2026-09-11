@@ -444,7 +444,12 @@ function buildNote(draft) {
 export function learnFromApproval(rules, draft, chosen) {
   const current = rules || DEFAULT_AUTOMATION_RULES;
   const parsed = draft?.parsed || {};
+  // Everything else in the rule set is carried over. Listing only the three
+  // maps an approval can touch meant the returned object *replaced* the rules
+  // in settings without them, and the self-labels typed in by hand — which no
+  // approval can teach — were wiped by the next approval.
   const next = {
+    ...current,
     accountByLast4: { ...current.accountByLast4 },
     payeeByMerchant: { ...current.payeeByMerchant },
     categoryByPayee: { ...current.categoryByPayee }

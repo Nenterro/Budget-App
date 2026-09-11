@@ -396,6 +396,15 @@ console.log('\n--- Learning from an approval ---');
   eq('correction overwrites', corrected.accountByLast4['1234'], 'Meezan 4321');
   check('original not mutated', learned.accountByLast4['1234'] === 'HBL Current');
 
+  // The self-labels are typed in by hand and no approval can teach them, so an
+  // approval that rewrites the rule set must carry them through. It did not:
+  // two names added on the settings page vanished at the next approval.
+  const withLabels = { ...DEFAULT_AUTOMATION_RULES, selfLabels: ['Huzaifa Sadeem', 'HUZAIFA S'] };
+  const afterLearning = learnFromApproval(withLabels, d, {
+    account: 'HBL Current', payee: 'Careem', category: 'Transport'
+  });
+  eq('self-labels survive an approval', afterLearning.selfLabels?.length, 2);
+
   // Partial information must not write junk rules.
   const noMerchant = learnFromApproval(DEFAULT_AUTOMATION_RULES, draft({ last4: '5555' }), {
     account: 'HBL Current', payee: 'Unspecified', category: ''
