@@ -72,8 +72,13 @@ Two things worth knowing before reaching for a rebuild:
   need `--build`.
 
 `budget-ingest` has `depends_on: pocketbase`, so rebuilding it recreates
-PocketBase too — a few seconds of database downtime. Worth mentioning to the
-user rather than springing on them.
+PocketBase too — a few seconds of database downtime.
+
+**Restarting and rebuilding the containers is pre-authorised.** A backend
+change is not live until you do, so finishing the edit means shipping it: run
+the restart or rebuild yourself rather than handing the user a command. Say
+what you ran and what it cost, and prefer the cheaper option when it will do —
+a template-only edit reloads without touching a container at all.
 
 To check what the running service actually thinks of a message, without
 storing anything:
