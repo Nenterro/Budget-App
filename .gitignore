@@ -28,3 +28,11 @@ dist-ssr
 test.json
 test_login.json
 test_account*.json
+
+# Backend. The ingest service lives solely on the home server, in
+# ~/Docker/budget-ingest, and deploys by editing there and rebuilding the
+# container - nothing about it reaches Vercel, so nothing about it needs to be
+# here. It was tracked until now, which gave it two copies: a fix landed in
+# this one in September and never reached the server, so the running parser
+# stayed three days stale and kept mis-reading outgoing RAAST transfers.
+/ingest/
