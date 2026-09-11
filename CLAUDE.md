@@ -44,8 +44,12 @@ outgoing RAAST transfers. It looked like a parser bug; it was a delivery bug.
 
 ## Working on the backend
 
-SSH to the home server (it is on the user's Tailscale network — ask for the
-address). Then:
+The SSH address, server paths, the public routing table and the common
+commands are in **`CLAUDE.local.md`**, which is gitignored because this repo is
+public. It loads automatically alongside this file. If it is missing — a fresh
+clone, a different machine — ask the user rather than guessing.
+
+Then:
 
 ```bash
 cd ~/Docker/budget-ingest

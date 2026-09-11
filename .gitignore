@@ -36,3 +36,7 @@ test_account*.json
 # this one in September and never reached the server, so the running parser
 # stayed three days stale and kept mis-reading outgoing RAAST transfers.
 /ingest/
+
+# Local context for Claude Code: SSH address, server paths, routing table.
+# The GitHub repo is public, so infrastructure detail stays out of it.
+CLAUDE.local.md
