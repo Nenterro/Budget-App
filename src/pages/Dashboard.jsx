@@ -13,11 +13,11 @@ const DashboardWidgetCard = lazy(() => import('../components/Dashboard/Dashboard
 import AddDashboardWidgetModal, { WIDGET_TYPES } from '../components/Dashboard/AddDashboardWidgetModal';
 import EditItemModal from '../components/EditItemModal';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
-import { startOfMonth, subMonths, endOfMonth, subDays, startOfYear, isAfter, isBefore, parseISO } from 'date-fns';
+import { resolvePeriodRange, isWithinRange, PERIODS } from '../utils/periodRange';
+import { parseDayLocal } from '../utils/date';
 import './Dashboard.css';
 import '../pages/Transactions.css'; // For top header styles
 
-const PERIODS = ['All Time', 'This Month', 'Last Month', 'Last 3 Months', 'This Year', 'Custom Range'];
 
 export default function Dashboard() {
   const { transactions, accounts, saveAccount, deleteAccount, categories, payees, budgets } = useData();
@@ -61,36 +61,11 @@ export default function Dashboard() {
     }
 
     let fullyResult = advancedResult;
-    const now = new Date();
-    let computedRange = { start: null, end: null };
-
-    if (selectedPeriod !== 'All Time') {
-      let start, end = now;
-      if (selectedPeriod === 'This Month') start = startOfMonth(now);
-      else if (selectedPeriod === 'Last Month') {
-        start = startOfMonth(subMonths(now, 1));
-        end = endOfMonth(subMonths(now, 1));
-      }
-      else if (selectedPeriod === 'Last 3 Months') start = subDays(now, 90);
-      else if (selectedPeriod === 'This Year') start = startOfYear(now);
-      else if (selectedPeriod === 'Custom Range' && customRange.start && customRange.end) {
-        start = new Date(customRange.start);
-        start.setHours(0, 0, 0, 0);
-        end = new Date(customRange.end);
-        end.setHours(23, 59, 59, 999);
-      }
-      computedRange = start ? { start, end } : { start: null, end: null };
-
-      // `start` is undefined when the period is Custom Range but no range has
-      // been picked yet; comparing against it filtered every transaction away
-      // and left the page blank. Boundaries are inclusive so a transaction
-      // dated on the first or last day of the range is kept.
-      if (start) {
-        fullyResult = advancedResult.filter(tx => {
-          const d = parseISO(tx.date);
-          return d >= start && d <= end;
-        });
-      }
+    // Whole-day, inclusive, and identical on every page — see
+    // src/utils/periodRange.js for why the end of a period is not `new Date()`.
+    const computedRange = resolvePeriodRange(selectedPeriod, customRange);
+    if (computedRange.start) {
+      fullyResult = advancedResult.filter(tx => isWithinRange(tx.date, computedRange));
     }
     return { fullyFiltered: fullyResult, advancedFiltered: advancedResult, currentRange: computedRange };
   }, [transactions, selectedPeriod, filterState, customRange]);
@@ -125,7 +100,7 @@ export default function Dashboard() {
     const endT = currentRange.end ? currentRange.end.getTime() : null;
 
     transactions.forEach(tx => {
-      const txTime = parseISO(tx.date).getTime();
+      const txTime = parseDayLocal(tx.date).getTime();
       if (!endT || txTime <= endT) {
         if (tx.splits && tx.splits.length > 0 && tx.type !== 2) {
           tx.splits.forEach(s => {

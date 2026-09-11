@@ -5,6 +5,7 @@ import { useAppearanceSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
 import { convertAmount } from '../../utils/exchange';
 import { getEffectiveReportingItems } from '../../utils/txAdjustments';
+import { parseDayLocal } from '../../utils/date';
 
 const calculateTotals = (rawTransactions, baseCurrency, exchangeRates, accounts) => {
   const transactions = getEffectiveReportingItems(rawTransactions);
@@ -318,7 +319,7 @@ export function RetainedSavings({ advancedFilteredTransactions, dateRange, accou
     let incomeInPeriod = 0;
     
     sorted.forEach(tx => {
-      const txTime = parseISO(tx.date).getTime();
+      const txTime = parseDayLocal(tx.date).getTime();
       
       if (startT && txTime < startT) {
         if (tx.type !== 2) { // 2 = transfer
@@ -364,7 +365,7 @@ export function RetainedSavingsRate({ advancedFilteredTransactions, dateRange, a
     let incomeInPeriod = 0;
     
     sorted.forEach(tx => {
-      const txTime = parseISO(tx.date).getTime();
+      const txTime = parseDayLocal(tx.date).getTime();
       
       if (startT && txTime < startT) {
         if (tx.type !== 2) { // 2 = transfer

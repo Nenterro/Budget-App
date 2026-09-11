@@ -7,14 +7,11 @@ import {
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
-import {
-  format, isToday, isYesterday, startOfMonth, subMonths, endOfMonth,
-  subDays, startOfYear, isAfter, isBefore, parseISO
-} from 'date-fns';
+import { format, isToday, isYesterday, parseISO } from 'date-fns';
+import { resolvePeriodRange, isWithinRange, PERIODS } from '../utils/periodRange';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import './Transactions.css';
 
-const PERIODS = ['All Time', 'This Month', 'Last Month', 'Last 3 Months', 'This Year', 'Custom Range'];
 
 const getCategoryDetails = (category, type) => {
   const cat = (category || '').toLowerCase();
@@ -91,37 +88,13 @@ export default function Transactions() {
     });
 
     let result = flattened;
-    const now = new Date();
 
-    // 1. Period Filter
-    if (selectedPeriod !== 'All Time') {
-      let start, end = now;
-      if (selectedPeriod === 'This Month') start = startOfMonth(now);
-      else if (selectedPeriod === 'Last Month') {
-        start = startOfMonth(subMonths(now, 1));
-        end = endOfMonth(subMonths(now, 1));
-      }
-      else if (selectedPeriod === 'Last 3 Months') start = subDays(now, 90);
-      else if (selectedPeriod === 'This Year') start = startOfYear(now);
-      else if (selectedPeriod === 'Custom Range' && customRange.start && customRange.end) {
-        start = new Date(customRange.start);
-        start.setHours(0, 0, 0, 0);
-        end = new Date(customRange.end);
-        end.setHours(23, 59, 59, 999);
-      }
-
-      // `start` is undefined when the period is Custom Range but no range has
-      // been picked yet; comparing against it filtered every transaction away
-      // and left the list empty. Boundaries are inclusive so a transaction
-      // dated on the first or last day of the range is kept.
-      if (start) {
-        result = result.filter(tx => {
-          const d = parseISO(tx.date);
-          return d >= start && d <= end;
-        });
-      }
+    // 1. Period Filter — whole-day and inclusive on both ends, shared with the
+    // other pages. See src/utils/periodRange.js.
+    const periodRange = resolvePeriodRange(selectedPeriod, customRange);
+    if (periodRange.start) {
+      result = result.filter(tx => isWithinRange(tx.date, periodRange));
     }
-
     // 2. Search Filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();

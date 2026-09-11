@@ -9,6 +9,7 @@ import { useAppearanceSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
 import { convertAmount } from '../../utils/exchange';
 import { getEffectiveReportingItems } from '../../utils/txAdjustments';
+import { parseDayLocal, dayStringOf } from '../../utils/date';
 
 const formatCompactCurrency = (amount, currencyCode) => {
   return new Intl.NumberFormat('en-US', {
@@ -98,7 +99,7 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
     const dailyChanges = {};
     sorted.forEach(tx => {
       if (tx.type === 2) return; 
-      const dayKey = format(parseISO(tx.date), 'yyyy-MM-dd');
+      const dayKey = dayStringOf(tx.date);
       let txCurrency = tx.currency;
       if (!txCurrency) {
         const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
@@ -112,7 +113,7 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
     });
 
     // Start with the earliest transaction
-    const firstDate = startOfDay(parseISO(sorted[0].date));
+    const firstDate = parseDayLocal(sorted[0].date);
     const today = startOfDay(new Date());
     const totalDays = differenceInDays(today, firstDate);
 
