@@ -281,6 +281,7 @@ async function syncSettingsStore() {
       setSettingsPbId(remote.id);
 
       let finalRemote = null;
+      let needsUnlock = false;
 
       if (remote.encrypted_payload && e2eeEnabled && isUnlocked()) {
         try {
@@ -289,18 +290,43 @@ async function syncSettingsStore() {
           finalRemote = decrypted;
         } catch (err) {
           console.error('Failed to decrypt remote settings:', err);
+          needsUnlock = true;
         }
       } else if (!remote.encrypted_payload) {
         finalRemote = { ...remote, id: 'appsettings1234' };
-      } else if (remote.encrypted_payload && !e2eeEnabled) {
-        // Remote is encrypted but local says E2EE is off — trust the remote: E2EE is on
-        // We can't decrypt yet, but we mark it so the caller knows to prompt PIN
-        finalRemote = { ...remote, id: 'appsettings1234' };
+      } else if (remote.encrypted_payload) {
+        // Encrypted remote that this device cannot read yet — either E2EE is
+        // off locally (so the PIN has never been entered here) or the session
+        // is locked.
+        //
+        // What must NOT happen is copying the record down anyway. A pushed
+        // encrypted record carries its plaintext columns blanked, so `config`
+        // is "": writing that over local settings read back as every setting
+        // reset to its default, and the next save then pushed those defaults
+        // up as plaintext, destroying the real settings on the server too.
+        //
+        // Leave local alone and record that a PIN is needed. Nothing is lost:
+        // the pull runs again once the session is unlocked.
+        needsUnlock = true;
+      }
+
+      if (needsUnlock) {
+        setSyncState({
+          lastError: 'Settings on the server are encrypted and this device is locked. Enter your PIN to sync them.'
+        });
       }
 
       if (finalRemote) {
         const local = await store.getItem('appsettings1234');
-        if (!local || new Date(remote.updated) > new Date(local.updatedAt || 0)) {
+        // A local record still waiting to be pushed is the newer one whatever
+        // the clocks say, and PHASE 2 below is about to send it. Overwriting it
+        // here — and clearing its pendingSync flag — is how a change to the
+        // theme, the graph list or the detection rules was silently dropped:
+        // PHASE 2 then found nothing pending and pushed nothing. The data
+        // stores have always had this guard; settings did not.
+        const localIsUnpushed = !!local?.pendingSync;
+        const remoteIsNewer = !local || new Date(remote.updated) > new Date(local.updatedAt || 0);
+        if (!localIsUnpushed && remoteIsNewer) {
           const merged = { ...local, ...finalRemote, id: 'appsettings1234', pendingSync: false, updatedAt: remote.updated };
           await store.setItem('appsettings1234', merged);
         }
@@ -337,22 +363,52 @@ async function syncSettingsStore() {
 
       try {
         const pbId = getSettingsPbId();
+        let pushed;
         if (pbId) {
-          // Update existing remote record
-          await pb.collection(collectionName).update(pbId, syncPayload);
+          try {
+            // Update existing remote record
+            pushed = await pb.collection(collectionName).update(pbId, syncPayload);
+          } catch (err) {
+            // The mapping is a localStorage id pointing at a server record. If
+            // that record is gone — the server's data was reset, or the row was
+            // removed — every push 404s and is retried forever against an id
+            // that will never exist again, so nothing in settings ever syncs
+            // while the app reports no problem. Drop the stale mapping and
+            // create the record afresh.
+            if (err?.status !== 404) throw err;
+            localStorage.removeItem('BUDGET_SETTINGS_PB_ID');
+            pushed = await pb.collection(collectionName).create(syncPayload);
+            setSettingsPbId(pushed.id);
+          }
         } else {
           // Create new remote record
-          const created = await pb.collection(collectionName).create(syncPayload);
-          setSettingsPbId(created.id);
+          pushed = await pb.collection(collectionName).create(syncPayload);
+          setSettingsPbId(pushed.id);
         }
-        localSettings.pendingSync = false;
-        await store.setItem('appsettings1234', localSettings);
+        // Stamp the record with the server's own `updated` value. Leaving the
+        // local browser timestamp behind made the very next pull think the
+        // remote copy was newer than the one that had just produced it.
+        const current = await store.getItem('appsettings1234');
+        // Anything saved while the push was in flight is newer than what was
+        // sent, so it keeps its pending flag and goes out on the next pass.
+        if (current && current.updatedAt === localSettings.updatedAt) {
+          await store.setItem('appsettings1234', {
+            ...current,
+            pendingSync: false,
+            updatedAt: pushed?.updated || current.updatedAt
+          });
+        }
       } catch (err) {
+        // Settings hold the theme, the graph and stat lists and the detection
+        // rules. A push that fails here has to surface, or the app reports
+        // "synced" while none of them are leaving the device.
         console.error('PB Settings Push Error:', err);
+        throw err;
       }
     }
   } catch (error) {
     console.error('Settings Sync Error:', error);
+    throw error;
   }
 }
 
@@ -743,6 +799,10 @@ function buildHandler(coll, stores, onUpdate) {
           // Don't delete local settings on remote delete events
           return;
         }
+        // Same rule as below: an edit made here that has not been pushed is
+        // newer than the delete that crossed it.
+        const localItem = await store.getItem(e.record.id);
+        if (localItem?.pendingSync) return;
         await store.removeItem(e.record.id);
       } else {
         let finalRecord = e.record;
@@ -759,15 +819,27 @@ function buildHandler(coll, stores, onUpdate) {
           }
         }
 
+        // A realtime event is a *snapshot of the server*, and the server is
+        // behind whenever this device is holding something it has not pushed.
+        // Applying one regardless — and clearing pendingSync while doing it —
+        // meant the echo of your own push could land after you had already
+        // made the next change: that change was overwritten, its pending flag
+        // cleared, and the sync pass that would have sent it then found
+        // nothing to do. Changing two settings in quick succession lost the
+        // second one on both this device and the server.
+        //
+        // So a pending local record always wins here; the next push settles it.
         if (coll === 'settings') {
           // Map remote settings to local fixed key
           setSettingsPbId(e.record.id);
           const localKey = 'appsettings1234';
           const localItem = await store.getItem(localKey);
+          if (localItem?.pendingSync) return;
           const merged = { ...localItem, ...finalRecord, id: localKey, pendingSync: false, updatedAt: e.record.updated };
           await store.setItem(localKey, merged);
         } else {
           const localItem = await store.getItem(e.record.id);
+          if (localItem?.pendingSync) return;
           const merged = { ...localItem, ...finalRecord, pendingSync: false, updatedAt: e.record.updated };
           await store.setItem(merged.id, merged);
         }

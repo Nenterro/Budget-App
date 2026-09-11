@@ -1,6 +1,14 @@
 // Fake PocketBase: one shared in-memory "server" across all client instances,
 // so two clients in the same process behave like two devices.
-export const SERVER = { collections: {}, seq: 0, log: [] };
+export const SERVER = { collections: {}, seq: 0, log: [], subscribers: {} };
+
+// Deliver a realtime event the way PocketBase would, to whatever the app has
+// subscribed. Tests drive this by hand so the ordering that matters — an echo
+// of your own push landing after you have edited again — is reproducible.
+export function emit(collection, action, record) {
+  const subs = SERVER.subscribers[collection] || [];
+  return Promise.all(subs.map(cb => cb({ action, record: JSON.parse(JSON.stringify(record)) })));
+}
 
 function coll(name) {
   if (!SERVER.collections[name]) SERVER.collections[name] = new Map();
@@ -90,7 +98,15 @@ export default class PocketBase {
         SERVER.log.push(['delete', name, id]);
         return true;
       },
-      async subscribe() { return async () => {}; },
+      async subscribe(_topic, cb) {
+        if (!SERVER.subscribers[name]) SERVER.subscribers[name] = [];
+        SERVER.subscribers[name].push(cb);
+        return async () => {
+          const list = SERVER.subscribers[name] || [];
+          const i = list.indexOf(cb);
+          if (i >= 0) list.splice(i, 1);
+        };
+      },
       async unsubscribe() {},
     };
   }
