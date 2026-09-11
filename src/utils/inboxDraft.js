@@ -115,6 +115,37 @@ function tokenContainment(x, y) {
   return distinctive ? 0.9 : 0;
 }
 
+// Below this length a despaced hit stops meaning anything: short names and
+// acronyms start finding each other inside longer unrelated ones.
+const DESPACED_MIN_LENGTH = 6;
+
+/**
+ * The same containment test with the spaces taken out: "Ali Express" against
+ * "Aliexpress.com Luxembourg Lu".
+ *
+ * Word-level containment cannot see through a split word, because `ali` and
+ * `express` are not tokens of `aliexpress`, and the character fallback is
+ * dragged under the threshold by whatever corporate tail the bank appends —
+ * that pair scored 0.457 against a 0.62 bar. Local brands are written both
+ * ways constantly: SadaPay / Sada Pay, JazzCash / Jazz Cash.
+ */
+function despacedContainment(x, y) {
+  const a = x.replace(/ /g, '');
+  const b = y.replace(/ /g, '');
+  const xIsShorter = a.length <= b.length;
+  const [shorter, longer] = xIsShorter ? [a, b] : [b, a];
+
+  if (shorter.length < DESPACED_MIN_LENGTH) return 0;
+  if (!longer.includes(shorter)) return 0;
+
+  // Long enough to clear the bar but made only of words every bank shares -
+  // "credit card" inside "credit card account" identifies nothing.
+  const words = (xIsShorter ? x : y).split(' ').filter(Boolean);
+  if (words.every(word => GENERIC_NAME_WORDS.has(word))) return 0;
+
+  return 0.9;
+}
+
 /** 0..1 similarity between two names. Exported for testing. */
 export function similarity(a, b) {
   const x = normaliseName(a);
@@ -124,6 +155,11 @@ export function similarity(a, b) {
 
   const contained = tokenContainment(x, y);
   if (contained) return contained;
+
+  // Then the same test ignoring word boundaries, which the two names may
+  // simply disagree about.
+  const despaced = despacedContainment(x, y);
+  if (despaced) return despaced;
 
   // A shared distinctive word is strong evidence — "Askari Bank" against
   // "Askari Current" — provided it is not a word every bank name contains.

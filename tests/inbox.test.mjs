@@ -78,6 +78,22 @@ console.log('\n--- Fuzzy name matching ---');
   check('unrelated names score low',
     similarity('Meezan Bank', 'Wise USD') < 0.55,
     String(similarity('Meezan Bank', 'Wise USD')));
+
+  // A word boundary the two names disagree about. Matching on whole words
+  // alone, these scored 0.457 against a 0.62 bar, so every AliExpress charge
+  // arrived unmapped.
+  check('split word still matches',
+    similarity('Ali Express', 'Aliexpress.com Luxembourg Lu') >= 0.85,
+    String(similarity('Ali Express', 'Aliexpress.com Luxembourg Lu')));
+  check('local brands written both ways',
+    similarity('Sada Pay', 'SadaPay Card') >= 0.85,
+    String(similarity('Sada Pay', 'SadaPay Card')));
+
+  // The guard on that: a short name inside a longer unrelated word is a
+  // coincidence. "Wise" is in "Bitwise" the way "Ali" is in "Alibaba".
+  check('short name not matched inside a longer word, spaces or not',
+    similarity('Wise', 'Bitwise Systems') < 0.55,
+    String(similarity('Wise', 'Bitwise Systems')));
 }
 
 console.log('\n--- Fuzzy account lookup ---');
@@ -116,6 +132,12 @@ console.log('\n--- Fuzzy payee matching ---');
   check('short name not matched inside a longer word',
     fuzzyFindPayee('Alibaba Group', [{ name: 'Ali' }], []) === null,
     String(similarity('Alibaba Group', 'Ali')));
+
+  // End to end on the real case: the filed payee has a space, the card
+  // statement does not, and a corporate tail pads out the rest.
+  eq('split-word brand finds its payee',
+    fuzzyFindPayee('Aliexpress.com Luxembourg Lu', [{ name: 'Ali Express' }], []),
+    'Ali Express');
 
   eq('unrelated merchant matches nothing',
     fuzzyFindPayee('METRO CASH CARRY', people, []), null);
