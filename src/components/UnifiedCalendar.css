@@ -1,11 +1,15 @@
-/* Single-date picker: deliberately compact. This is the one embedded in the
-   Add Transaction form, where a wide calendar just crowds the modal.
+/* Single-date picker. It opens in its own overlay rather than inside the modal
+   that asked for it, so nothing but this width has ever constrained it — it
+   simply looked boxed-in because 340px happens to be about the width of the
+   transaction form behind it. The width now follows `--modal-w-cal`, which
+   steps up on wider screens (see index.css); the day cells are square, so the
+   grid grows with it and the dates become properly clickable targets.
 
    Panel chrome (background, border, radius, shadow) comes from the shared
    `.modal-content` shell in index.css; ModalWrapper animates it in, so the
    local scaleIn keyframe that used to run on top of that is gone. */
 .unified-calendar {
-  max-width: 340px;
+  max-width: var(--modal-w-cal);
   /* A six-row month must never push the Done button off a short screen. */
   max-height: calc(100dvh - 48px);
 }
@@ -223,8 +227,23 @@
 }
 
 /* ── Larger screens ─────────────────────────────────────────────────────
-   Only range mode grows. The single-date picker stays compact — it is used
-   inside other modals, where a 500px calendar looks wrong. */
+   Both modes grow; the width itself comes from the tokens in index.css. What
+   is left here is the typography and spacing that should grow with it — a
+   14px date sitting in a 56px cell reads as a mistake. */
+@media (min-width: 1024px) {
+  .unified-calendar .calendar-main { padding: 24px; }
+  .calendar-header h3 { font-size: 18px; }
+  .calendar-grid { gap: 10px; }
+  .cal-day { font-size: 15px; }
+  .cal-day-name { font-size: 14px; }
+}
+
+@media (min-width: 1440px) {
+  .unified-calendar .calendar-main { padding: 28px; }
+  .calendar-header h3 { font-size: 19px; }
+  .cal-day { font-size: 16px; }
+}
+
 @media (min-width: 769px) {
   .unified-calendar.range-mode {
     max-width: 720px;

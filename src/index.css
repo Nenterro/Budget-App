@@ -59,6 +59,22 @@
   --icon-btn-size: 34px;
   --icon-btn-size-sm: 30px;
 
+  /* ── Modal widths ─────────────────────────────────────────────────────
+     Tokens rather than literals in each modal's own stylesheet, for two
+     reasons. They keep the family sized consistently — a filter panel and a
+     transaction form should not differ by 60px for no reason — and, because
+     a custom property is resolved where it is *used*, the desktop steps
+     below apply no matter which order the code-split chunks load in. A
+     plain `max-width` override in this file would lose to a lazily loaded
+     component stylesheet that happened to arrive after it.
+
+     Four sizes: the single-date calendar, the transaction form, the filter
+     panel, and the two-pane modals (shared expenses, the review queue). */
+  --modal-w-cal: 340px;
+  --modal-w-sm: 440px;
+  --modal-w-md: 500px;
+  --modal-w-lg: 560px;
+
   /* Semantic colours. Expense/income keep their meaning everywhere — the
      transaction form, the shared-expense modal and the charts all read from
      these rather than repeating the hex. */
@@ -80,6 +96,39 @@
   --surface-color: var(--surface-raised);
   --primary-color: var(--accent-color);
   --text-tertiary: var(--text-muted);
+}
+
+/* Modals grow with the screen. Below 1024px they keep the sizes above, which
+   are the ones phones and tablets want; above it there is real estate going
+   spare and a form squeezed into 440px on a 27" display just looks lost. The
+   cap is deliberate — a line of input longer than about 700px is harder to
+   scan, not easier — so these widen the panel to use the space without
+   letting any single column run away. */
+@media (min-width: 1024px) {
+  :root {
+    --modal-w-cal: 400px;
+    --modal-w-sm: 540px;
+    --modal-w-md: 620px;
+    --modal-w-lg: 720px;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --modal-w-cal: 440px;
+    --modal-w-sm: 600px;
+    --modal-w-md: 700px;
+    --modal-w-lg: 840px;
+  }
+}
+
+@media (min-width: 1920px) {
+  :root {
+    --modal-w-cal: 480px;
+    --modal-w-sm: 660px;
+    --modal-w-md: 760px;
+    --modal-w-lg: 920px;
+  }
 }
 
 * {
@@ -278,7 +327,7 @@ body {
 /* The panel. Sized by the modal that uses it; everything else is shared. */
 .modal-content {
   width: 100%;
-  max-width: 480px;
+  max-width: var(--modal-w-md);
   max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;

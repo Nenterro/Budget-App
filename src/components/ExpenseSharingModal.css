@@ -1,6 +1,6 @@
 /* Panel chrome comes from the shared `.modal-content` shell in index.css. */
 .expense-sharing-modal {
-  max-width: 560px;
+  max-width: var(--modal-w-lg);
 }
 
 .es-view-container {

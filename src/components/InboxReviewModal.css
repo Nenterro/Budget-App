@@ -9,7 +9,7 @@
 
 /* Panel chrome comes from the shared `.modal-content` shell in index.css. */
 .inbox-modal {
-  max-width: 560px;
+  max-width: var(--modal-w-lg);
 }
 
 .ib-view {

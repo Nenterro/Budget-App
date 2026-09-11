@@ -9,7 +9,7 @@
    whichever component happened to render after it. */
 
 .filter-modal {
-  max-width: 500px;
+  max-width: var(--modal-w-md);
   /* dvh: vh includes the area behind the mobile browser chrome, so 85vh could
      still exceed what is actually visible. */
   max-height: calc(100dvh - 32px);

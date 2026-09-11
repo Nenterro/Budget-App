@@ -4,7 +4,7 @@
 
 .tx-form-modal {
   width: 100%;
-  max-width: 440px;
+  max-width: var(--modal-w-sm);
   /* Split mode and share mode add a whole carousel to the form, which on a
      phone made the panel taller than the screen with nothing to scroll. The
      panel is now capped to the viewport and the form scrolls inside it, so the
