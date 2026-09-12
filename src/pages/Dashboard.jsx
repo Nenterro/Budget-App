@@ -14,7 +14,7 @@ import AddDashboardWidgetModal, { WIDGET_TYPES } from '../components/Dashboard/A
 import EditItemModal from '../components/EditItemModal';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
 import { resolvePeriodRange, isWithinRange, PERIODS } from '../utils/periodRange';
-import { parseDayLocal } from '../utils/date';
+import { computeBalances } from '../utils/balances';
 import './Dashboard.css';
 import '../pages/Transactions.css'; // For top header styles
 
@@ -75,93 +75,12 @@ export default function Dashboard() {
   // Shown on the filter modal's amount fields instead of a hardcoded $.
   const filterCurrencySymbol = getCurrencySymbol(baseCurrency);
 
-  // Balances calculation (Stock metric up to currentRange.end)
-  const { totalBalance, accountBalances, splitBalances } = useMemo(() => {
-    let total = 0;
-    const split = {}; // for Native Split mode
-    const accBalances = {};
-
-    if (accounts) {
-      accounts.forEach(acc => {
-        const cur = acc.currency || 'USD';
-        const initBal = Number(acc.initialBalance) || 0;
-        accBalances[acc.name] = { ...acc, currentBalance: initBal };
-
-        const rate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
-        const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
-        const converted = (initBal / rate) * baseRate;
-        total += converted;
-
-        if (!split[cur]) split[cur] = 0;
-        split[cur] += initBal;
-      });
-    }
-
-    const endT = currentRange.end ? currentRange.end.getTime() : null;
-
-    transactions.forEach(tx => {
-      const txTime = parseDayLocal(tx.date).getTime();
-      if (!endT || txTime <= endT) {
-        if (tx.splits && tx.splits.length > 0 && tx.type !== 2) {
-          tx.splits.forEach(s => {
-            const acc = accounts?.find(a => a.name === s.account);
-            const cur = acc ? (acc.currency || 'USD') : 'USD';
-            const rate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
-            const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
-            const converted = (s.amount / rate) * baseRate;
-            total += converted;
-
-            if (!split[cur]) split[cur] = 0;
-            split[cur] += s.amount;
-
-            if (accBalances[s.account]) {
-              accBalances[s.account].currentBalance += s.amount;
-            }
-          });
-        } else {
-          const acc = accounts?.find(a => a.name === tx.account);
-          const cur = acc ? (acc.currency || 'USD') : 'USD';
-
-          if (tx.type !== 2) { // Income/Expense
-            const rate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
-            const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
-            const converted = (tx.amount / rate) * baseRate;
-            total += converted;
-
-            if (!split[cur]) split[cur] = 0;
-            split[cur] += tx.amount;
-          } else if (tx.type === 2) { // Transfer
-            const destAcc = accounts?.find(a => a.name === tx.transferTo);
-            const destCur = destAcc ? (destAcc.currency || 'USD') : 'USD';
-            const destAmt = tx.receivedAmount || Math.abs(tx.amount);
-
-            const srcRate = exchangeRates && exchangeRates[cur] ? exchangeRates[cur] : 1;
-            const destRate = exchangeRates && exchangeRates[destCur] ? exchangeRates[destCur] : 1;
-            const baseRate = exchangeRates && exchangeRates[baseCurrency] ? exchangeRates[baseCurrency] : 1;
-
-            total += (tx.amount / srcRate) * baseRate; // source amount (negative)
-            total += (destAmt / destRate) * baseRate; // destination amount (positive)
-
-            if (!split[cur]) split[cur] = 0;
-            split[cur] += tx.amount;
-
-            if (!split[destCur]) split[destCur] = 0;
-            split[destCur] += destAmt;
-
-            if (accBalances[tx.transferTo]) {
-              accBalances[tx.transferTo].currentBalance += destAmt;
-            }
-          }
-
-          if (accBalances[tx.account]) {
-            accBalances[tx.account].currentBalance += tx.amount;
-          }
-        }
-      }
-    });
-
-    return { totalBalance: total, accountBalances: Object.values(accBalances), splitBalances: split };
-  }, [transactions, accounts, currentRange, baseCurrency, exchangeRates]);
+  // No date range here, deliberately — see src/utils/balances.js. The period
+  // picker and the filters above drive the widgets below, not the balances.
+  const { totalBalance, accountBalances, splitBalances } = useMemo(
+    () => computeBalances({ transactions, accounts, baseCurrency, exchangeRates }),
+    [transactions, accounts, baseCurrency, exchangeRates]
+  );
 
 
 
