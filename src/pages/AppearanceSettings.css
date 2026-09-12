@@ -1,7 +1,13 @@
+/* Same reasoning as `.manage-data-page` in ManageData.css: scroll with the
+   app shell, and drop the bottom-nav clearance that no settings route needs. */
 .appearance-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  min-height: 100%;
+}
+
+.appearance-page::after {
+  display: none !important;
 }
 
 .appearance-header {

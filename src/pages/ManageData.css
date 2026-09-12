@@ -1,7 +1,18 @@
+/* The settings sub-pages scroll with the app shell like every other page.
+   They used to be a nested scroller - a page box locked to one viewport with
+   `.manage-content` scrolling inside it - which on a phone left the long
+   screens (Detection Rules especially) clipped well short of the bottom of
+   the display, with the last rules unreachable. */
 .manage-data-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  min-height: 100%;
+}
+
+/* No bottom nav on a settings route, so the shared clearance the page
+   container adds for it is dead space at the end of the screen. */
+.manage-data-page::after {
+  display: none !important;
 }
 
 .manage-header {
@@ -40,7 +51,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overflow-y: auto;
+  padding-bottom: 24px;
 }
 
 .add-item-btn {
