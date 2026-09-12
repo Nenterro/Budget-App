@@ -279,18 +279,22 @@ async function syncSettingsStore() {
       return;
     }
 
-    // ── Has this device ever seen the server's settings? ──
+    // ── Has this device ever READ the server's settings? ──
     //
     // It matters because the local settings object is always a full snapshot
-    // built on top of DEFAULT_SETTINGS. Before the first pull it is a guess,
-    // not an edit — and pushing a guess replaces every real preference on the
-    // account with a default. A device that has pulled before is different:
-    // its record is the server's state plus whatever has been changed since,
-    // so an unpushed change on it genuinely is the newer one.
+    // built on top of DEFAULT_SETTINGS. Before the first successful pull it is
+    // a guess, not an edit — and pushing a guess replaces every real
+    // preference on the account with a default. A device that has pulled
+    // before is different: its record is the server's state plus whatever has
+    // been changed since, so an unpushed change on it genuinely is newer.
     //
-    // The stored record id is the evidence, read before the pull overwrites
-    // it: this device only holds it because it has synced that exact record.
-    const knownPbId = getSettingsPbId();
+    // `serverSeen` is set on the local record at the moment its contents come
+    // down, and nowhere else. It replaces an earlier attempt that used the
+    // stored PocketBase record id as the evidence — that was set merely on
+    // finding the record exists, which a locked device does on its very first
+    // pass without being able to read a byte of it. By the time the PIN
+    // arrived the device looked reconciled, the pull was skipped, and the
+    // half-formed startup record was pushed over the account.
 
     // Whether PHASE 2 is allowed to push. A confirmed-empty collection is the
     // one case where an unreconciled local record is safe to send: there is
@@ -341,7 +345,7 @@ async function syncSettingsStore() {
 
       if (finalRemote) {
         const local = await store.getItem('appsettings1234');
-        const hasSeenServer = knownPbId === remote.id;
+        const hasSeenServer = local?.serverSeen === true;
 
         // An unpushed local change wins over the server, but only on a device
         // that has pulled this record before. Otherwise the "change" is just
@@ -366,6 +370,7 @@ async function syncSettingsStore() {
             config: mergedConfig,
             id: 'appsettings1234',
             pendingSync: false,
+            serverSeen: true,
             updatedAt: remote.updated
           };
           await store.setItem('appsettings1234', merged);
@@ -440,6 +445,7 @@ async function syncSettingsStore() {
           await store.setItem('appsettings1234', {
             ...current,
             pendingSync: false,
+            serverSeen: true,
             updatedAt: pushed?.updated || current.updatedAt
           });
         }
@@ -880,7 +886,9 @@ function buildHandler(coll, stores, onUpdate) {
           const localKey = 'appsettings1234';
           const localItem = await store.getItem(localKey);
           if (localItem?.pendingSync) return;
-          const merged = { ...localItem, ...finalRecord, id: localKey, pendingSync: false, updatedAt: e.record.updated };
+          // Its contents are in hand, so this counts as having read the
+          // server — the same thing a pull establishes.
+          const merged = { ...localItem, ...finalRecord, id: localKey, pendingSync: false, serverSeen: true, updatedAt: e.record.updated };
           await store.setItem(localKey, merged);
         } else {
           const localItem = await store.getItem(e.record.id);

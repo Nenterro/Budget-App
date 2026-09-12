@@ -193,11 +193,11 @@ check('and writes no half-formed settings locally', (await local()) === null,
 
 // Then the startup write DataContext makes once it spots encrypted data on
 // the server. It lands before any pull.
-lockSession();
-await db.settingsStore.clear();
-// A new device has no record id mapping either — that only exists because a
-// device has synced that exact record before.
-localStorage.removeItem('BUDGET_SETTINGS_PB_ID');
+//
+// Nothing is cleared here on purpose. The locked pass above has already run
+// against this server, and whatever it left behind is what the next pass
+// actually sees — clearing it by hand would be testing a device that does not
+// exist, and would hide anything that pass records on the way through.
 await db.settingsStore.setItem(KEY, {
   id: KEY,
   config: { security: { e2eeEnabled: true, hasPromptedE2ee: true } },
