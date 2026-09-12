@@ -7,6 +7,7 @@
 
 import * as db from '../src/store/db.js';
 import { pb, syncAll, setupRealtimeSync } from '../src/store/sync.js';
+import { deriveKey, lockSession, decryptPayload } from '../src/utils/crypto.js';
 import { SERVER, emit } from './mocks/pocketbase.js';
 
 let failed = 0;
@@ -147,6 +148,92 @@ check('the record was recreated rather than retried forever',
       remote()?.config?.appearance?.theme === 'slate',
       `remote: ${JSON.stringify(remote() && { id: remote().id, theme: remote().config?.appearance?.theme })}`);
 check('and it is no longer pending locally', (await local()).pendingSync === false);
+
+console.log('\n--- A brand new device must read the server, not overwrite it ---');
+// The sequence that wipes an account. On a fresh device the local settings
+// record does not exist, so anything the app writes before the first pull is
+// built on DEFAULT_SETTINGS — a guess, not an edit. DataContext writes exactly
+// such a record at startup (it flips e2eeEnabled after spotting encrypted data
+// on the server), and it carries pendingSync. If that counts as "an unpushed
+// edit that wins over the server", the push replaces every real setting with
+// defaults, for every device on the account.
+SERVER.collections.settings.clear();
+localStorage.removeItem('BUDGET_SETTINGS_PB_ID');
+await db.settingsStore.clear();
+
+// Device A has a fully configured account on the server.
+const established = cfg({
+  appearance: { theme: 'ocean', baseCurrency: 'PKR', displayMode: 'split' },
+  graphs: { active: [{ id: 'g1', type: 'balance_over_time' }] },
+  stats: { active: [{ id: 's1', type: 'burn_rate' }] },
+  automation: { accountByLast4: { '9876': 'Meezan' }, payeeByMerchant: {}, categoryByPayee: {}, selfLabels: ['Huzaifa'] }
+});
+await saveSettings(established);
+await syncAll();
+check('device A is set up on the server', remote()?.config?.graphs?.active?.length === 1);
+
+// ...encrypted, as the app stores it.
+await deriveKey('1234');
+await saveSettings({ ...established, security: { e2eeEnabled: true, hasPromptedE2ee: true } });
+await syncAll();
+check('the server holds ciphertext', !!remote()?.encrypted_payload);
+
+// Device B, very first boot: nothing local at all, and locked. This is the
+// pass that runs before the app has written anything, so local settings do not
+// even claim E2EE is on — the code cannot take the locked-and-known shortcut
+// and has to reach the encrypted record to work out it must stop.
+lockSession();
+await db.settingsStore.clear();
+localStorage.removeItem('BUDGET_SETTINGS_PB_ID');
+await syncAll();
+check('first boot on a locked device changes nothing on the server',
+      !!remote()?.encrypted_payload);
+check('and writes no half-formed settings locally', (await local()) === null,
+      `local: ${JSON.stringify(await local())}`);
+
+// Then the startup write DataContext makes once it spots encrypted data on
+// the server. It lands before any pull.
+lockSession();
+await db.settingsStore.clear();
+// A new device has no record id mapping either — that only exists because a
+// device has synced that exact record before.
+localStorage.removeItem('BUDGET_SETTINGS_PB_ID');
+await db.settingsStore.setItem(KEY, {
+  id: KEY,
+  config: { security: { e2eeEnabled: true, hasPromptedE2ee: true } },
+  pendingSync: true
+});
+await syncAll();                 // locked: must do nothing at all
+check('a locked device pushes nothing', !!remote()?.encrypted_payload);
+
+await deriveKey('1234');         // the user enters their PIN
+await syncAll();
+
+const onServer = (await decryptPayload(remote().encrypted_payload)).config;
+check('the server keeps its graphs', onServer?.graphs?.active?.length === 1,
+      `server config keys: ${JSON.stringify(Object.keys(onServer || {}))}`);
+check('the server keeps its stats', onServer?.stats?.active?.length === 1);
+check('the server keeps its detection rules',
+      onServer?.automation?.accountByLast4?.['9876'] === 'Meezan');
+check('the server keeps its appearance', onServer?.appearance?.theme === 'ocean',
+      `server appearance: ${JSON.stringify(onServer?.appearance)}`);
+check('the new device now shows the account settings',
+      (await local())?.config?.appearance?.theme === 'ocean',
+      `local appearance: ${JSON.stringify((await local())?.config?.appearance)}`);
+check('and the flag it set locally survived',
+      (await local())?.config?.security?.e2eeEnabled === true,
+      `local security: ${JSON.stringify((await local())?.config?.security)}`);
+
+console.log('\n--- A genuinely new account still gets its settings pushed ---');
+// The mirror case: nothing on the server at all. Refusing to push before a
+// pull must not mean a first device never syncs its settings.
+SERVER.collections.settings.clear();
+localStorage.removeItem('BUDGET_SETTINGS_PB_ID');
+await db.settingsStore.clear();
+await saveSettings(cfg({ appearance: { theme: 'sunrise', baseCurrency: 'USD', displayMode: 'unified' } }));
+await syncAll();
+check('a first device creates the record', remote()?.config?.appearance?.theme === 'sunrise',
+      `remote: ${JSON.stringify(remote()?.config?.appearance)}`);
 
 console.log(failed === 0 ? '\nALL SETTINGS SYNC CHECKS PASSED\n' : `\n${failed} CHECK(S) FAILED\n`);
 process.exit(failed === 0 ? 0 : 1);

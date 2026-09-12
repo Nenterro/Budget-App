@@ -271,9 +271,32 @@ async function syncSettingsStore() {
     try {
       remoteSettings = await pb.collection(collectionName).getFullList(fetchOptions);
     } catch (e) {
+      // "The server has no settings" and "the server did not answer" are not
+      // the same thing, and treating them alike is how a device with nothing
+      // local decided its defaults were the truth. Without a successful read
+      // there is nothing safe to do here.
       console.warn('Failed to fetch remote settings:', e);
-      remoteSettings = [];
+      return;
     }
+
+    // ── Has this device ever seen the server's settings? ──
+    //
+    // It matters because the local settings object is always a full snapshot
+    // built on top of DEFAULT_SETTINGS. Before the first pull it is a guess,
+    // not an edit — and pushing a guess replaces every real preference on the
+    // account with a default. A device that has pulled before is different:
+    // its record is the server's state plus whatever has been changed since,
+    // so an unpushed change on it genuinely is the newer one.
+    //
+    // The stored record id is the evidence, read before the pull overwrites
+    // it: this device only holds it because it has synced that exact record.
+    const knownPbId = getSettingsPbId();
+
+    // Whether PHASE 2 is allowed to push. A confirmed-empty collection is the
+    // one case where an unreconciled local record is safe to send: there is
+    // nothing on the server for it to destroy, and refusing would mean a first
+    // device never syncs its settings at all.
+    let mayPush = remoteSettings.length === 0;
 
     if (remoteSettings.length > 0) {
       const remote = remoteSettings[0];
@@ -318,24 +341,46 @@ async function syncSettingsStore() {
 
       if (finalRemote) {
         const local = await store.getItem('appsettings1234');
-        // A local record still waiting to be pushed is the newer one whatever
-        // the clocks say, and PHASE 2 below is about to send it. Overwriting it
-        // here — and clearing its pendingSync flag — is how a change to the
-        // theme, the graph list or the detection rules was silently dropped:
-        // PHASE 2 then found nothing pending and pushed nothing. The data
-        // stores have always had this guard; settings did not.
-        const localIsUnpushed = !!local?.pendingSync;
+        const hasSeenServer = knownPbId === remote.id;
+
+        // An unpushed local change wins over the server, but only on a device
+        // that has pulled this record before. Otherwise the "change" is just
+        // DEFAULT_SETTINGS with whatever the app wrote during startup, and
+        // letting it win is what wiped an account on a new sign-in: the record
+        // pushed back held only the key startup had touched.
+        //
+        // PHASE 2 is allowed to push once this pass has settled the record.
+        const localIsUnpushed = hasSeenServer && !!local?.pendingSync;
         const remoteIsNewer = !local || new Date(remote.updated) > new Date(local.updatedAt || 0);
-        if (!localIsUnpushed && remoteIsNewer) {
-          const merged = { ...local, ...finalRemote, id: 'appsettings1234', pendingSync: false, updatedAt: remote.updated };
+
+        if (!localIsUnpushed && (remoteIsNewer || !hasSeenServer)) {
+          // Sections the server does not carry are kept rather than dropped,
+          // so a flag this device worked out for itself before the first pull
+          // — that E2EE is on, say — is not lost on the way in.
+          const mergedConfig = (finalRemote.config && typeof finalRemote.config === 'object')
+            ? { ...(local?.config || {}), ...finalRemote.config }
+            : finalRemote.config;
+          const merged = {
+            ...local,
+            ...finalRemote,
+            config: mergedConfig,
+            id: 'appsettings1234',
+            pendingSync: false,
+            updatedAt: remote.updated
+          };
           await store.setItem('appsettings1234', merged);
         }
+        mayPush = true;
       }
     }
 
     // ── PHASE 2: Push local pending settings ──
+    //
+    // Only ever after PHASE 1 has reconciled this device with the server (or
+    // confirmed there is nothing there). Pushing without that is pushing a
+    // guess over an account's real settings.
     const localSettings = await store.getItem('appsettings1234');
-    if (localSettings && localSettings.pendingSync) {
+    if (mayPush && localSettings && localSettings.pendingSync) {
       const payload = { ...localSettings };
       delete payload.pendingSync;
       delete payload.updatedAt;

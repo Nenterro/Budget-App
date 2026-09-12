@@ -12,4 +12,10 @@ const store = () => ({ _m: {}, getItem(k) { return this._m[k] ?? null; }, setIte
 global.localStorage = store();
 global.sessionStorage = store();
 global.document = makeTarget({ visibilityState: 'visible' });
-global.window = makeTarget({ crypto: { subtle: {} }, localStorage: global.localStorage });
+// Node's WebCrypto is the same API the app uses, so the E2EE paths — deriving
+// a key from a PIN, encrypting a payload, decrypting one back — run for real
+// rather than against a stub. Settings sync behaves quite differently when the
+// session is locked, and that difference is where its worst bug lived.
+const { webcrypto } = require('node:crypto');
+global.window = makeTarget({ crypto: webcrypto, localStorage: global.localStorage });
+global.crypto = webcrypto;

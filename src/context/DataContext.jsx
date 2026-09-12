@@ -256,6 +256,12 @@ export function DataProvider({ children }) {
           setUnlocked(true);
           // Full sync now that we can decrypt
           await syncAll();
+          // The settings pulled by that sync are the first readable copy this
+          // device has — the pass before the unlock could only see ciphertext.
+          // Without this the app carried on showing DEFAULT_SETTINGS until a
+          // manual reload, and any change made in the meantime was saved on
+          // top of those defaults. The PIN-entry path already reloads here.
+          if (reloadSettings) await reloadSettings();
           await loadData();
           await repairOrphanedShareLinks();
           subscribe();
