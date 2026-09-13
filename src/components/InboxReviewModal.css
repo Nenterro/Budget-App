@@ -10,6 +10,15 @@
 /* Panel chrome comes from the shared `.modal-content` shell in index.css. */
 .inbox-modal {
   max-width: var(--modal-w-lg);
+  transition: max-width 0.2s ease-out;
+}
+
+/* The list wants width — a row is an icon, two lines of text, an amount and a
+   chevron. The detail is the transaction form, and at the list's width its
+   fields stretched into something visibly wider than the same form reached
+   from the + button. It narrows to match. */
+.inbox-modal.ib-detail-width {
+  max-width: var(--modal-w-sm);
 }
 
 .ib-view {
@@ -253,7 +262,7 @@
 .ib-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   min-height: 0;
   flex: 1;
   overflow-y: auto;
@@ -262,8 +271,10 @@
   padding: 20px 20px 16px 20px;
 }
 
-/* Two options rather than the transaction form's three, so the sliding
-   indicator is half-width. */
+/* The transaction form's segmented control, tab for tab: a detected
+   transaction can be any of the three, and a bank that reports a transfer as
+   one message would otherwise have to be approved as an expense and corrected
+   afterwards. */
 .ib-type-selector {
   display: flex;
   background: var(--surface-track);
@@ -273,6 +284,7 @@
   gap: 4px;
   position: relative;
   flex-shrink: 0;
+  margin-bottom: 4px;
 }
 
 .ib-type-selector::before {
@@ -280,7 +292,7 @@
   position: absolute;
   top: 4px;
   bottom: 4px;
-  width: calc(50% - 6px);
+  width: calc(33.333% - 5.33px);
   border-radius: var(--radius-md);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 0;
@@ -288,12 +300,17 @@
 
 .ib-type-selector[data-type="0"]::before {
   transform: translateX(0);
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(239, 68, 68, 0.18);
 }
 
 .ib-type-selector[data-type="1"]::before {
   transform: translateX(calc(100% + 4px));
-  background: rgba(16, 185, 129, 0.15);
+  background: rgba(16, 185, 129, 0.18);
+}
+
+.ib-type-selector[data-type="2"]::before {
+  transform: translateX(calc(200% + 8px));
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .ib-type-btn {
@@ -305,15 +322,16 @@
   padding: 9px;
   border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   transition: color 0.2s;
 }
 
-.ib-type-btn.expense-active { color: #ef4444; }
-.ib-type-btn.income-active { color: #10b981; }
+.ib-type-btn.expense-active { color: var(--expense-color); }
+.ib-type-btn.income-active { color: var(--income-color); }
+.ib-type-btn.transfer-active { color: #fff; }
 
 .ib-form-group {
   display: flex;
@@ -536,10 +554,14 @@
   pointer-events: none;
 }
 
-/* A row carrying a math preview needs room for it, or the preview overlaps
-   whatever field comes next. */
-.ib-form-row:has(.ib-math-preview) {
-  margin-bottom: 12px;
+/* The preview hangs below the amount field rather than taking space in the
+   flow, so it relies on whatever sits underneath leaving the left side free.
+   Expense and income do: the Split/Share row keeps its controls hard right.
+   Transfer has no such row, and in split or share mode that row gains a
+   left-hand counter — both collide with the answer, so those three reserve
+   the clearance. 24px covers the 20px drop plus the next label's overhang. */
+.ib-form-row.ib-reserves-math-preview {
+  margin-bottom: 24px;
 }
 
 /* --- Matched transfers --- */
@@ -614,4 +636,267 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* --- Split and share ---------------------------------------------------
+ *
+ * The transaction form's carousels, reproduced here rather than imported.
+ * AddTransactionModal is lazy-loaded in its own chunk, so borrowing its class
+ * names would leave this modal unstyled whenever it happened to open first —
+ * the same reason the rest of this file exists. The shared primitives
+ * (`.input-with-icon`, the modal shell) still come from index.css, which is
+ * always loaded. */
+
+/* The Split/Share controls. With nothing toggled on there is only the pair of
+   buttons, held to the right; turning one on adds the counter on the left. */
+.ib-tools-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+
+.ib-tools-row.has-counter {
+  justify-content: space-between;
+}
+
+.ib-tools-left,
+.ib-tools-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ib-tools-right {
+  gap: 12px;
+}
+
+.ib-tools-counter {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ib-tool-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.ib-tool-btn.split-on { color: var(--accent-color); }
+.ib-tool-btn.share-on { color: #f59e0b; }
+
+.ib-delete-split-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ib-delete-split-btn:hover {
+  color: #ff4444;
+  transform: scale(1.1);
+}
+
+.ib-delete-split-btn:active {
+  transform: scale(0.95);
+}
+
+/* Category and payee, or a carousel in their place. The height is animated by
+   the component, so the box only has to clip what is sliding through it. */
+.ib-dynamic-wrapper {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: 10px;
+  margin-top: -10px;
+}
+
+.ib-dynamic-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ib-carousel-viewport {
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  border-radius: var(--radius-xl);
+  /* Clearance for the floating labels inside the cards, which sit above the
+     top edge of their inputs. */
+  padding-top: 8px;
+  margin-top: -8px;
+}
+
+.ib-carousel-track {
+  display: flex;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.ib-carousel-card {
+  flex: 0 0 100%;
+  min-width: 100%;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+
+/* On a phone the card is the form; on a desktop it is a card, because there
+   the counter and the delete control live on it rather than in the row
+   above. */
+.ib-carousel-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-xl);
+  padding: 16px;
+  position: relative;
+}
+
+.ib-carousel-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.ib-carousel-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.ib-carousel-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ib-carousel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.ib-carousel-dot.active {
+  background: var(--accent-color);
+  transform: scale(1.2);
+}
+
+.ib-pagination-btn {
+  width: var(--icon-btn-size-sm);
+  height: var(--icon-btn-size-sm);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ib-pagination-btn:hover:not(:disabled) {
+  background: var(--surface-active);
+  transform: scale(1.05);
+}
+
+.ib-pagination-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.ib-add-carousel-btn {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-color);
+  border: none;
+  padding: 6px 12px;
+  border-radius: var(--radius-panel);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ib-add-carousel-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.ib-share-accent {
+  color: #f59e0b;
+}
+
+/* What is left once everyone else's share is taken out — the number the
+   reporting totals will actually use. */
+.ib-your-share {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin: 4px 0;
+}
+
+.ib-your-share-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ib-your-share-label svg {
+  color: #10b981;
+}
+
+.ib-your-share-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #10b981;
+}
+
+/* Whether the split adds up, sitting just above the actions. */
+.ib-status-banner {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  font-size: 12px;
+  padding: 2px 4px;
+  margin-top: 2px;
+  margin-bottom: -4px;
+}
+
+@media (max-width: 768px) {
+  /* The amount keeps its emphasis over the date, but not by so much that a
+     five-figure figure clips. */
+  .ib-flex-2 { flex: 1.3; }
 }

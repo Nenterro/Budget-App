@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  X, Check, Trash2, Inbox, ChevronRight, ChevronDown, ChevronUp, ArrowLeft,
-  RefreshCw, User, Calendar, AlignLeft, Wallet, Tag, ArrowRight, ArrowRightLeft,
-  ArrowDownLeft, ArrowUpRight, AlertTriangle, Unlink
+  X, Check, Trash2, Inbox, ChevronRight, ChevronDown, ChevronUp, ChevronLeft,
+  ArrowLeft, RefreshCw, User, Users, Calendar, AlignLeft, Wallet, Tag,
+  ArrowRight, ArrowRightLeft, ArrowDownLeft, ArrowUpRight, AlertTriangle,
+  Unlink, Split, Plus
 } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import UnifiedDropdown from './UnifiedDropdown';
@@ -27,6 +28,23 @@ import { formatCurrency, getCurrencySymbol, formatAmountInput } from '../utils/f
 import { evalMath } from '../utils/math';
 import './InboxReviewModal.css';
 
+// Switching type slides the fields in from the side they came from, exactly as
+// the transaction form's do.
+const slideVariants = {
+  enter: (direction) => ({
+    x: direction > 0 ? '100%' : '-100%',
+    opacity: 0,
+    position: 'relative'
+  }),
+  center: { x: 0, opacity: 1, position: 'relative' },
+  exit: (direction) => ({
+    x: direction > 0 ? '-100%' : '100%',
+    opacity: 0,
+    position: 'absolute',
+    top: 0, left: 0, right: 0
+  })
+};
+
 // The form's date display, matching the transaction form's dd/mm/yy.
 const formatDayMonthYear = (value) => {
   if (!value) return '';
@@ -48,12 +66,44 @@ const withCurrentValue = (items, current) => {
 const itemTime = (draft) =>
   new Date(draft?.receivedAt || draft?.parsed?.occurredAt || 0).getTime();
 
+const blankSplit = (account) => ({
+  id: generateId(), amount: '', category: '', payee: '', account: account || ''
+});
+
+const blankShare = () => ({ id: generateId(), name: '', amount: '' });
+
+// What a field is worth before either the parser or the user has said
+// anything. `valueFor` walks edits -> parser suggestion -> here.
+const FIELD_DEFAULTS = {
+  type: 0,
+  amount: '',
+  date: '',
+  account: '',
+  transferTo: '',
+  category: '',
+  payee: '',
+  note: '',
+  currency: 'PKR',
+  isSplit: false,
+  splits: [],
+  activeSplitIndex: 0,
+  isExpenseShare: false,
+  expenseShares: [],
+  activePersonIndex: 0
+};
+
 /**
  * The review queue for transactions detected from SMS and notifications.
  *
  * A list you scan, then one entry at a time opened into a full form — the same
  * shape as the shared-expenses modal, because the job is the same: most rows
  * need no attention, and the one that does needs all of it.
+ *
+ * That form is the transaction form: the same three type tabs, the same field
+ * order, the same split and share carousels. Confirming a detected transaction
+ * and typing one in by hand produce the same record, so they are the same
+ * form — anything less and the quicker route is the one that can do less, and
+ * a draft that needed splitting had to be dismissed and retyped.
  *
  * An entry is usually a single message, but a transfer between your own
  * accounts arrives as two: a debit from the sending app and a credit from the
@@ -77,7 +127,10 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
   const [busy, setBusy] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeField, setActiveField] = useState(null);
+  const [activeSplitId, setActiveSplitId] = useState(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [typeDirection, setTypeDirection] = useState(0);
+  const [touchStart, setTouchStart] = useState(null);
   // Pairs the user has said are not transfers after all. Kept for the life of
   // the modal rather than persisted: the two halves are about to be approved
   // separately and gone.
@@ -109,11 +162,18 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
   const suggestions = useMemo(() => {
     const map = {};
     for (const item of items) {
-      map[item.id] = item.kind === 'transfer'
-        ? pairToTransferSuggestion(item.pair, { accounts, rules: automationRules })
-        : draftToSuggestion(item.draft, {
-            accounts, categories, payees, transactions, rules: automationRules
-          });
+      if (item.kind === 'transfer') {
+        const pair = pairToTransferSuggestion(item.pair, { accounts, rules: automationRules });
+        // The pair helper names its two accounts from/to; the form — being the
+        // transaction form — calls them account and transferTo. Normalising
+        // here is what lets one set of fields serve all three types, and is
+        // what makes the Transfer tab work for a single message too.
+        map[item.id] = { ...pair, account: pair.from, transferTo: pair.to };
+      } else {
+        map[item.id] = draftToSuggestion(item.draft, {
+          accounts, categories, payees, transactions, rules: automationRules
+        });
+      }
     }
     return map;
   }, [items, accounts, categories, payees, transactions, automationRules]);
@@ -142,13 +202,22 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
   const valueFor = useCallback((item, field) => {
     const edited = edits[item.id];
     if (edited && field in edited) return edited[field];
-    return suggestions[item.id]?.[field] ?? '';
+    const suggested = suggestions[item.id];
+    if (suggested && field in suggested) return suggested[field];
+    return FIELD_DEFAULTS[field] ?? '';
   }, [edits, suggestions]);
 
   const setField = useCallback((itemId, field, value) => {
     setEdits(current => ({
       ...current,
       [itemId]: { ...(current[itemId] || {}), [field]: value }
+    }));
+  }, []);
+
+  const setFields = useCallback((itemId, patch) => {
+    setEdits(current => ({
+      ...current,
+      [itemId]: { ...(current[itemId] || {}), ...patch }
     }));
   }, []);
 
@@ -184,96 +253,145 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       return;
     }
 
+    const type = valueFor(item, 'type');
+    const account = valueFor(item, 'account');
+    if (!account) {
+      alert(type === 2
+        ? 'Choose both accounts before adding this transfer.'
+        : 'Choose which account this transaction belongs to.');
+      return;
+    }
+
+    const isSplit = valueFor(item, 'isSplit') && type !== 2;
+    const isExpenseShare = valueFor(item, 'isExpenseShare') && type !== 2;
+
+    // Expense and transfer leave the source account; only income arrives.
+    const dbAmt = type === 1 ? Math.abs(amount) : -Math.abs(amount);
+    let finalCategory;
+    let finalPayee;
+    let transferTo = null;
+
+    if (type === 2) {
+      const to = valueFor(item, 'transferTo');
+      if (!to) {
+        alert('Choose both accounts before adding this transfer.');
+        return;
+      }
+      if (to === account) {
+        alert('A transfer needs two different accounts.');
+        return;
+      }
+      // The shape the rest of the app expects of a transfer: negative amount
+      // on the source account, the destination in transferTo, and the
+      // generated payee label the reference rewriting keys off.
+      finalCategory = 'Transfer';
+      finalPayee = `Transfer to ${to}`;
+      transferTo = to;
+    } else {
+      finalPayee = (valueFor(item, 'payee') || '').trim() || 'Unspecified';
+      finalCategory = (valueFor(item, 'category') || '').trim() || 'Unspecified';
+    }
+
+    let finalSplits = [];
+    if (isSplit) {
+      const splits = valueFor(item, 'splits');
+      const sum = splits.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0);
+      if (Math.abs(sum - Math.abs(dbAmt)) > 0.01) {
+        alert('Split amounts must exactly equal the total amount.');
+        return;
+      }
+      finalCategory = 'Split';
+      finalPayee = 'Split';
+      finalSplits = splits.map(s => {
+        const sAmt = Math.abs(evalMath(s.amount) || 0);
+        return {
+          ...s,
+          amount: type === 0 ? -sAmt : sAmt,
+          category: s.category || 'Unspecified',
+          payee: s.payee || 'Unspecified',
+          account: s.account || account
+        };
+      });
+    }
+
+    let finalExpenseShares = [];
+    if (isExpenseShare) {
+      const shares = valueFor(item, 'expenseShares');
+      const othersTotal = shares.reduce((acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0);
+      if (othersTotal > Math.abs(dbAmt)) {
+        alert("Others' shares cannot exceed the total amount.");
+        return;
+      }
+      if (othersTotal <= 0) {
+        alert("Please enter at least one person's share amount.");
+        return;
+      }
+      finalExpenseShares = shares
+        .filter(s => s.name.trim() && evalMath(s.amount))
+        .map(s => ({
+          id: s.id,
+          name: s.name.trim(),
+          amount: Math.abs(evalMath(s.amount) || 0),
+          settled: false
+        }));
+    }
+
     setBusy(true);
     try {
+      // A payee or category named here becomes a real one, exactly as it
+      // would if it had been typed into the Add Transaction form. Split and
+      // transfer labels are generated rather than chosen, so they are not.
+      if (type !== 2 && !isSplit) {
+        if (finalPayee !== 'Unspecified'
+            && !payees.some(p => p.name.toLowerCase() === finalPayee.toLowerCase())) {
+          await savePayee({ name: finalPayee, color: '#10b981' });
+        }
+        if (finalCategory !== 'Unspecified'
+            && !categories.some(c => c.name.toLowerCase() === finalCategory.toLowerCase())) {
+          await saveCategory({ name: finalCategory, color: '#6366f1' });
+        }
+      }
+
+      const sourceAccount = accounts.find(a => a.name === account);
+
+      await addTransaction({
+        id: generateId(),
+        type,
+        amount: dbAmt,
+        category: finalCategory,
+        payee: finalPayee,
+        note: valueFor(item, 'note'),
+        date: dayToStoredDate(valueFor(item, 'date')),
+        account,
+        transferTo,
+        currency: sourceAccount?.currency || valueFor(item, 'currency'),
+        receivedAmount: null,
+        isExpenseShare: isExpenseShare && finalExpenseShares.length > 0,
+        expenseShares: finalExpenseShares.length > 0 ? finalExpenseShares : null,
+        splits: finalSplits,
+        repayments: [],
+        writeOffs: [],
+        updatedAt: new Date().toISOString(),
+        pendingSync: true
+      });
+
+      // Only a real payee and category teach anything. "Split" and "Transfer
+      // to X" are labels this form wrote itself, and learning them would point
+      // the merchant at a name that means nothing next time.
+      if (item.kind === 'single' && type !== 2 && !isSplit) {
+        const learned = learnFromApproval(automationRules, item.draft,
+          { account, payee: finalPayee, category: finalCategory });
+        if (learned !== automationRules) await setAutomationRules(learned);
+      }
+
+      // The drafts have served their purpose, and they are the only plaintext
+      // copy of these messages on the server. They go as soon as the
+      // transaction exists.
       if (item.kind === 'transfer') {
-        const from = valueFor(item, 'from');
-        const to = valueFor(item, 'to');
-        if (!from || !to) {
-          alert('Choose both accounts before adding this transfer.');
-          return;
-        }
-        if (from === to) {
-          alert('A transfer needs two different accounts.');
-          return;
-        }
-
-        // The shape the rest of the app expects of a transfer: negative
-        // amount on the source account, the destination in transferTo, and
-        // the generated payee label the reference rewriting keys off.
-        await addTransaction({
-          id: generateId(),
-          type: 2,
-          amount: -Math.abs(amount),
-          category: 'Transfer',
-          payee: `Transfer to ${to}`,
-          note: valueFor(item, 'note'),
-          date: dayToStoredDate(valueFor(item, 'date')),
-          account: from,
-          transferTo: to,
-          currency: valueFor(item, 'currency'),
-          receivedAmount: null,
-          isExpenseShare: false,
-          expenseShares: null,
-          splits: null,
-          repayments: [],
-          writeOffs: [],
-          updatedAt: new Date().toISOString(),
-          pendingSync: true
-        });
-
-        // Whichever halves arrived described the one movement, so they go.
         if (item.pair.debit) await deleteDraft(item.pair.debit.id);
         if (item.pair.credit) await deleteDraft(item.pair.credit.id);
       } else {
-        const draft = item.draft;
-        const account = valueFor(item, 'account');
-        if (!account) {
-          alert('Choose which account this transaction belongs to.');
-          return;
-        }
-
-        const type = valueFor(item, 'type');
-        const payee = (valueFor(item, 'payee') || '').trim() || 'Unspecified';
-        const category = (valueFor(item, 'category') || '').trim() || 'Unspecified';
-
-        // A payee or category named here becomes a real one, exactly as it
-        // would if it had been typed into the Add Transaction form.
-        if (payee !== 'Unspecified' && !payees.some(p => p.name.toLowerCase() === payee.toLowerCase())) {
-          await savePayee({ name: payee, color: '#10b981' });
-        }
-        if (category !== 'Unspecified' && !categories.some(c => c.name.toLowerCase() === category.toLowerCase())) {
-          await saveCategory({ name: category, color: '#6366f1' });
-        }
-
-        await addTransaction({
-          id: generateId(),
-          type,
-          amount: type === 1 ? Math.abs(amount) : -Math.abs(amount),
-          category,
-          payee,
-          note: valueFor(item, 'note'),
-          date: dayToStoredDate(valueFor(item, 'date')),
-          account,
-          transferTo: null,
-          currency: valueFor(item, 'currency'),
-          receivedAmount: null,
-          isExpenseShare: false,
-          expenseShares: null,
-          splits: null,
-          repayments: [],
-          writeOffs: [],
-          updatedAt: new Date().toISOString(),
-          pendingSync: true
-        });
-
-        const learned = learnFromApproval(automationRules, draft, { account, payee, category });
-        if (learned !== automationRules) await setAutomationRules(learned);
-
-        // The draft has served its purpose, and it is the only plaintext copy
-        // of this message on the server. It goes as soon as the transaction
-        // exists.
-        await deleteDraft(draft.id);
+        await deleteDraft(item.draft.id);
       }
 
       setSelectedId(null);
@@ -284,7 +402,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     } finally {
       setBusy(false);
     }
-  }, [valueFor, payees, categories, savePayee, saveCategory, addTransaction,
+  }, [valueFor, accounts, payees, categories, savePayee, saveCategory, addTransaction,
       automationRules, setAutomationRules, onRefresh]);
 
   const handleDismiss = useCallback(async (item) => {
@@ -311,13 +429,128 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     setSelectedId(null);
   }, []);
 
+  const handleTypeChange = useCallback((item, next) => {
+    const current = valueFor(item, 'type');
+    if (next === current) return;
+    setTypeDirection(next > current ? 1 : -1);
+
+    const patch = { type: next };
+    if (next === 2) {
+      // A transfer needs somewhere to land, and it cannot be where it started.
+      const from = valueFor(item, 'account');
+      const to = valueFor(item, 'transferTo');
+      if (!to || to === from) {
+        const other = accounts.find(a => a.name !== from);
+        if (other) patch.transferTo = other.name;
+      }
+    }
+    setFields(item.id, patch);
+  }, [valueFor, setFields, accounts]);
+
+  const toggleSplit = useCallback((item) => {
+    if (valueFor(item, 'isSplit')) {
+      setFields(item.id, { isSplit: false, splits: [], activeSplitIndex: 0 });
+      return;
+    }
+    const account = valueFor(item, 'account');
+    setFields(item.id, {
+      isSplit: true,
+      isExpenseShare: false,
+      expenseShares: [],
+      activePersonIndex: 0,
+      activeSplitIndex: 0,
+      splits: [blankSplit(account), blankSplit(account)]
+    });
+  }, [valueFor, setFields]);
+
+  const toggleExpenseShare = useCallback((item) => {
+    if (valueFor(item, 'isExpenseShare')) {
+      setFields(item.id, { isExpenseShare: false, expenseShares: [], activePersonIndex: 0 });
+      return;
+    }
+    setFields(item.id, {
+      isExpenseShare: true,
+      isSplit: false,
+      splits: [],
+      activeSplitIndex: 0,
+      activePersonIndex: 0,
+      expenseShares: [blankShare()]
+    });
+  }, [valueFor, setFields]);
+
+  const removeSplit = useCallback((item, splitId) => {
+    const splits = valueFor(item, 'splits');
+    if (splits.length > 2) {
+      const next = splits.filter(s => s.id !== splitId);
+      setFields(item.id, {
+        splits: next,
+        activeSplitIndex: Math.min(valueFor(item, 'activeSplitIndex'), next.length - 1)
+      });
+    } else {
+      // Two is the fewest a split can have, so removing one ends the split.
+      setFields(item.id, { isSplit: false, splits: [], activeSplitIndex: 0 });
+    }
+  }, [valueFor, setFields]);
+
+  const removeShare = useCallback((item, shareId) => {
+    const shares = valueFor(item, 'expenseShares');
+    if (shares.length > 1) {
+      const next = shares.filter(s => s.id !== shareId);
+      setFields(item.id, {
+        expenseShares: next,
+        activePersonIndex: Math.min(valueFor(item, 'activePersonIndex'), next.length - 1)
+      });
+    } else {
+      setFields(item.id, { isExpenseShare: false, expenseShares: [], activePersonIndex: 0 });
+    }
+  }, [valueFor, setFields]);
+
+  const handleTouchStart = (e) => setTouchStart(e.targetTouches[0].clientX);
+
+  const handleTouchEnd = (item) => (e) => {
+    if (touchStart === null) return;
+    const diff = touchStart - e.changedTouches[0].clientX;
+
+    if (valueFor(item, 'isSplit')) {
+      const splits = valueFor(item, 'splits');
+      const index = valueFor(item, 'activeSplitIndex');
+      if (diff > 50) setField(item.id, 'activeSplitIndex', Math.min(splits.length - 1, index + 1));
+      else if (diff < -50) setField(item.id, 'activeSplitIndex', Math.max(0, index - 1));
+    } else if (valueFor(item, 'isExpenseShare')) {
+      const shares = valueFor(item, 'expenseShares');
+      const index = valueFor(item, 'activePersonIndex');
+      if (diff > 50) setField(item.id, 'activePersonIndex', Math.min(shares.length - 1, index + 1));
+      else if (diff < -50) setField(item.id, 'activePersonIndex', Math.max(0, index - 1));
+    }
+    setTouchStart(null);
+  };
+
   if (!isOpen) return null;
 
-  const closeDetail = () => { setSelectedId(null); setActiveField(null); };
+  const closeDetail = () => {
+    setSelectedId(null);
+    setActiveField(null);
+    setActiveSplitId(null);
+  };
+
+  // The popover edits either a top-level field or one line of a split.
+  const applyPopoverValue = (val) => {
+    if (activeSplitId) {
+      setField(selected.id, 'splits', valueFor(selected, 'splits')
+        .map(s => (s.id === activeSplitId ? { ...s, [activeField]: val } : s)));
+    } else if (activeField === 'payee') {
+      setPayeeField(selected, val);
+    } else {
+      setField(selected.id, activeField, val);
+    }
+  };
 
   return (
     <ModalWrapper onClose={selected ? closeDetail : onClose} zIndex={2400}>
-      <div className="modal-content inbox-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className={`modal-content inbox-modal ${selected ? 'ib-detail-width' : ''}`}
+        onClick={e => e.stopPropagation()}
+      >
         <AnimatePresence mode="wait">
           {!selected ? (
             <motion.div
@@ -357,24 +590,25 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                     </span>
                   </div>
                 ) : items.map(item => {
-                  const isTransfer = item.kind === 'transfer';
-                  const type = isTransfer ? 2 : valueFor(item, 'type');
+                  const isPair = item.kind === 'transfer';
+                  const type = valueFor(item, 'type');
+                  const isTransfer = type === 2;
                   const isIncome = type === 1;
                   const amount = Math.abs(evalMath(valueFor(item, 'amount')) || 0);
                   const symbol = getCurrencySymbol(valueFor(item, 'currency'));
 
-                  const source = isTransfer ? (item.pair.debit || item.pair.credit) : item.draft;
+                  const source = isPair ? (item.pair.debit || item.pair.credit) : item.draft;
                   const level = confidenceLabel(source.confidence || 0);
 
                   const title = isTransfer
                     ? 'Transfer'
-                    : (valueFor(item, 'payee') || item.draft.parsed?.merchant || 'Unknown payee');
+                    : (valueFor(item, 'payee') || source.parsed?.merchant || 'Unknown payee');
 
                   const meta = isTransfer
-                    ? `${valueFor(item, 'from') || 'Unknown'} → ${valueFor(item, 'to') || 'Unknown'}`
-                    : `${item.draft.parsed?.bank || item.draft.sender || 'Unknown sender'} • ${formatDayMonthYear(valueFor(item, 'date'))}`;
+                    ? `${valueFor(item, 'account') || 'Unknown'} → ${valueFor(item, 'transferTo') || 'Unknown'}`
+                    : `${source.parsed?.bank || source.sender || 'Unknown sender'} • ${formatDayMonthYear(valueFor(item, 'date'))}`;
 
-                  const sub = isTransfer
+                  const sub = isPair
                     ? (item.pair.oneSided ? 'Needs the other account' : 'Two messages matched')
                     : (valueFor(item, 'account') || 'Needs account');
 
@@ -407,7 +641,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                           {isTransfer ? '' : isIncome ? '+' : '-'}
                           {symbol}{formatCurrency(amount)}
                         </span>
-                        <span className={`ib-card-sub ${!isTransfer && !valueFor(item, 'account') ? 'needs-input' : ''}`}>
+                        <span className={`ib-card-sub ${!isPair && !valueFor(item, 'account') ? 'needs-input' : ''}`}>
                           {sub}
                           <i className={`ib-dot ${level}`} />
                         </span>
@@ -429,24 +663,71 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
             >
               {(() => {
                 const item = selected;
-                const isTransfer = item.kind === 'transfer';
-                const draft = isTransfer ? (item.pair.debit || item.pair.credit) : item.draft;
-                const type = isTransfer ? 2 : valueFor(item, 'type');
+                const isPair = item.kind === 'transfer';
+                const draft = isPair ? (item.pair.debit || item.pair.credit) : item.draft;
                 const suggestion = suggestions[item.id] || {};
+
+                const type = valueFor(item, 'type');
+                const account = valueFor(item, 'account');
+                const transferTo = valueFor(item, 'transferTo');
+                const category = valueFor(item, 'category');
+                const payee = valueFor(item, 'payee');
+                const note = valueFor(item, 'note');
+                const isSplit = valueFor(item, 'isSplit');
+                const isExpenseShare = valueFor(item, 'isExpenseShare');
+                const splits = valueFor(item, 'splits');
+                const expenseShares = valueFor(item, 'expenseShares');
+                const activeSplitIndex = valueFor(item, 'activeSplitIndex');
+                const activePersonIndex = valueFor(item, 'activePersonIndex');
                 const amountValue = String(valueFor(item, 'amount') ?? '');
+
+                // The account's own currency wins over the one the message
+                // named, as it does in the transaction form: a PKR card billed
+                // for a USD purchase still posts to a PKR account.
+                const sourceCurrency =
+                  accounts.find(a => a.name === account)?.currency
+                  || valueFor(item, 'currency') || 'PKR';
 
                 // The amount field accepts arithmetic the same way the
                 // transaction form does.
                 const evalResult = evalMath(amountValue);
                 const showPreview = /[+\-*/]/.test(amountValue) && evalResult !== null;
 
+                const othersTotal = expenseShares.reduce(
+                  (acc, s) => acc + Math.abs(evalMath(s.amount) || 0), 0);
+                const splitTotal = splits.reduce(
+                  (acc, s) => acc + (evalMath(s.amount) || 0), 0);
+
+                const setSplitValue = (splitId, field, value) =>
+                  setField(item.id, 'splits',
+                    splits.map(s => (s.id === splitId ? { ...s, [field]: value } : s)));
+
+                const setShareValue = (shareId, field, value) =>
+                  setField(item.id, 'expenseShares',
+                    expenseShares.map(s => (s.id === shareId ? { ...s, [field]: value } : s)));
+
                 const CurrencyIcon = ({ size, className, style }) => (
                   <span
                     className={className}
                     style={{ ...style, fontSize: size, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {getCurrencySymbol(valueFor(item, 'currency'))}
+                    {getCurrencySymbol(sourceCurrency)}
                   </span>
+                );
+
+                const openField = (field, splitId = null) => {
+                  setActiveSplitId(splitId);
+                  setActiveField(field);
+                };
+
+                const renderTapField = (label, value, Icon, field, compact = false) => (
+                  <TapField
+                    label={label}
+                    value={value}
+                    icon={Icon}
+                    compact={compact}
+                    onOpen={() => openField(field)}
+                  />
                 );
 
                 return (
@@ -462,7 +743,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                       </button>
                       <div className="ib-header-titles">
                         <h2>
-                          {isTransfer
+                          {isPair
                             ? 'Transfer between your accounts'
                             : (draft.parsed?.merchant || 'Detected transaction')}
                         </h2>
@@ -474,7 +755,25 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                     </div>
 
                     <div className="ib-form">
-                      {isTransfer ? (
+                      <div className="ib-type-selector" data-type={type}>
+                        <button
+                          type="button"
+                          className={`ib-type-btn ${type === 0 ? 'expense-active' : ''}`}
+                          onClick={() => handleTypeChange(item, 0)}
+                        >Expense</button>
+                        <button
+                          type="button"
+                          className={`ib-type-btn ${type === 1 ? 'income-active' : ''}`}
+                          onClick={() => handleTypeChange(item, 1)}
+                        >Income</button>
+                        <button
+                          type="button"
+                          className={`ib-type-btn ${type === 2 ? 'transfer-active' : ''}`}
+                          onClick={() => handleTypeChange(item, 2)}
+                        >Transfer</button>
+                      </div>
+
+                      {isPair && type === 2 && (
                         <div className="ib-transfer-note">
                           <ArrowRightLeft size={14} />
                           <span>
@@ -483,22 +782,9 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                               : 'Two messages, same amount, moments apart — matched as one transfer so the movement is not counted twice.'}
                           </span>
                         </div>
-                      ) : (
-                        <div className="ib-type-selector" data-type={type}>
-                          <button
-                            type="button"
-                            className={`ib-type-btn ${type === 0 ? 'expense-active' : ''}`}
-                            onClick={() => setField(item.id, 'type', 0)}
-                          >Expense</button>
-                          <button
-                            type="button"
-                            className={`ib-type-btn ${type === 1 ? 'income-active' : ''}`}
-                            onClick={() => setField(item.id, 'type', 1)}
-                          >Income</button>
-                        </div>
                       )}
 
-                      {!isTransfer && !suggestion.directionKnown && (
+                      {!isPair && type !== 2 && !suggestion.directionKnown && (
                         <div className="ib-warning">
                           <AlertTriangle size={14} />
                           <span>
@@ -508,11 +794,17 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         </div>
                       )}
 
-                      <div className="ib-form-row">
+                      {/* The math preview needs the left side under the amount
+                          field to itself. Plain expense and income leave it
+                          free — the Split/Share row keeps its controls hard
+                          right — while transfer puts the From/To accounts
+                          there and split or share puts the counter there.
+                          Reserve the clearance in those three. */}
+                      <div className={`ib-form-row ${showPreview && (type === 2 || isSplit || isExpenseShare) ? 'ib-reserves-math-preview' : ''}`}>
                         <div className="ib-form-group ib-flex-2 ib-relative">
-                          {amountValue && <label>Amount ({valueFor(item, 'currency')})</label>}
+                          {amountValue && <label>Amount ({sourceCurrency})</label>}
                           {isMobile ? (
-                            <div onClick={() => setActiveField('amount')} style={{ cursor: 'pointer' }}>
+                            <div onClick={() => openField('amount')} style={{ cursor: 'pointer' }}>
                               <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
                                 <CurrencyIcon size={18} className="input-icon" />
                                 <input type="text" placeholder="Amount" value={amountValue} readOnly />
@@ -553,171 +845,6 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         </div>
                       </div>
 
-                      {isTransfer ? (
-                        <div className="ib-form-row ib-transfer-row">
-                          <div className="ib-form-group ib-flex-1">
-                            {isMobile ? (
-                              <TapField
-                                label="From"
-                                value={valueFor(item, 'from')}
-                                icon={Wallet}
-                                compact
-                                onOpen={() => setActiveField('account')}
-                              />
-                            ) : (
-                              <>
-                                {valueFor(item, 'from') && <label>From</label>}
-                                <UnifiedDropdown
-                                  value={valueFor(item, 'from')}
-                                  options={withCurrentValue(accounts, valueFor(item, 'from'))}
-                                  onChange={v => setField(item.id, 'from', v)}
-                                  placeholder="From account"
-                                />
-                              </>
-                            )}
-                          </div>
-                          <div className="ib-transfer-arrow">
-                            <ArrowRight size={16} />
-                          </div>
-                          <div className="ib-form-group ib-flex-1">
-                            {isMobile ? (
-                              <TapField
-                                label="To"
-                                value={valueFor(item, 'to')}
-                                icon={ArrowRightLeft}
-                                compact
-                                onOpen={() => setActiveField('transferTo')}
-                              />
-                            ) : (
-                              <>
-                                {valueFor(item, 'to') && <label>To</label>}
-                                <UnifiedDropdown
-                                  value={valueFor(item, 'to')}
-                                  options={withCurrentValue(accounts, valueFor(item, 'to'))}
-                                  onChange={v => setField(item.id, 'to', v)}
-                                  placeholder="To account"
-                                />
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          {isMobile ? (
-                            <TapField
-                              label="Account"
-                              value={valueFor(item, 'account')}
-                              icon={Wallet}
-                              onOpen={() => setActiveField('account')}
-                            />
-                          ) : (
-                            <div className="ib-form-group">
-                              {valueFor(item, 'account') && <label>Account</label>}
-                              <UnifiedDropdown
-                                value={valueFor(item, 'account')}
-                                options={withCurrentValue(accounts, valueFor(item, 'account'))}
-                                onChange={v => setField(item.id, 'account', v)}
-                                placeholder="Choose account"
-                              />
-                            </div>
-                          )}
-
-                          <div className="ib-form-group">
-                            {isMobile ? (
-                              <TapField
-                                label="Payee"
-                                value={valueFor(item, 'payee')}
-                                icon={User}
-                                onOpen={() => setActiveField('payee')}
-                              />
-                            ) : (
-                              <>
-                                {valueFor(item, 'payee') && <label>Payee</label>}
-                                <div
-                                  className="input-with-icon"
-                                  onClick={() => setActiveField('payee')}
-                                >
-                                  <User size={18} className="input-icon" />
-                                  <input
-                                    type="text"
-                                    placeholder="Unspecified"
-                                    value={valueFor(item, 'payee')}
-                                    readOnly
-                                    style={{ cursor: 'pointer' }}
-                                  />
-                                </div>
-                              </>
-                            )}
-                            {(() => {
-                              const merchant = draft.parsed?.merchant;
-                              if (!merchant || !looksLikeIdentifier(merchant)) return null;
-                              const chosen = (valueFor(item, 'payee') || '').trim();
-                              const named = chosen && chosen !== prettifyMerchant(merchant);
-                              return (
-                                <div className={`ib-hint ${named ? 'resolved' : ''}`}>
-                                  <code>{merchant}</code>
-                                  {named
-                                    ? <span>will be remembered as <strong>{chosen}</strong>.</span>
-                                    : <span>
-                                        is an account identifier, not a name. Whoever
-                                        you name here is remembered for every future
-                                        transfer from it.
-                                      </span>}
-                                </div>
-                              );
-                            })()}
-                          </div>
-
-                          {isMobile ? (
-                            <TapField
-                              label="Category"
-                              value={valueFor(item, 'category')}
-                              icon={Tag}
-                              onOpen={() => setActiveField('category')}
-                            />
-                          ) : (
-                            <div className="ib-form-group">
-                              {valueFor(item, 'category') && <label>Category</label>}
-                              <div
-                                className="input-with-icon"
-                                onClick={() => setActiveField('category')}
-                              >
-                                <Tag size={18} className="input-icon" />
-                                <input
-                                  type="text"
-                                  placeholder="Uncategorised"
-                                  value={valueFor(item, 'category')}
-                                  readOnly
-                                  style={{ cursor: 'pointer' }}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      {isMobile ? (
-                        <TapField
-                          label="Note"
-                          value={valueFor(item, 'note')}
-                          icon={AlignLeft}
-                          onOpen={() => setActiveField('note')}
-                        />
-                      ) : (
-                        <div className="ib-form-group">
-                          {valueFor(item, 'note') && <label>Note</label>}
-                          <div className="input-with-icon">
-                            <AlignLeft size={18} className="input-icon" />
-                            <input
-                              type="text"
-                              value={valueFor(item, 'note')}
-                              onChange={e => setField(item.id, 'note', e.target.value)}
-                              placeholder="Note"
-                            />
-                          </div>
-                        </div>
-                      )}
-
                       <AnimatePresence>
                         {isCalendarOpen && (
                           <UnifiedCalendar
@@ -731,17 +858,546 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         )}
                       </AnimatePresence>
 
+                      {type !== 2 && (
+                        <div className={`ib-tools-row ${isSplit || isExpenseShare ? 'has-counter' : ''}`}>
+                          <div className="ib-tools-left">
+                            {isSplit && (
+                              <>
+                                <span className="ib-tools-counter">
+                                  Split {activeSplitIndex + 1} of {splits.length}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="ib-delete-split-btn"
+                                  onClick={() => removeSplit(item, splits[activeSplitIndex]?.id)}
+                                  aria-label="Remove this split"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </>
+                            )}
+                            {isExpenseShare && (
+                              <>
+                                <span className="ib-tools-counter">
+                                  Person {activePersonIndex + 1} of {expenseShares.length}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="ib-delete-split-btn"
+                                  onClick={() => removeShare(item, expenseShares[activePersonIndex]?.id)}
+                                  aria-label="Remove this person"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                          <div className="ib-tools-right">
+                            {!isExpenseShare && (
+                              <motion.button
+                                type="button"
+                                whileHover={!isMobile ? { scale: 1.05 } : {}}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => toggleSplit(item)}
+                                className={`ib-tool-btn ${isSplit ? 'split-on' : ''}`}
+                              >
+                                <Split size={16} />
+                                {isSplit ? 'Remove Split' : 'Split'}
+                              </motion.button>
+                            )}
+                            {!isSplit && (
+                              <motion.button
+                                type="button"
+                                whileHover={!isMobile ? { scale: 1.05 } : {}}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => toggleExpenseShare(item)}
+                                className={`ib-tool-btn ${isExpenseShare ? 'share-on' : ''}`}
+                              >
+                                <Users size={16} />
+                                {isExpenseShare ? 'Remove Share' : 'Share'}
+                              </motion.button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Account. A split carries one per line, so the single
+                          picker steps aside for the carousel. */}
+                      {(!isSplit || type === 2) && (
+                        type === 2 ? (
+                          <div className="ib-form-row ib-transfer-row">
+                            <div className="ib-form-group ib-flex-1">
+                              {isMobile ? (
+                                renderTapField('From Account', account, Wallet, 'account', true)
+                              ) : (
+                                <>
+                                  {account && <label>From Account</label>}
+                                  <UnifiedDropdown
+                                    value={account}
+                                    options={withCurrentValue(accounts, account)}
+                                    onChange={v => setField(item.id, 'account', v)}
+                                    placeholder="From account"
+                                  />
+                                </>
+                              )}
+                            </div>
+                            <div className="ib-transfer-arrow">
+                              <ArrowRight size={16} />
+                            </div>
+                            <div className="ib-form-group ib-flex-1">
+                              {isMobile ? (
+                                renderTapField('Transfer To', transferTo, ArrowRightLeft, 'transferTo', true)
+                              ) : (
+                                <>
+                                  {transferTo && <label>Transfer To</label>}
+                                  <UnifiedDropdown
+                                    value={transferTo}
+                                    options={withCurrentValue(accounts, transferTo)}
+                                    onChange={v => setField(item.id, 'transferTo', v)}
+                                    placeholder="To account"
+                                  />
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          isMobile ? (
+                            renderTapField('Account', account, Wallet, 'account')
+                          ) : (
+                            <div className="ib-form-group">
+                              {account && <label>Account</label>}
+                              <UnifiedDropdown
+                                value={account}
+                                options={withCurrentValue(accounts, account)}
+                                onChange={v => setField(item.id, 'account', v)}
+                                placeholder="Choose account"
+                              />
+                            </div>
+                          )
+                        )
+                      )}
+
+                      <motion.div
+                        className="ib-dynamic-wrapper"
+                        animate={{
+                          height: ((isSplit || isExpenseShare) && type !== 2)
+                            ? 'auto'
+                            : (type === 2 ? 0 : (isMobile ? 122 : 116)),
+                          marginTop: type === 2 ? -16 : -10
+                        }}
+                        transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+                        style={{ position: 'relative', overflow: 'visible' }}
+                      >
+                        <AnimatePresence initial={false} custom={typeDirection} mode="popLayout">
+                          {type === 2 ? (
+                            // A transfer needs nothing here: its two accounts
+                            // are above, and it has no category or payee of
+                            // its own. The pane still exists so the tabs slide
+                            // rather than cut.
+                            <motion.div
+                              key="transfer"
+                              custom={typeDirection}
+                              variants={slideVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{ type: 'tween', ease: 'easeInOut', duration: 0.25 }}
+                              className="ib-dynamic-content"
+                              style={{ width: '100%' }}
+                            />
+                          ) : (
+                            <motion.div
+                              key="regular"
+                              custom={typeDirection}
+                              variants={slideVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{ type: 'tween', ease: 'easeInOut', duration: 0.25 }}
+                              className="ib-dynamic-content"
+                              style={{ width: '100%' }}
+                            >
+                              <AnimatePresence mode="popLayout" initial={false}>
+                                {isSplit ? (
+                                  <motion.div
+                                    key="split-ui"
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -20 }}
+                                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                                    style={{ display: 'flex', flexDirection: 'column', width: '100%' }}
+                                  >
+                                    <div
+                                      className="ib-carousel-viewport"
+                                      onTouchStart={handleTouchStart}
+                                      onTouchEnd={handleTouchEnd(item)}
+                                    >
+                                      <div
+                                        className="ib-carousel-track"
+                                        style={{ transform: `translateX(-${activeSplitIndex * 100}%)` }}
+                                      >
+                                        {splits.map((s, index) => (
+                                          <div key={s.id} className="ib-carousel-card">
+                                            <div className={isMobile ? 'ib-carousel-body' : 'ib-carousel-body ib-carousel-panel'}>
+                                              {!isMobile && (
+                                                <div className="ib-carousel-panel-head">
+                                                  <span className="ib-tools-counter">Split {index + 1} of {splits.length}</span>
+                                                  <button
+                                                    type="button"
+                                                    className="ib-delete-split-btn"
+                                                    onClick={() => removeSplit(item, s.id)}
+                                                    aria-label="Remove this split"
+                                                  >
+                                                    <Trash2 size={16} />
+                                                  </button>
+                                                </div>
+                                              )}
+
+                                              <div className="ib-form-group" style={{ marginBottom: '12px' }}>
+                                                <div className="input-with-icon">
+                                                  <CurrencyIcon size={16} className="input-icon" />
+                                                  <input
+                                                    type="text"
+                                                    placeholder="Split Amount"
+                                                    value={s.amount}
+                                                    onChange={e => setSplitValue(s.id, 'amount', formatAmountInput(e.target.value))}
+                                                  />
+                                                </div>
+                                              </div>
+
+                                              {isMobile ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                  <TapField label="Account" value={s.account} icon={Wallet} compact onOpen={() => openField('account', s.id)} />
+                                                  <TapField label="Category" value={s.category} icon={Tag} compact onOpen={() => openField('category', s.id)} />
+                                                  <TapField label="Payee" value={s.payee} icon={User} compact onOpen={() => openField('payee', s.id)} />
+                                                </div>
+                                              ) : (
+                                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                  <div className="ib-form-group" style={{ flex: '1 1 30%' }}>
+                                                    <UnifiedDropdown value={s.account} placeholder="Account" options={withCurrentValue(accounts, s.account)} onChange={v => setSplitValue(s.id, 'account', v)} />
+                                                  </div>
+                                                  <div className="ib-form-group" style={{ flex: '1 1 30%' }}>
+                                                    <UnifiedDropdown value={s.category} placeholder="Category" options={withCurrentValue(categories, s.category)} onChange={v => setSplitValue(s.id, 'category', v)} />
+                                                  </div>
+                                                  <div className="ib-form-group" style={{ flex: '1 1 30%' }}>
+                                                    <UnifiedDropdown value={s.payee} placeholder="Payee" options={withCurrentValue(payees, s.payee)} onChange={v => setSplitValue(s.id, 'payee', v)} />
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    <div className="ib-carousel-pagination">
+                                      <button
+                                        type="button"
+                                        onClick={() => setField(item.id, 'activeSplitIndex', Math.max(0, activeSplitIndex - 1))}
+                                        disabled={activeSplitIndex === 0}
+                                        className="ib-pagination-btn"
+                                        aria-label="Previous split"
+                                      >
+                                        <ChevronLeft size={20} />
+                                      </button>
+
+                                      <div className="ib-carousel-dots">
+                                        {splits.map((s, i) => (
+                                          <div
+                                            key={s.id}
+                                            className={`ib-carousel-dot ${i === activeSplitIndex ? 'active' : ''}`}
+                                            onClick={() => setField(item.id, 'activeSplitIndex', i)}
+                                          />
+                                        ))}
+                                      </div>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => setField(item.id, 'activeSplitIndex', Math.min(splits.length - 1, activeSplitIndex + 1))}
+                                        disabled={activeSplitIndex === splits.length - 1}
+                                        className="ib-pagination-btn"
+                                        aria-label="Next split"
+                                      >
+                                        <ChevronRight size={20} />
+                                      </button>
+
+                                      <motion.button
+                                        type="button"
+                                        whileHover={!isMobile ? { scale: 1.05 } : {}}
+                                        whileTap={{ scale: 0.95 }}
+                                        onClick={() => setFields(item.id, {
+                                          splits: [...splits, blankSplit(account)],
+                                          activeSplitIndex: splits.length
+                                        })}
+                                        className="ib-add-carousel-btn"
+                                        style={{ marginLeft: 'auto' }}
+                                      >
+                                        <Plus size={16} /> Add Split
+                                      </motion.button>
+                                    </div>
+                                  </motion.div>
+                                ) : isExpenseShare ? (
+                                  <motion.div
+                                    key="expense-share-ui"
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -20 }}
+                                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                                    style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                                  >
+                                    {/* Category and payee describe the whole
+                                        expense, so they stay put while the
+                                        people scroll past. */}
+                                    {isMobile ? (
+                                      <>
+                                        {renderTapField('Category', category, Tag, 'category')}
+                                        {renderTapField('Payee', payee, User, 'payee')}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="ib-form-group">
+                                          {category && <label>Category</label>}
+                                          <div className="input-with-icon" onClick={() => openField('category')}>
+                                            <Tag size={18} className="input-icon" />
+                                            <input type="text" placeholder="Category" value={category} readOnly style={{ cursor: 'pointer' }} />
+                                          </div>
+                                        </div>
+                                        <div className="ib-form-group">
+                                          {payee && <label>Payee</label>}
+                                          <div className="input-with-icon" onClick={() => openField('payee')}>
+                                            <User size={18} className="input-icon" />
+                                            <input type="text" placeholder="Payee" value={payee} readOnly style={{ cursor: 'pointer' }} />
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+
+                                    <div className="ib-your-share">
+                                      <div className="ib-your-share-label">
+                                        <User size={16} />
+                                        <span>Your Share</span>
+                                      </div>
+                                      <span className="ib-your-share-value">
+                                        {getCurrencySymbol(sourceCurrency)}
+                                        {formatCurrency(Math.max(0, Math.abs(evalResult || 0) - othersTotal))}
+                                      </span>
+                                    </div>
+
+                                    <div
+                                      className="ib-carousel-viewport"
+                                      onTouchStart={handleTouchStart}
+                                      onTouchEnd={handleTouchEnd(item)}
+                                    >
+                                      <div
+                                        className="ib-carousel-track"
+                                        style={{ transform: `translateX(-${activePersonIndex * 100}%)` }}
+                                      >
+                                        {expenseShares.map((share, index) => (
+                                          <div key={share.id} className="ib-carousel-card">
+                                            <div className={isMobile ? 'ib-carousel-body' : 'ib-carousel-body ib-carousel-panel'}>
+                                              {!isMobile && (
+                                                <div className="ib-carousel-panel-head">
+                                                  <span className="ib-tools-counter">Person {index + 1} of {expenseShares.length}</span>
+                                                  <button
+                                                    type="button"
+                                                    className="ib-delete-split-btn"
+                                                    onClick={() => removeShare(item, share.id)}
+                                                    aria-label="Remove this person"
+                                                  >
+                                                    <Trash2 size={16} />
+                                                  </button>
+                                                </div>
+                                              )}
+
+                                              <div className="ib-form-group" style={{ marginBottom: '10px' }}>
+                                                {share.name && <label>Person's Name</label>}
+                                                <div className="input-with-icon">
+                                                  <User size={16} className="input-icon" />
+                                                  <input
+                                                    type="text"
+                                                    placeholder="Person's name"
+                                                    value={share.name}
+                                                    onChange={e => setShareValue(share.id, 'name', e.target.value)}
+                                                  />
+                                                </div>
+                                              </div>
+
+                                              <div className="ib-form-group">
+                                                {share.amount && <label>Owed Amount</label>}
+                                                <div className="input-with-icon">
+                                                  <CurrencyIcon size={16} className="input-icon" />
+                                                  <input
+                                                    type="text"
+                                                    placeholder="Owed Amount"
+                                                    value={share.amount}
+                                                    onChange={e => setShareValue(share.id, 'amount', formatAmountInput(e.target.value))}
+                                                  />
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    <div className="ib-carousel-pagination">
+                                      <button
+                                        type="button"
+                                        onClick={() => setField(item.id, 'activePersonIndex', Math.max(0, activePersonIndex - 1))}
+                                        disabled={activePersonIndex === 0}
+                                        className="ib-pagination-btn"
+                                        aria-label="Previous person"
+                                      >
+                                        <ChevronLeft size={20} />
+                                      </button>
+
+                                      <div className="ib-carousel-dots">
+                                        {expenseShares.map((s, i) => (
+                                          <div
+                                            key={s.id}
+                                            className={`ib-carousel-dot ${i === activePersonIndex ? 'active' : ''}`}
+                                            onClick={() => setField(item.id, 'activePersonIndex', i)}
+                                          />
+                                        ))}
+                                      </div>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => setField(item.id, 'activePersonIndex', Math.min(expenseShares.length - 1, activePersonIndex + 1))}
+                                        disabled={activePersonIndex === expenseShares.length - 1}
+                                        className="ib-pagination-btn"
+                                        aria-label="Next person"
+                                      >
+                                        <ChevronRight size={20} />
+                                      </button>
+
+                                      <motion.button
+                                        type="button"
+                                        whileHover={!isMobile ? { scale: 1.05 } : {}}
+                                        whileTap={{ scale: 0.95 }}
+                                        onClick={() => setFields(item.id, {
+                                          expenseShares: [...expenseShares, blankShare()],
+                                          activePersonIndex: expenseShares.length
+                                        })}
+                                        className="ib-add-carousel-btn ib-share-accent"
+                                        style={{ marginLeft: 'auto' }}
+                                      >
+                                        <Plus size={16} /> Add Person
+                                      </motion.button>
+                                    </div>
+                                  </motion.div>
+                                ) : (
+                                  <motion.div
+                                    key="regular-ui"
+                                    initial={{ opacity: 0, y: -20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: 20 }}
+                                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                                    style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+                                  >
+                                    {isMobile ? (
+                                      <>
+                                        {renderTapField('Category', category, Tag, 'category')}
+                                        {renderTapField('Payee', payee, User, 'payee')}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="ib-form-group">
+                                          {category && <label>Category</label>}
+                                          <div className="input-with-icon" onClick={() => openField('category')}>
+                                            <Tag size={18} className="input-icon" />
+                                            <input type="text" placeholder="Category" value={category} readOnly style={{ cursor: 'pointer' }} />
+                                          </div>
+                                        </div>
+                                        <div className="ib-form-group">
+                                          {payee && <label>Payee</label>}
+                                          <div className="input-with-icon" onClick={() => openField('payee')}>
+                                            <User size={18} className="input-icon" />
+                                            <input type="text" placeholder="Payee" value={payee} readOnly style={{ cursor: 'pointer' }} />
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
+
+                      {/* The merchant hint belongs to the payee, but the payee
+                          field moves between three layouts. It sits under the
+                          block instead, where it reads the same in all of
+                          them. */}
+                      {type !== 2 && !isSplit && (() => {
+                        const merchant = draft.parsed?.merchant;
+                        if (!merchant || !looksLikeIdentifier(merchant)) return null;
+                        const chosen = (payee || '').trim();
+                        const named = chosen && chosen !== prettifyMerchant(merchant);
+                        return (
+                          <div className={`ib-hint ${named ? 'resolved' : ''}`}>
+                            <code>{merchant}</code>
+                            {named
+                              ? <span>will be remembered as <strong>{chosen}</strong>.</span>
+                              : <span>
+                                  is an account identifier, not a name. Whoever
+                                  you name here is remembered for every future
+                                  transfer from it.
+                                </span>}
+                          </div>
+                        );
+                      })()}
+
+                      <div className="ib-form-group">
+                        {note && <label>Note (Optional)</label>}
+                        {isMobile ? (
+                          <div onClick={() => openField('note')} style={{ cursor: 'pointer' }}>
+                            <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
+                              <AlignLeft size={18} className="input-icon" />
+                              <input type="text" placeholder="Note (Optional)" value={note} readOnly />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="input-with-icon">
+                            <AlignLeft size={18} className="input-icon" />
+                            <input
+                              type="text"
+                              placeholder="Note (Optional)"
+                              value={note}
+                              onChange={e => setField(item.id, 'note', e.target.value)}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {((isSplit || isExpenseShare) && type !== 2) && (
+                        <div className="ib-status-banner">
+                          {isSplit && (() => {
+                            const rem = (evalResult || 0) - splitTotal;
+                            if (Math.abs(rem) < 0.01) return <span style={{ color: '#10b981', fontWeight: 600 }}>Split balanced ✓</span>;
+                            return <span style={{ fontWeight: 600, color: rem < 0 ? '#ef4444' : 'var(--text-secondary)' }}>Remaining: {formatCurrency(rem)}</span>;
+                          })()}
+                          {isExpenseShare && (() => {
+                            const total = Math.abs(evalResult || 0);
+                            if (othersTotal > total) return <span style={{ color: '#ef4444', fontWeight: 600 }}>Others exceed total!</span>;
+                            if (othersTotal <= 0) return <span style={{ fontWeight: 600 }}>Enter shares</span>;
+                            return <span style={{ color: '#f59e0b', fontWeight: 600 }}>Others owe: {getCurrencySymbol(sourceCurrency)}{formatCurrency(othersTotal)}</span>;
+                          })()}
+                        </div>
+                      )}
+
                       <button
                         type="button"
                         className="ib-raw-toggle"
                         onClick={() => setShowRaw(v => !v)}
                       >
-                        <span>{isTransfer && item.pair.debit && item.pair.credit
+                        <span>{isPair && item.pair.debit && item.pair.credit
                           ? 'Both original messages' : 'Original message'}</span>
                         {showRaw ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
                       {showRaw && (
-                        isTransfer ? (
+                        isPair ? (
                           <>
                             {item.pair.debit && (
                               <div className="ib-raw">
@@ -759,7 +1415,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         )
                       )}
 
-                      {isTransfer && (
+                      {isPair && (
                         <button
                           type="button"
                           className="ib-unpair-btn"
@@ -783,10 +1439,14 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                           type="button"
                           className="ib-submit-btn"
                           onClick={() => handleApprove(item)}
-                          disabled={busy}
+                          disabled={
+                            busy
+                            || (isSplit && type !== 2 && Math.abs((evalResult || 0) - splitTotal) > 0.01)
+                            || (isExpenseShare && type !== 2 && othersTotal > Math.abs(evalResult || 0))
+                          }
                         >
                           <Check size={16} />
-                          {busy ? 'Adding...' : isTransfer ? 'Add transfer' : 'Add transaction'}
+                          {busy ? 'Adding...' : type === 2 ? 'Add transfer' : 'Add transaction'}
                         </button>
                       </div>
                     </div>
@@ -808,41 +1468,34 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                 : (activeField === 'account' || activeField === 'transferTo') ? accounts
                 : []
             }
-            initialValue={valueFor(selected, popoverFieldName(selected, activeField))}
+            initialValue={
+              activeSplitId
+                ? (valueFor(selected, 'splits')
+                    .find(s => s.id === activeSplitId)?.[activeField] || '')
+                : valueFor(selected, activeField)
+            }
             onSelect={(val) => {
-              const target = popoverFieldName(selected, activeField);
-              if (target === 'payee') setPayeeField(selected, val);
-              else setField(selected.id, target, val);
+              applyPopoverValue(val);
               setActiveField(null);
+              setActiveSplitId(null);
             }}
-            onSaveValue={(val) =>
-              setField(selected.id, popoverFieldName(selected, activeField), val)}
+            onSaveValue={applyPopoverValue}
             onAdd={async (val) => {
               // Creating from here works exactly as it does in the transaction
               // form: the payee or category becomes a real one immediately.
               if (activeField === 'category') {
                 await saveCategory({ name: val, color: '#6366f1' });
-                setField(selected.id, 'category', val);
               } else if (activeField === 'payee') {
                 await savePayee({ name: val, color: '#10b981' });
-                setPayeeField(selected, val);
               }
+              applyPopoverValue(val);
               setActiveField(null);
+              setActiveSplitId(null);
             }}
-            onClose={() => setActiveField(null)}
+            onClose={() => { setActiveField(null); setActiveSplitId(null); }}
           />
         )}
       </div>
     </ModalWrapper>
   );
-}
-
-// The popover is told which *kind* of field it is showing so it can offer the
-// right list, but a transfer stores its two accounts as from/to rather than
-// account/transferTo. This maps one to the other.
-function popoverFieldName(item, field) {
-  if (item?.kind !== 'transfer') return field;
-  if (field === 'account') return 'from';
-  if (field === 'transferTo') return 'to';
-  return field;
 }
