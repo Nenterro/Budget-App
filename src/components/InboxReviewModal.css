@@ -885,6 +885,27 @@
   color: #10b981;
 }
 
+/* Shown on a draft that has already had part of it spent on a loan, where the
+   amount and the message it quotes no longer agree. Same shape as the transfer
+   note, in the green the repayment tool uses. */
+.ib-part-spent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  color: #6ee7b7;
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.ib-part-spent svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 /* The loan an incoming payment is being filed against. Green, like Your Share
    and the income tab: this is money arriving. */
 .ib-loan-summary {
@@ -950,6 +971,10 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  /* A repayment reports two things at once - what the loan takes and what is
+     left in the queue - which will not fit on one line on a phone. */
+  flex-wrap: wrap;
+  gap: 4px 10px;
   font-size: 12px;
   padding: 2px 4px;
   margin-top: 2px;

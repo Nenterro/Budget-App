@@ -367,6 +367,31 @@ export function openLoans(transactions) {
     new Date(b.date) - new Date(a.date) || b.pending - a.pending);
 }
 
+// ─── Dividing a payment between a loan and the rest ─────────────────
+//
+// Money arriving need not be all one thing. Someone who owes 400 can send
+// 1000, and only the 400 belongs to the expense; the other 600 is ordinary
+// income and has to be reviewed as such.
+//
+// So a payment has a ceiling — it can never give a loan more than is owed, nor
+// more than actually arrived — and whatever it does not use is the remainder.
+// Both are rounded, because a remainder computed from unrounded halves is how
+// a stray 0.004 ends up in the queue as a draft worth nothing.
+
+export function splitPayment(detected, pending, applied) {
+  const total = round2(Math.max(0, Number(detected) || 0));
+  const ceiling = round2(Math.min(total, Math.max(0, Number(pending) || 0)));
+
+  // Undefined means "as much as it can take", which is what opening the tool
+  // should offer: the common case is a payment that settles exactly.
+  const wanted = applied === null || applied === undefined || !Number.isFinite(Number(applied))
+    ? ceiling
+    : Number(applied);
+
+  const toLoan = round2(Math.max(0, Math.min(wanted, ceiling)));
+  return { ceiling, toLoan, remainder: round2(total - toLoan) };
+}
+
 // ─── Turning a mutation into a save batch ──────────────────────────────────
 //
 // The single place that decides what actually reaches the database. It used to

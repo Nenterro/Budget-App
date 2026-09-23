@@ -117,6 +117,15 @@ A draft already in the inbox was parsed at receive time and will not re-parse
 itself. After fixing the parser, the old draft has to be dismissed and the
 message re-forwarded.
 
+The app writes back to a draft in exactly one case. A payment can be partly
+spent on something already known — settling someone's share of a shared
+expense — and the rest still needs reviewing, so the draft stays in the queue
+carrying what is left of it. It is reduced rather than replaced because
+`createRule` on `inbox_messages` is admin-only by design: a draft is the one
+plaintext thing on the server, and only the ingest service may add to it.
+Nothing derived from encrypted data is ever written back — only the amount the
+server already held, plus the original for context.
+
 ## This repo
 
 ```bash

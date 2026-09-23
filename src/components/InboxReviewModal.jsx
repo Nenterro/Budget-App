@@ -13,8 +13,8 @@ import FieldPopover, { useIsMobile, TapField } from './FieldPopover';
 import { useData } from '../context/DataContext';
 import { dayToStoredDate, dayStringOf } from '../utils/date';
 import { useAutomationSettings } from '../context/SettingsContext';
-import { deleteDraft } from '../store/inbox';
-import { openLoans, applyRepayment, toBatch } from '../utils/expenseShares';
+import { deleteDraft, reduceDraftAmount } from '../store/inbox';
+import { openLoans, applyRepayment, splitPayment, toBatch } from '../utils/expenseShares';
 import {
   draftToSuggestion,
   learnFromApproval,
@@ -92,7 +92,10 @@ const FIELD_DEFAULTS = {
   expenseShares: [],
   activePersonIndex: 0,
   isRepayment: false,
-  loanId: ''
+  loanId: '',
+  // How much of the payment goes to the loan. Empty means "as much as it can
+  // take" — resolved against the loan, which the default cannot know.
+  repayAmount: ''
 };
 
 /**
@@ -118,6 +121,12 @@ const FIELD_DEFAULTS = {
  * dismissing. A credit that settles a shared expense is not new income — it
  * belongs to the expense it came back from, so approving it as a repayment
  * files it there rather than creating an unrelated income beside it.
+ *
+ * Only part of a payment need go that way. Someone who owes 400 can send
+ * 1000, and the other 600 is ordinary income: the loan takes its share and
+ * the entry stays in the queue carrying the rest, to be reviewed on its own
+ * terms. The draft is reduced rather than replaced, because the app may not
+ * create one — adding plaintext to the server is the ingest service's alone.
  *
  * Nothing is added without a tap. Every approval teaches the rules.
  */
@@ -272,13 +281,36 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
 
   // What every approval does once its transaction exists, whether that was a
   // plain add or a repayment filed against a shared expense. `chosen` is null
-  // when there is nothing worth learning from.
-  const finishApproval = useCallback(async (item, chosen) => {
+  // when there is nothing worth learning from; `remainder` is what the payment
+  // did not spend and still has to be reviewed.
+  const finishApproval = useCallback(async (item, chosen, remainder = 0) => {
     if (item.kind === 'single' && chosen) {
       const learned = learnFromApproval(automationRules, item.draft, chosen);
       if (learned !== automationRules) await setAutomationRules(learned);
     }
-    await dropDrafts(item);
+
+    if (remainder > 0 && item.kind === 'single') {
+      // The repayment is already saved. If the draft cannot be shrunk it stays
+      // in the queue at its full size, which would double-count the part just
+      // spent — so it is said out loud rather than left to be re-approved.
+      const reduced = await reduceDraftAmount(item.draft, remainder);
+      if (!reduced) {
+        alert('The repayment was recorded, but this entry could not be reduced.'
+          + ' It still shows the full amount — review it before adding it again.');
+      }
+      // The edits describe the payment that has just been spent — its amount,
+      // its loan, the tool being on. Left in place they would hide the
+      // remainder behind the figure it was taken from.
+      setEdits(current => {
+        if (!(item.id in current)) return current;
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+    } else {
+      await dropDrafts(item);
+    }
+
     setSelectedId(null);
     await onRefresh();
   }, [automationRules, setAutomationRules, dropDrafts, onRefresh]);
@@ -289,8 +321,8 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
   // also reduces what the person still owes — so the money lands once, on the
   // expense it came back from. Adding it here as well would count it twice.
   const handleRecordRepayment = useCallback(async (item) => {
-    const amount = evalMath(valueFor(item, 'amount'));
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const detected = evalMath(valueFor(item, 'amount'));
+    if (!Number.isFinite(detected) || detected <= 0) {
       alert('Enter a valid amount before recording this repayment.');
       return;
     }
@@ -315,12 +347,23 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       return;
     }
 
+    // Split against the loan as it is now, not as the picker drew it. An
+    // amount that was within the ceiling a minute ago may not be.
+    const entered = valueFor(item, 'repayAmount');
+    const { toLoan, remainder } = splitPayment(
+      detected, loan.pending, entered === '' ? null : evalMath(entered));
+
+    if (!(toLoan > 0)) {
+      alert('Enter how much of this payment goes to the loan.');
+      return;
+    }
+
     setBusy(true);
     try {
       const batch = toBatch(
         applyRepayment(parent, {
           personName: loan.personName,
-          amount,
+          amount: toLoan,
           account,
           date: valueFor(item, 'date'),
           currency: accounts.find(a => a.name === account)?.currency,
@@ -337,9 +380,12 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       // The account mapping and the sender's name are worth keeping. The
       // category is not: "Loan" is a label applyRepayment wrote itself, and
       // the next payment from this sender need not be a repayment at all.
-      await finishApproval(item, {
-        account, payee: loan.personName, category: null
-      });
+      //
+      // Whatever the loan did not take stays in the queue as a draft of its
+      // own size, so the rest of the money is still reviewed rather than lost
+      // with the record it arrived on.
+      await finishApproval(
+        item, { account, payee: loan.personName, category: null }, remainder);
     } catch (err) {
       console.error('Failed to record repayment from draft:', err);
       alert('Could not record this. It is still in the queue — try again.');
@@ -572,6 +618,15 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     });
   }, [valueFor, setFields]);
 
+  // As much of the payment as the loan can take, which is what opening the
+  // tool or changing the loan should offer: a payment that settles exactly is
+  // the common case, and a bigger one is meant to be trimmed, not retyped.
+  const fullRepayment = useCallback((item, loan) => {
+    const { ceiling } = splitPayment(
+      evalMath(valueFor(item, 'amount')), loan?.pending, null);
+    return ceiling > 0 ? formatAmountInput(String(ceiling)) : '';
+  }, [valueFor]);
+
   // The three tools are alternatives: a repayment has no category, payee,
   // split lines or people of its own — the expense it repays already has them.
   const toggleRepayment = useCallback((item) => {
@@ -582,6 +637,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     // The parser's guess, if it still stands. Otherwise the most recent debt,
     // which is the one an unexplained payment is most often for.
     const suggested = valueFor(item, 'loanId');
+    const chosen = loanById(suggested) ? suggested : (loans[0]?.id || '');
     setFields(item.id, {
       isRepayment: true,
       isSplit: false,
@@ -590,9 +646,16 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       isExpenseShare: false,
       expenseShares: [],
       activePersonIndex: 0,
-      loanId: loanById(suggested) ? suggested : (loans[0]?.id || '')
+      loanId: chosen,
+      repayAmount: fullRepayment(item, loanById(chosen))
     });
-  }, [valueFor, setFields, loanById, loans]);
+  }, [valueFor, setFields, loanById, loans, fullRepayment]);
+
+  // A different loan owes a different amount, so the figure offered has to
+  // follow it — otherwise switching to a smaller debt silently overshoots it.
+  const chooseLoan = useCallback((item, id) => {
+    setFields(item.id, { loanId: id, repayAmount: fullRepayment(item, loanById(id)) });
+  }, [setFields, loanById, fullRepayment]);
 
   const removeSplit = useCallback((item, splitId) => {
     const splits = valueFor(item, 'splits');
@@ -814,14 +877,27 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                 const splitTotal = splits.reduce(
                   (acc, s) => acc + (evalMath(s.amount) || 0), 0);
 
-                // The loan this payment would be filed against, and what would
-                // still be owed on it afterwards. Only money arriving can repay
-                // one, so the tool follows the Income tab.
-                const isRepayment = valueFor(item, 'isRepayment') && type === 1;
+                // The loan this payment would be filed against, how much of
+                // the payment goes to it, and what is left over on each side.
+                // Only money arriving can repay one, so the tool follows the
+                // Income tab, and a matched pair is money between your own
+                // accounts rather than anyone paying you back.
+                const isRepayment = valueFor(item, 'isRepayment') && type === 1 && !isPair;
                 const loan = isRepayment ? loanById(valueFor(item, 'loanId')) : null;
-                const paidBack = Math.abs(evalResult || 0);
-                const overRepaying = !!loan && paidBack > loan.pending + 0.005;
-                const loanRemaining = loan ? Math.max(0, loan.pending - paidBack) : 0;
+
+                const detected = Math.abs(evalResult || 0);
+                const enteredRepay = valueFor(item, 'repayAmount');
+                const wantsToLoan = enteredRepay === '' ? null : evalMath(enteredRepay);
+                const { ceiling: repayCeiling, toLoan, remainder } =
+                  splitPayment(detected, loan?.pending, wantsToLoan);
+
+                // Typing more than the loan can take is capped by splitPayment,
+                // but silently capping would move money the user did not agree
+                // to move. It is said out loud instead.
+                const overRepaying = wantsToLoan !== null
+                  && Number.isFinite(wantsToLoan)
+                  && wantsToLoan > repayCeiling + 0.005;
+                const loanRemaining = loan ? Math.max(0, loan.pending - toLoan) : 0;
 
                 // A shared expense's currency is its account's, as it is
                 // everywhere else the two disagree.
@@ -915,6 +991,23 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                             {item.pair.oneSided
                               ? `Only one side of this was reported, and ${draft.parsed?.merchant || 'the counterparty'} is a name you marked as your own — so pick the account at the other end.`
                               : 'Two messages, same amount, moments apart — matched as one transfer so the movement is not counted twice.'}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* A draft whose amount no longer matches its own text,
+                          because part of it has already gone to a loan. Without
+                          this the figure looks like a parser fault — the raw
+                          message is right there saying something larger. */}
+                      {!isPair && draft.parsed?.originalAmount > 0
+                        && Math.abs(draft.parsed.originalAmount - (draft.parsed.amount ?? 0)) > 0.005 && (
+                        <div className="ib-part-spent">
+                          <HandCoins size={14} />
+                          <span>
+                            This message was for {getCurrencySymbol(sourceCurrency)}
+                            {formatCurrency(draft.parsed.originalAmount)}. The rest of
+                            it has already been recorded against a loan; what is left
+                            is below.
                           </span>
                         </div>
                       )}
@@ -1029,8 +1122,10 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                           </div>
                           <div className="ib-tools-right">
                             {/* Offered only where it can mean something: money
-                                arriving, with a debt still open somewhere. */}
-                            {type === 1 && (isRepayment || loans.length > 0) && !isSplit && !isExpenseShare && (
+                                arriving from someone else, with a debt still
+                                open somewhere. A matched pair is your own two
+                                accounts, so nobody is paying anybody back. */}
+                            {type === 1 && !isPair && (isRepayment || loans.length > 0) && !isSplit && !isExpenseShare && (
                               <motion.button
                                 type="button"
                                 whileHover={!isMobile ? { scale: 1.05 } : {}}
@@ -1452,27 +1547,46 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                                       <UnifiedDropdown
                                         value={valueFor(item, 'loanId')}
                                         options={loanOptions}
-                                        onChange={v => setField(item.id, 'loanId', v)}
+                                        onChange={v => chooseLoan(item, v)}
                                         placeholder="Choose a loan"
                                       />
                                     </div>
 
                                     {loan ? (
-                                      <div className="ib-loan-summary">
-                                        <div className="ib-loan-row">
-                                          <span className="ib-loan-person">
-                                            <HandCoins size={15} />
-                                            {loan.personName} owes
-                                          </span>
-                                          <span className="ib-loan-pending">
-                                            {loanSymbol(loan)}{formatCurrency(loan.pending)}
-                                          </span>
+                                      <>
+                                        <div className="ib-loan-summary">
+                                          <div className="ib-loan-row">
+                                            <span className="ib-loan-person">
+                                              <HandCoins size={15} />
+                                              {loan.personName} owes
+                                            </span>
+                                            <span className="ib-loan-pending">
+                                              {loanSymbol(loan)}{formatCurrency(loan.pending)}
+                                            </span>
+                                          </div>
+                                          <div className="ib-loan-row ib-loan-sub">
+                                            <span>{loan.expensePayee}</span>
+                                            <span>{formatDayMonthYear(dayStringOf(loan.date))}</span>
+                                          </div>
                                         </div>
-                                        <div className="ib-loan-row ib-loan-sub">
-                                          <span>{loan.expensePayee}</span>
-                                          <span>{formatDayMonthYear(dayStringOf(loan.date))}</span>
+
+                                        {/* Not all of a payment need go to the
+                                            loan. What it does not take stays in
+                                            the queue as its own entry. */}
+                                        <div className="ib-form-group">
+                                          {enteredRepay && <label>Towards this loan</label>}
+                                          <div className="input-with-icon">
+                                            <CurrencyIcon size={16} className="input-icon" />
+                                            <input
+                                              type="text"
+                                              inputMode="decimal"
+                                              placeholder="Towards this loan"
+                                              value={enteredRepay}
+                                              onChange={e => setField(item.id, 'repayAmount', formatAmountInput(e.target.value))}
+                                            />
+                                          </div>
                                         </div>
-                                      </div>
+                                      </>
                                     ) : (
                                       <div className="ib-warning">
                                         <AlertTriangle size={14} />
@@ -1584,13 +1698,30 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                           })()}
                           {isRepayment && (() => {
                             if (!loan) return <span style={{ fontWeight: 600 }}>Choose a loan</span>;
-                            if (overRepaying) return <span style={{ color: '#ef4444', fontWeight: 600 }}>More than {loan.personName} owes!</span>;
-                            if (paidBack <= 0) return <span style={{ fontWeight: 600 }}>Enter an amount</span>;
-                            if (loanRemaining < 0.005) return <span style={{ color: '#10b981', fontWeight: 600 }}>Settles {loan.personName} in full ✓</span>;
+                            if (detected <= 0) return <span style={{ fontWeight: 600 }}>Enter an amount</span>;
+                            if (overRepaying) {
+                              return (
+                                <span style={{ color: '#ef4444', fontWeight: 600 }}>
+                                  At most {loanSymbol(loan)}{formatCurrency(repayCeiling)} can go to this loan
+                                </span>
+                              );
+                            }
+                            if (!(toLoan > 0)) return <span style={{ fontWeight: 600 }}>Enter how much goes to the loan</span>;
                             return (
-                              <span style={{ color: '#f59e0b', fontWeight: 600 }}>
-                                {loan.personName} will still owe {loanSymbol(loan)}{formatCurrency(loanRemaining)}
-                              </span>
+                              <>
+                                {remainder > 0.005 && (
+                                  <span style={{ color: 'var(--text-secondary)' }}>
+                                    {getCurrencySymbol(sourceCurrency)}{formatCurrency(remainder)} stays in the queue
+                                  </span>
+                                )}
+                                {loanRemaining < 0.005
+                                  ? <span style={{ color: '#10b981', fontWeight: 600 }}>Settles {loan.personName} in full ✓</span>
+                                  : (
+                                    <span style={{ color: '#f59e0b', fontWeight: 600 }}>
+                                      {loan.personName} will still owe {loanSymbol(loan)}{formatCurrency(loanRemaining)}
+                                    </span>
+                                  )}
+                              </>
                             );
                           })()}
                         </div>
@@ -1652,13 +1783,14 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                             busy
                             || (isSplit && type !== 2 && Math.abs((evalResult || 0) - splitTotal) > 0.01)
                             || (isExpenseShare && type !== 2 && othersTotal > Math.abs(evalResult || 0))
-                            || (isRepayment && (!loan || overRepaying || paidBack <= 0))
+                            || (isRepayment && (!loan || overRepaying || !(toLoan > 0)))
                           }
                         >
                           <Check size={16} />
                           {busy
                             ? (isRepayment ? 'Recording...' : 'Adding...')
-                            : isRepayment ? 'Record repayment'
+                            : isRepayment
+                              ? (remainder > 0.005 ? 'Repay and keep the rest' : 'Record repayment')
                               : type === 2 ? 'Add transfer' : 'Add transaction'}
                         </button>
                       </div>

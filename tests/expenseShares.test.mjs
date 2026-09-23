@@ -2,7 +2,7 @@ import {
   sharePending, personPending, totalPending, personWrittenOff,
   applyWriteOff, editWriteOff, removeWriteOff,
   applyRepayment, editRepayment, removeRepayment,
-  maxWriteOff, maxRepayment, toBatch, findOrphanedLinks, openLoans
+  maxWriteOff, maxRepayment, toBatch, findOrphanedLinks, openLoans, splitPayment
 } from '../src/utils/expenseShares.js';
 
 let failed = 0;
@@ -325,6 +325,62 @@ console.log('\n--- A repayment carries the caller\'s note as well as its own ---
         noted.childTx.create.isRepayment === true
         && noted.childTx.create.parentExpenseShareTxId === 'tx1'
         && noted.childTx.create.category === 'Loan');
+}
+
+console.log('\n--- Dividing a payment between a loan and the rest ---');
+{
+  // Ali owes 400 and sends exactly that. Nothing is left to review.
+  const exact = splitPayment(400, 400);
+  check('an exact payment gives the loan everything', near(exact.toLoan, 400));
+  check('and leaves nothing behind', near(exact.remainder, 0));
+
+  // He owes 400 and sends 1000. The loan takes its 400; the other 600 is
+  // ordinary income and has to come back to the queue rather than vanish with
+  // the draft it arrived on.
+  const over = splitPayment(1000, 400);
+  check('a bigger payment is capped at what is owed', near(over.toLoan, 400));
+  check('and the rest is the remainder', near(over.remainder, 600));
+  check('the ceiling is what is owed', near(over.ceiling, 400));
+
+  // He owes 400 and sends 150. The ceiling is the money, not the debt.
+  const under = splitPayment(150, 400);
+  check('a smaller payment gives all of itself', near(under.toLoan, 150));
+  check('with nothing left over', near(under.remainder, 0));
+  check('the ceiling is what arrived', near(under.ceiling, 150));
+
+  // Choosing to spend only part of it on the loan, of the user's own accord.
+  const chosen = splitPayment(1000, 400, 250);
+  check('an explicit share is honoured', near(chosen.toLoan, 250));
+  check('and the rest still comes back', near(chosen.remainder, 750));
+
+  // Typing more than either bound must not move money that is not there.
+  check('asking for more than is owed is capped', near(splitPayment(1000, 400, 900).toLoan, 400));
+  check('asking for more than arrived is capped', near(splitPayment(150, 400, 900).toLoan, 150));
+  check('the capped remainder still adds up', near(splitPayment(1000, 400, 900).remainder, 600));
+  check('a negative share takes nothing', near(splitPayment(1000, 400, -50).toLoan, 0));
+  check('and then the whole payment is the remainder',
+        near(splitPayment(1000, 400, -50).remainder, 1000));
+
+  // The two halves must always reconstitute the payment, or money is invented
+  // or lost at the moment a draft is reduced.
+  for (const [d, p, a] of [[1000, 400, 250], [33.33, 11.11, 7.77], [0.1, 0.05, 0.02], [999.99, 333.33]]) {
+    const r = splitPayment(d, p, a);
+    check(`${d} splits without drift`, near(r.toLoan + r.remainder, Math.round(d * 100) / 100),
+          `${r.toLoan} + ${r.remainder}`);
+  }
+
+  // Thirds are where an unrounded remainder leaves a draft worth 0.004.
+  const thirds = splitPayment(100, 33.333333, 33.333333);
+  check('an awkward share is rounded to money', near(thirds.toLoan, 33.33), `${thirds.toLoan}`);
+  check('and so is what is left', near(thirds.remainder, 66.67), `${thirds.remainder}`);
+
+  // Degenerate input, because the amount field can hold anything mid-typing.
+  check('nothing owed takes nothing', near(splitPayment(1000, 0).toLoan, 0));
+  check('nothing owed returns it all', near(splitPayment(1000, 0).remainder, 1000));
+  check('nothing arrived', near(splitPayment(0, 400).toLoan, 0) && near(splitPayment(0, 400).remainder, 0));
+  check('an unreadable share falls back to the ceiling',
+        near(splitPayment(1000, 400, NaN).toLoan, 400));
+  check('undefined everything', near(splitPayment().toLoan, 0));
 }
 
 console.log(failed === 0 ? '\nALL EXPENSE-SHARE CHECKS PASSED\n' : `\n${failed} CHECK(S) FAILED\n`);

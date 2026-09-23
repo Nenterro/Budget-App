@@ -139,6 +139,41 @@ export async function deleteDraft(id) {
 }
 
 /**
+ * Leave a draft in the queue carrying only part of what it arrived with.
+ *
+ * Part of a payment can belong to something the app already knows about —
+ * settling a loan — while the rest still needs reviewing. The remainder wants
+ * to be a draft of its own, and cannot be: `createRule` on this collection is
+ * admin-only by design, because a draft is the one plaintext thing on the
+ * server and only the ingest service may add to it. Updating is allowed, so
+ * the record stays where it is with what is left of it.
+ *
+ * `rawText` is untouched, which is the honest account of it: one message,
+ * partly spent. Nothing derived from encrypted data — no person, no expense,
+ * no account — is written back, only the number the server already held.
+ */
+export async function reduceDraftAmount(draft, remaining) {
+  if (!draft?.id) return false;
+  const parsed = draft.parsed || {};
+
+  try {
+    await pb.collection(INBOX_COLLECTION).update(draft.id, {
+      parsed: {
+        ...parsed,
+        amount: remaining,
+        // Written once, so a draft drawn on twice still reports what the
+        // message itself said.
+        originalAmount: parsed.originalAmount ?? parsed.amount ?? remaining
+      }
+    });
+    return true;
+  } catch (err) {
+    console.warn('Failed to reduce inbox draft:', err);
+    return false;
+  }
+}
+
+/**
  * Live updates for the review queue.
  *
  * Returns an unsubscribe function. A failure here is not fatal — the queue is
