@@ -695,6 +695,7 @@
 
 .ib-tool-btn.split-on { color: var(--accent-color); }
 .ib-tool-btn.share-on { color: #f59e0b; }
+.ib-tool-btn.repay-on { color: #10b981; }
 
 .ib-delete-split-btn {
   background: transparent;
@@ -882,6 +883,66 @@
   font-size: 14px;
   font-weight: 700;
   color: #10b981;
+}
+
+/* The loan an incoming payment is being filed against. Green, like Your Share
+   and the income tab: this is money arriving. */
+.ib-loan-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin: 2px 0;
+}
+
+.ib-loan-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ib-loan-person {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.ib-loan-person svg {
+  flex-shrink: 0;
+  color: #10b981;
+}
+
+.ib-loan-pending {
+  font-size: 14px;
+  font-weight: 700;
+  color: #10b981;
+  white-space: nowrap;
+}
+
+/* Which expense it was owed on, and when — enough to tell two debts from the
+   same person apart. */
+.ib-loan-sub {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.ib-loan-sub > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ib-loan-sub > span:last-child {
+  flex-shrink: 0;
 }
 
 /* Whether the split adds up, sitting just above the actions. */

@@ -7,6 +7,7 @@
 // message next month needs no decision at all.
 
 import { todayString, toDayString } from './date';
+import { openLoans } from './expenseShares';
 
 export const DEFAULT_AUTOMATION_RULES = {
   // "1234" -> account name
@@ -385,6 +386,43 @@ export function suggestCategory(payeeName, categories, rules, transactions) {
   return '';
 }
 
+// --- Matching an incoming payment to a loan -------------------------------
+//
+// Money coming back on a shared expense looks like any other credit: a name
+// and an amount. Two things point at which loan it settles — the sender's
+// name, and an amount that lands exactly on what someone still owes.
+//
+// The name decides first, because it is the only thing that says *who* paid.
+// An amount on its own is a coincidence as often as a signal, so it is only
+// trusted when it fits exactly one outstanding debt.
+
+const LOAN_NAME_THRESHOLD = 0.62;
+const LOAN_AMOUNT_EPSILON = 0.01;
+
+/** The id of the loan an incoming payment most likely settles, or null. */
+export function suggestLoan(loans, { payee, amount } = {}) {
+  if (!loans || loans.length === 0) return null;
+
+  const value = Number(amount);
+  const hasAmount = Number.isFinite(value) && value > 0;
+
+  const scored = loans.map(loan => ({
+    loan,
+    name: payee ? similarity(payee, loan.personName) : 0,
+    exact: hasAmount && Math.abs(loan.pending - value) <= LOAN_AMOUNT_EPSILON
+  }));
+
+  const named = scored.filter(s => s.name >= LOAN_NAME_THRESHOLD);
+  if (named.length > 0) {
+    // Among one person's debts, the one this payment settles to the rupee.
+    named.sort((a, b) => (Number(b.exact) - Number(a.exact)) || (b.name - a.name));
+    return named[0].loan.id;
+  }
+
+  const exact = scored.filter(s => s.exact);
+  return exact.length === 1 ? exact[0].loan.id : null;
+}
+
 /**
  * Everything the review row needs, pre-filled.
  *
@@ -395,7 +433,7 @@ export function suggestCategory(payeeName, categories, rules, transactions) {
  */
 export function draftToSuggestion(
   draft,
-  { accounts = [], categories = [], payees = [], transactions = [], rules } = {}
+  { accounts = [], categories = [], payees = [], transactions = [], rules, loans } = {}
 ) {
   const parsed = draft?.parsed || {};
   const effectiveRules = rules || DEFAULT_AUTOMATION_RULES;
@@ -416,6 +454,16 @@ export function draftToSuggestion(
     // billed for a USD purchase still posts to a PKR account.
     currency: accountRecord?.currency || parsed.currency || 'PKR',
     note: buildNote(draft),
+    // Which loan this most likely repays, for the Repayment tool to open on.
+    // Only ever a preselection — nothing here turns the tool on by itself.
+    // A caller reviewing a whole queue passes `loans` in, because deriving it
+    // here would walk every transaction once per draft.
+    loanId: parsed.direction === 'credit'
+      ? suggestLoan(loans || openLoans(transactions), {
+          payee: payee || parsed.merchant,
+          amount: parsed.amount
+        })
+      : null,
     directionKnown: parsed.direction === 'credit' || parsed.direction === 'debit'
   };
 }

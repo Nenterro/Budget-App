@@ -2,7 +2,7 @@ import {
   sharePending, personPending, totalPending, personWrittenOff,
   applyWriteOff, editWriteOff, removeWriteOff,
   applyRepayment, editRepayment, removeRepayment,
-  maxWriteOff, maxRepayment, toBatch, findOrphanedLinks
+  maxWriteOff, maxRepayment, toBatch, findOrphanedLinks, openLoans
 } from '../src/utils/expenseShares.js';
 
 let failed = 0;
@@ -253,6 +253,78 @@ console.log('\n--- Repairing counterparts that went missing ---');
   ]);
   check('a missing repayment income is rebuilt too', repaired.length === 1 && near(repaired[0].amount, 120),
         JSON.stringify(repaired.map(t => t.amount)));
+}
+
+console.log('\n--- Outstanding loans, flattened ---');
+{
+  const dinner = base();
+  const taxi = {
+    ...base(),
+    id: 'tx2', payee: 'Taxi', date: '2026-08-09T00:00:00.000Z', amount: -500,
+    expenseShares: [{ id: 's3', name: 'Ali', amount: 200, settled: false }]
+  };
+
+  const loans = openLoans([dinner, taxi, { id: 'tx3', amount: -50, payee: 'Coffee' }]);
+  check('one row per person per expense', loans.length === 3, `got ${loans.length}`);
+  check('a plain transaction contributes nothing', loans.every(l => l.txId !== 'tx3'));
+
+  // The same person owing on two expenses is two rows, not one — which is why
+  // a row is keyed on both ids and never on the name.
+  const ali = loans.filter(l => l.personName === 'Ali');
+  check('the same person can appear twice', ali.length === 2);
+  check('with distinct ids', ali[0].id !== ali[1].id);
+  check('each carrying its own expense', new Set(ali.map(l => l.txId)).size === 2);
+
+  check('newest expense first', loans[0].txId === 'tx2', loans[0].txId);
+  check('a row knows its parent and its share',
+        loans[0].txId === 'tx2' && loans[0].shareId === 's3');
+  check('pending is what is still owed',
+        near(ali.find(l => l.txId === 'tx1').pending, 400));
+}
+
+console.log('\n--- A share that is no longer owed leaves the list ---');
+{
+  const tx = base();
+
+  const paid = applyRepayment(tx, { personName: 'Ali', amount: 400, account: 'Cash', date: '2026-08-05' }).parentTx;
+  const names = openLoans([paid]).map(l => l.personName);
+  check('Ali is gone once settled', !names.includes('Ali'), names.join(','));
+  check('Sara is still owing', names.includes('Sara'));
+
+  const partly = applyRepayment(tx, { personName: 'Ali', amount: 150, account: 'Cash', date: '2026-08-05' }).parentTx;
+  const rest = openLoans([partly]).find(l => l.personName === 'Ali');
+  check('a part payment leaves the remainder', near(rest.pending, 250), `got ${rest && rest.pending}`);
+
+  // Written-off debt is already out of share.amount. Subtracting it again here
+  // would under-report what is owed — the trap the module header warns about.
+  const written = applyWriteOff(tx, 's1', { amount: 400 }).parentTx;
+  check('a written-off share is not outstanding',
+        !openLoans([written]).some(l => l.personName === 'Ali'));
+
+  check('nothing at all', openLoans([]).length === 0 && openLoans(null).length === 0);
+}
+
+console.log('\n--- A repayment carries the caller\'s note as well as its own ---');
+{
+  const tx = base();
+
+  const plain = applyRepayment(tx, { personName: 'Ali', amount: 100, account: 'Cash', date: '2026-08-05' });
+  check('the default still names the expense',
+        plain.childTx.create.note === 'Repayment for shared expense (Dinner)',
+        plain.childTx.create.note);
+
+  const noted = applyRepayment(tx, {
+    personName: 'Ali', amount: 100, account: 'Cash', date: '2026-08-05',
+    note: 'Auto-added from Askari SMS'
+  });
+  check('provenance is added, not substituted',
+        noted.childTx.create.note.startsWith('Repayment for shared expense (Dinner)')
+        && noted.childTx.create.note.includes('Auto-added from Askari SMS'),
+        noted.childTx.create.note);
+  check('and it is still a repayment of the parent',
+        noted.childTx.create.isRepayment === true
+        && noted.childTx.create.parentExpenseShareTxId === 'tx1'
+        && noted.childTx.create.category === 'Loan');
 }
 
 console.log(failed === 0 ? '\nALL EXPENSE-SHARE CHECKS PASSED\n' : `\n${failed} CHECK(S) FAILED\n`);

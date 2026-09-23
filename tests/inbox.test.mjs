@@ -24,6 +24,7 @@ import {
   findTransfers,
   pairToTransferSuggestion,
   isSelfLabel,
+  suggestLoan,
   DEFAULT_AUTOMATION_RULES
 } from '../src/utils/inboxDraft.js';
 
@@ -581,6 +582,69 @@ console.log('\n--- Confidence labels ---');
   eq('high', confidenceLabel(0.95), 'high');
   eq('medium', confidenceLabel(0.6), 'medium');
   eq('low', confidenceLabel(0.3), 'low');
+}
+
+console.log('\n--- Matching an incoming payment to a loan ---');
+{
+  // Two people, three debts. Ali owes on two of them, which is the case a
+  // name alone cannot settle.
+  const loans = [
+    { id: 'a', personName: 'Ali Raza', pending: 400, expensePayee: 'Dinner' },
+    { id: 'b', personName: 'Ali Raza', pending: 250, expensePayee: 'Taxi' },
+    { id: 'c', personName: 'Sara Khan', pending: 900, expensePayee: 'Hotel' }
+  ];
+
+  eq('the sender names the person', suggestLoan(loans, { payee: 'Sara Khan', amount: 900 }), 'c');
+  eq('a short form of the name still matches',
+     suggestLoan(loans, { payee: 'Sara', amount: 123 }), 'c');
+
+  // The name narrows it to Ali; the amount picks which of his debts.
+  eq('the amount breaks the tie between one person\'s debts',
+     suggestLoan(loans, { payee: 'Ali Raza', amount: 250 }), 'b');
+  eq('and the other way round',
+     suggestLoan(loans, { payee: 'Ali Raza', amount: 400 }), 'a');
+  // No exact fit, so the first of that person's debts is as good as it gets —
+  // but it must still be one of Ali's, never Sara's.
+  check('a part payment still lands on the right person',
+        ['a', 'b'].includes(suggestLoan(loans, { payee: 'Ali Raza', amount: 100 })));
+
+  // Banks often report nothing but an identifier, so an amount that fits one
+  // debt exactly is worth acting on.
+  eq('an unambiguous amount is enough on its own',
+     suggestLoan(loans, { payee: 'PK*SADA5107', amount: 900 }), 'c');
+
+  const twins = [
+    { id: 'x', personName: 'Ali', pending: 500, expensePayee: 'Dinner' },
+    { id: 'y', personName: 'Sara', pending: 500, expensePayee: 'Taxi' }
+  ];
+  eq('an amount that fits two debts says nothing',
+     suggestLoan(twins, { payee: 'Unknown', amount: 500 }), null);
+
+  eq('an unknown sender and an amount fitting nothing', suggestLoan(loans, { payee: 'Metro', amount: 77 }), null);
+  eq('nothing outstanding', suggestLoan([], { payee: 'Ali Raza', amount: 400 }), null);
+  eq('no loans at all', suggestLoan(null, { payee: 'Ali', amount: 1 }), null);
+  eq('nothing to go on', suggestLoan(loans, {}), null);
+}
+
+console.log('\n--- A draft only ever proposes a loan, never opts into one ---');
+{
+  const loans = [{ id: 'a', personName: 'Ali Raza', pending: 400, expensePayee: 'Dinner' }];
+
+  const credit = draftToSuggestion(
+    { parsed: { direction: 'credit', amount: 400, merchant: 'ALI RAZA' }, receivedAt: '2026-08-20T10:00:00Z' },
+    { accounts: [], categories: [], payees: [], transactions: [], loans }
+  );
+  eq('an incoming payment proposes the loan it fits', credit.loanId, 'a');
+
+  // The proposal is a preselection for the Repayment tool, nothing more: the
+  // draft is still an ordinary income until the tool is turned on by hand.
+  eq('and is still an income', credit.type, 1);
+
+  const debit = draftToSuggestion(
+    { parsed: { direction: 'debit', amount: 400, merchant: 'ALI RAZA' }, receivedAt: '2026-08-20T10:00:00Z' },
+    { accounts: [], categories: [], payees: [], transactions: [], loans }
+  );
+  eq('money going out proposes nothing', debit.loanId, null);
 }
 
 console.log(failed === 0 ? '\nALL INBOX CHECKS PASSED\n' : `\n${failed} CHECK(S) FAILED\n`);

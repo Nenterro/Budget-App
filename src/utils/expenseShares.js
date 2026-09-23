@@ -200,7 +200,16 @@ function findShareFor(tx, record) {
 export const maxRepayment = (tx, personName, existingRepayment = null) =>
   round2(personPending(tx, personName) + (existingRepayment ? existingRepayment.amount : 0));
 
-export function applyRepayment(tx, { personName, amount, account, date, currency }) {
+// What the repayment's own transaction says it is. A caller with something to
+// add — the inbox, which knows the message the payment was detected from —
+// passes it as `note` and gets both, rather than replacing the only line that
+// says which expense this money came back from.
+const repaymentNote = (tx, extra) => {
+  const base = `Repayment for shared expense (${tx.payee || 'Expense Share'})`;
+  return extra ? `${base} • ${extra}` : base;
+};
+
+export function applyRepayment(tx, { personName, amount, account, date, currency, note }) {
   const share = (tx.expenseShares || []).find(s => s.name === personName);
   if (!share) return null;
 
@@ -247,7 +256,7 @@ export function applyRepayment(tx, { personName, amount, account, date, currency
         amount: capped,
         category: 'Loan',
         payee: personName,
-        note: `Repayment for shared expense (${tx.payee || 'Expense Share'})`,
+        note: repaymentNote(tx, note),
         date: new Date(day).toISOString(),
         account: accountToUse,
         currency: currency || tx.currency,
@@ -314,6 +323,48 @@ export function removeRepayment(tx, repaymentId) {
   });
 
   return { parentTx, deleteIds: record.linkedTxId ? [record.linkedTxId] : [] };
+}
+
+// ─── Outstanding loans ──────────────────────────────────────────
+//
+// The shared-expenses list answers "which expense is still outstanding". Money
+// arriving in your account asks the other question — "who owes me, and how
+// much" — which cuts across expenses: one person can owe on three of them.
+//
+// So the same pending amounts, flattened one row per person per expense. A row
+// carries both ids because `applyRepayment` needs the parent transaction, and
+// the name alone does not identify which expense it was owed on.
+
+export function openLoans(transactions) {
+  const loans = [];
+
+  for (const tx of transactions || []) {
+    if (!tx.isExpenseShare || !Array.isArray(tx.expenseShares)) continue;
+
+    for (const share of tx.expenseShares) {
+      const pending = round2(sharePending(tx, share));
+      if (!(pending > 0)) continue;
+
+      loans.push({
+        // Unique per row: the same person can owe on several expenses, and a
+        // picker keyed on the name alone would collapse them into one.
+        id: `${tx.id}::${share.id}`,
+        txId: tx.id,
+        shareId: share.id,
+        personName: share.name,
+        pending,
+        expensePayee: tx.payee || 'Shared expense',
+        date: tx.date,
+        account: tx.account,
+        currency: tx.currency
+      });
+    }
+  }
+
+  // Newest expense first, largest debt first within a day — the order the
+  // shared-expenses list already uses.
+  return loans.sort((a, b) =>
+    new Date(b.date) - new Date(a.date) || b.pending - a.pending);
 }
 
 // ─── Turning a mutation into a save batch ──────────────────────────────────
@@ -387,7 +438,7 @@ export function findOrphanedLinks(transactions) {
         amount: record.amount,
         category: 'Loan',
         payee: record.personName,
-        note: `Repayment for shared expense (${tx.payee || 'Expense Share'})`,
+        note: repaymentNote(tx),
         date: record.date ? new Date(record.date).toISOString() : tx.date,
         account: record.account || tx.account,
         currency: tx.currency,
