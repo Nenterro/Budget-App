@@ -647,20 +647,44 @@ export function findTransferPairs(drafts, options = {}) {
 }
 
 /**
+ * The account a counterparty names, if it names one of the user's own.
+ *
+ * Some messages say outright where the other end of the movement is: an ATM
+ * withdrawal goes to "cash", a wallet top-up comes from "Askari-5664". An exact
+ * name is trusted; a fuzzy one only when it is unambiguous.
+ */
+function accountNamedBy(merchant, accounts) {
+  if (!merchant) return null;
+  const target = normaliseName(merchant);
+  const exact = accounts.find(account => normaliseName(account.name) === target);
+  return exact || fuzzyFindAccount(merchant, accounts);
+}
+
+/** Does this counterparty, word for word, name one of the user's accounts? */
+function namesOwnAccount(merchant, accounts) {
+  if (!merchant) return false;
+  const target = normaliseName(merchant);
+  return accounts.some(account => normaliseName(account.name) === target);
+}
+
+/**
  * Every transfer in the queue, whether both halves arrived or only one.
  *
  * A matched pair corroborates itself: two messages agreeing on the amount and
  * the moment. A lone message has nothing backing it up, so it is only ever
  * treated as a transfer when the counterparty is a name the user has
- * explicitly declared to be themselves. Inferring that from the name alone
- * would turn every payment to a namesake into a transfer, and a transfer
- * booked as one leg of a movement that never happened is hard to spot later.
+ * explicitly declared to be themselves, or is exactly the name of one of their
+ * own accounts. Inferring that from a person's name alone would turn every
+ * payment to a namesake into a transfer, and a transfer booked as one leg of a
+ * movement that never happened is hard to spot later. An account name is
+ * different: nobody else's payee is called "Cash".
  *
  * This matters in practice because not every app reports both sides — SadaPay
- * currently sends nothing at all for an outgoing transfer.
+ * currently sends nothing at all for an outgoing transfer, and cash never
+ * sends a message at all.
  */
 export function findTransfers(drafts, options = {}) {
-  const { rules } = options;
+  const { accounts = [], rules } = options;
   const pairs = findTransferPairs(drafts, options);
   const claimed = new Set(pairs.flatMap(p => [p.debit.id, p.credit.id]));
 
@@ -672,8 +696,10 @@ export function findTransfers(drafts, options = {}) {
     const direction = draft?.parsed?.direction;
     if (direction !== 'debit' && direction !== 'credit') continue;
 
-    // The deliberate asymmetry: no self label, no one-sided transfer.
-    if (!isSelfLabel(draft?.parsed?.merchant, rules)) continue;
+    // The deliberate asymmetry: no self label or own account, no one-sided
+    // transfer.
+    const merchant = draft?.parsed?.merchant;
+    if (!isSelfLabel(merchant, rules) && !namesOwnAccount(merchant, accounts)) continue;
 
     oneSided.push({
       id: draft.id,
@@ -689,17 +715,27 @@ export function findTransfers(drafts, options = {}) {
 /**
  * The transfer form's starting values.
  *
- * Either side may be missing. The account the message came from is known; the
- * one at the other end is not named anywhere, so it is left blank for the user
- * to pick rather than guessed.
+ * Either side may be missing. The account the message came from is known. The
+ * one at the other end is filled in when the counterparty names one of the
+ * user's accounts — "cash" on an ATM withdrawal — and otherwise left blank for
+ * the user to pick rather than guessed.
  */
 export function pairToTransferSuggestion(pair, options = {}) {
   const { accounts = [], rules } = options;
   const { debit, credit } = pair;
   const known = debit || credit;
 
-  const from = debit ? suggestAccount(debit, accounts, rules) : '';
-  const to = credit ? suggestAccount(credit, accounts, rules) : '';
+  let from = debit ? suggestAccount(debit, accounts, rules) : '';
+  let to = credit ? suggestAccount(credit, accounts, rules) : '';
+
+  if (!debit || !credit) {
+    const named = accountNamedBy(known?.parsed?.merchant, accounts)?.name || '';
+    // Never both ends of the transfer on the same account.
+    if (named && named !== (from || to)) {
+      if (!debit) from = named;
+      else to = named;
+    }
+  }
   const currencySource = findByName(accounts, from || to);
 
   return {

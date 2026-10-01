@@ -546,6 +546,65 @@ console.log('\n--- Transfers between your own accounts ---');
     eq('and it has both sides', Boolean(both[0].debit && both[0].credit), true);
   }
 
+  // --- The counterparty names one of your own accounts ---
+  //
+  // An ATM withdrawal ("you have withdrawn cash ... from A/C: 017516***664")
+  // is a transfer from the bank to the Cash account, and only the bank ever
+  // says so. The message's source is the From; the payee names the To.
+  {
+    const OWN = [
+      { name: 'Askari 5664' }, { name: 'Cash' },
+      { name: 'SadaPay Card' }, { name: 'NayaPay' }
+    ];
+    const withdrawal = {
+      ...half('w', 'Askari Bank', 'debit', 1000, 0, 'cash'),
+      parsed: {
+        amount: 1000, direction: 'debit', merchant: 'cash', bank: 'Askari Bank',
+        currency: 'PKR', last4: '664', occurredAt: '2026-09-30T00:00:00+00:00'
+      }
+    };
+
+    // No self label needed: nobody else's payee is called "Cash".
+    const found = findTransfers([withdrawal], {
+      accounts: OWN, rules: DEFAULT_AUTOMATION_RULES
+    });
+    eq('withdrawal is a transfer', found.length, 1);
+    eq('withdrawal is one-sided', found[0]?.oneSided, true);
+
+    const s = pairToTransferSuggestion(found[0], {
+      accounts: OWN, rules: DEFAULT_AUTOMATION_RULES
+    });
+    eq('withdrawal is a transfer type', s.type, 2);
+    // The mask leaves three digits, still enough to find the account.
+    eq('withdrawal from the bank', s.from, 'Askari 5664');
+    eq('withdrawal to cash', s.to, 'Cash');
+    eq('withdrawal amount', s.amount, '1000');
+
+    // The same rule the other way round: a wallet top-up names the bank
+    // account it was loaded from.
+    const topUp = half('t', 'NayaPay', 'credit', 2500, 0, 'Askari-5664');
+    const loads = findTransfers([topUp], { accounts: OWN, rules: DEFAULT_AUTOMATION_RULES });
+    eq('top-up is a transfer', loads.length, 1);
+    const ls = pairToTransferSuggestion(loads[0], {
+      accounts: OWN, rules: DEFAULT_AUTOMATION_RULES
+    });
+    eq('top-up from the bank', ls.from, 'Askari 5664');
+    eq('top-up to the wallet', ls.to, 'NayaPay');
+
+    // Without a Cash account there is nothing to name, and a payee called
+    // "cash" stays an ordinary payment.
+    eq('no cash account, not a transfer',
+      findTransfers([withdrawal], {
+        accounts: [{ name: 'Askari 5664' }], rules: DEFAULT_AUTOMATION_RULES
+      }).length, 0);
+
+    // A payee that only resembles an account is not enough on its own.
+    eq('a near-miss name is not a transfer',
+      findTransfers([half('m', 'SadaPay', 'debit', 100, 0, 'Cash and Carry')], {
+        accounts: OWN, rules: DEFAULT_AUTOMATION_RULES
+      }).length, 0);
+  }
+
   // Each draft belongs to at most one pair, and the closest partner wins.
   const many = findTransferPairs(
     [
