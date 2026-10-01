@@ -1,12 +1,21 @@
+/* minmax(0, 1fr), not 1fr: a bare 1fr track will not shrink below its
+   content's width, and a recharts ResponsiveContainer reports whatever width it
+   last rendered at. On a phone that held the column wider than the screen and
+   the whole page scrolled sideways. */
 .graphs-dashboard {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
+  min-width: 0;
+}
+
+.graphs-dashboard > * {
+  min-width: 0;
 }
 
 @media (max-width: 1024px) {
   .graphs-dashboard {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -93,6 +102,7 @@
 .chart-container {
   flex: 1;
   width: 100%;
+  min-width: 0;
   min-height: 250px;
   position: relative;
 }
