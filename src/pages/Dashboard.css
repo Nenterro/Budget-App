@@ -327,3 +327,35 @@
   background: var(--accent-color);
   border-radius: 3px;
 }
+
+.account-card .account-balance.is-negative {
+  color: #ef4444;
+}
+
+.account-card .account-balance-caption {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.account-card .account-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.account-card .account-limit-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-track);
+  overflow: hidden;
+}
+
+.account-card .account-limit-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--primary-color);
+}

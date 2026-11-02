@@ -4,6 +4,7 @@ import ModalWrapper from './ModalWrapper';
 import UnifiedColorPicker from './UnifiedColorPicker';
 import IconPicker from './IconPicker';
 import CurrencySelector from './CurrencySelector';
+import { ACCOUNT_KINDS } from '../utils/accounts';
 import '../pages/ManageData.css';
 
 // Lives here rather than inside pages/ManageData so the Dashboard (which also
@@ -14,6 +15,8 @@ export default function EditItemModal({ item, type, existingItems = [], onSave, 
   const [color, setColor] = useState(item.color || '#6366f1');
   const [currency, setCurrency] = useState(item.currency || 'PKR');
   const [iconName, setIconName] = useState(item.iconName || 'Tag');
+  const [kind, setKind] = useState(item.kind || ACCOUNT_KINDS.standard);
+  const [creditLimit, setCreditLimit] = useState(item.creditLimit ? String(item.creditLimit) : '');
 
   const trimmed = name.trim();
   const isRename = !item.isNew && item.name && trimmed && trimmed !== item.name;
@@ -33,6 +36,13 @@ export default function EditItemModal({ item, type, existingItems = [], onSave, 
     payload.color = color;
     if (type === 'Account') {
       payload.currency = currency;
+      payload.kind = kind;
+      // The Dashboard opens this with the computed balance spread onto the
+      // account; that is derived, and must not be saved back as if it were data.
+      delete payload.currentBalance;
+      const limit = Number(String(creditLimit).replace(/,/g, ''));
+      if (kind === ACCOUNT_KINDS.credit && limit > 0) payload.creditLimit = limit;
+      else delete payload.creditLimit;
     }
     if (type === 'Category') {
       payload.iconName = iconName;
@@ -82,6 +92,38 @@ export default function EditItemModal({ item, type, existingItems = [], onSave, 
             <div className="form-group">
               <label>Icon</label>
               <IconPicker iconName={iconName} onChange={setIconName} />
+            </div>
+          )}
+
+          {type === 'Account' && (
+            <div className="form-group">
+              <label>Type</label>
+              <div className="segmented">
+                <button type="button" className={`segment ${kind !== ACCOUNT_KINDS.credit ? 'active' : ''}`} onClick={() => setKind(ACCOUNT_KINDS.standard)}>
+                  Bank / Cash
+                </button>
+                <button type="button" className={`segment ${kind === ACCOUNT_KINDS.credit ? 'active' : ''}`} onClick={() => setKind(ACCOUNT_KINDS.credit)}>
+                  Credit Card
+                </button>
+              </div>
+              {kind === ACCOUNT_KINDS.credit && (
+                <small style={{ color: 'var(--text-secondary)', marginTop: '6px', display: 'block' }}>
+                  Shows what you owe instead of a negative balance. Pay the bill with a transfer into this account.
+                </small>
+              )}
+            </div>
+          )}
+
+          {type === 'Account' && kind === ACCOUNT_KINDS.credit && (
+            <div className="form-group">
+              <label>Credit Limit (optional)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={creditLimit}
+                onChange={e => setCreditLimit(e.target.value.replace(/[^\d.,]/g, ''))}
+                placeholder="e.g. 200,000"
+              />
             </div>
           )}
 

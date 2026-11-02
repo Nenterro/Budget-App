@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useData } from '../context/DataContext';
-import { ArrowLeft, Plus, Edit2, Trash2, Tag, Wallet, User, X } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, Tag, Wallet, User, X, CreditCard } from 'lucide-react';
+import { isCreditAccount } from '../utils/accounts';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import ModalWrapper from '../components/ModalWrapper';
@@ -55,7 +56,7 @@ export default function ManageData() {
           {items.map(item => {
             const ItemIcon = (paramType === 'categories' && item.iconName && CATEGORY_ICONS[item.iconName])
                              ? CATEGORY_ICONS[item.iconName]
-                             : Icon;
+                             : (paramType === 'accounts' && isCreditAccount(item)) ? CreditCard : Icon;
 
             return (
               <div key={item.id} className="data-item-card">
@@ -65,7 +66,9 @@ export default function ManageData() {
                   </div>
                   <div className="item-details">
                     <span className="item-name">{item.name}</span>
-                    {paramType === 'accounts' && <span className="item-currency">{item.currency}</span>}
+                    {paramType === 'accounts' && (
+                      <span className="item-currency">{isCreditAccount(item) ? `Credit Card · ${item.currency}` : item.currency}</span>
+                    )}
                   </div>
                 </div>
                 <div className="item-actions">

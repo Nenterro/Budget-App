@@ -97,6 +97,41 @@ console.log('\n--- Degenerate input ---');
   check('missing exchange rates fall back to 1:1', near(noRates.totalBalance, 1000 + 100 + 5), `got ${noRates.totalBalance}`);
 }
 
+console.log('\n--- Credit cards stay out of the total ---');
+{
+  const withCard = [
+    { id: '1', name: 'Meezan', currency: 'PKR', initialBalance: 1000 },
+    { id: '3', name: 'Card', currency: 'PKR', kind: 'credit', initialBalance: -200 },
+  ];
+  const spend = computeBalances({
+    accounts: withCard,
+    transactions: [tx({ account: 'Card', amount: -500 })],
+    baseCurrency: 'PKR',
+  });
+  const card = spend.accountBalances.find(a => a.name === 'Card');
+  check('spending on the card leaves the total alone', near(spend.totalBalance, 1000), `got ${spend.totalBalance}`);
+  check('split total ignores the card too', near(spend.splitBalances.PKR, 1000), `got ${spend.splitBalances.PKR}`);
+  check('the card still tracks what it owes', near(card.currentBalance, -700), `got ${card.currentBalance}`);
+
+  const payBill = computeBalances({
+    accounts: withCard,
+    transactions: [
+      tx({ account: 'Card', amount: -500 }),
+      tx({ type: 2, account: 'Meezan', transferTo: 'Card', amount: -700 }),
+    ],
+    baseCurrency: 'PKR',
+  });
+  check('paying the bill is what takes money out', near(payBill.totalBalance, 300), `got ${payBill.totalBalance}`);
+  check('the card is back to zero', near(payBill.accountBalances.find(a => a.name === 'Card').currentBalance, 0));
+
+  const split = computeBalances({
+    accounts: withCard,
+    transactions: [tx({ splits: [{ account: 'Meezan', amount: -100 }, { account: 'Card', amount: -50 }] })],
+    baseCurrency: 'PKR',
+  });
+  check('a split counts only its non-card part', near(split.totalBalance, 900), `got ${split.totalBalance}`);
+}
+
 if (failed) {
   console.error(`\n${failed} balance check(s) failed.`);
   process.exit(1);

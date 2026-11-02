@@ -15,6 +15,7 @@ import EditItemModal from '../components/EditItemModal';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
 import { resolvePeriodRange, isWithinRange, PERIODS } from '../utils/periodRange';
 import { computeBalances } from '../utils/balances';
+import { describeBalance } from '../utils/accounts';
 import './Dashboard.css';
 import '../pages/Transactions.css'; // For top header styles
 
@@ -174,7 +175,7 @@ export default function Dashboard() {
                   </button>
                 </div>
               </div>
-              <div className="account-balance">{getCurrencySymbol(acc.currency)}{formatCurrency(acc.currentBalance)}</div>
+              <AccountBalance acc={acc} />
             </div>
           ))}
           <div className="add-widget-card" style={{ flexShrink: 0, minWidth: '140px', minHeight: '100px', flexDirection: 'row', gap: '8px', padding: '0 20px' }} onClick={() => setEditingAccount({ isNew: true })}>
@@ -250,5 +251,27 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// A credit card reads as what is owed, with the limit it is eating into; every
+// other account reads as its balance. The wording lives in describeBalance.
+function AccountBalance({ acc }) {
+  const view = describeBalance(acc);
+  return (
+    <>
+      <div className={`account-balance ${view.tone === 'negative' ? 'is-negative' : ''}`}>
+        {view.text}
+        {view.caption && <span className="account-balance-caption">{view.caption}</span>}
+      </div>
+      {view.limit && (
+        <div className="account-limit">
+          <div className="account-limit-track">
+            <div className="account-limit-fill" style={{ width: `${Math.round(view.limit.used * 100)}%` }} />
+          </div>
+          <span>{view.limit.availableText} available</span>
+        </div>
+      )}
+    </>
   );
 }
