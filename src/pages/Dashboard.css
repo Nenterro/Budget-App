@@ -332,11 +332,25 @@
   color: #ef4444;
 }
 
+.account-card .account-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 .account-card .account-balance-caption {
-  margin-left: 6px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+/* Hairline between cash accounts and credit cards in the scroller. */
+.accounts-divider {
+  flex: 0 0 1px;
+  align-self: stretch;
+  margin: 12px 0;
+  background: var(--border-subtle);
 }
 
 .account-card .account-limit {

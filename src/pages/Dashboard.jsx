@@ -15,7 +15,7 @@ import EditItemModal from '../components/EditItemModal';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
 import { resolvePeriodRange, isWithinRange, PERIODS } from '../utils/periodRange';
 import { computeBalances } from '../utils/balances';
-import { describeBalance } from '../utils/accounts';
+import { describeBalance, isCreditAccount } from '../utils/accounts';
 import './Dashboard.css';
 import '../pages/Transactions.css'; // For top header styles
 
@@ -82,6 +82,8 @@ export default function Dashboard() {
     () => computeBalances({ transactions, accounts, baseCurrency, exchangeRates }),
     [transactions, accounts, baseCurrency, exchangeRates]
   );
+  const cashAccounts = accountBalances.filter(acc => !isCreditAccount(acc));
+  const creditAccounts = accountBalances.filter(isCreditAccount);
 
 
 
@@ -162,7 +164,10 @@ export default function Dashboard() {
 
         {/* Horizontal Account List */}
         <div className="accounts-scroller">
-          {accountBalances.map(acc => (
+          {/* Cards after cash, with a hairline between: they are bills, not money held. */}
+          {[...cashAccounts, ...(cashAccounts.length && creditAccounts.length ? [null] : []), ...creditAccounts].map(acc => acc === null ? (
+            <div key="credit-divider" className="accounts-divider" aria-hidden="true" />
+          ) : (
             <div key={acc.id} className="glass-panel account-card widget-card-wrapper" style={{ padding: '20px', minHeight: '100px' }}>
               <div className="widget-header" style={{ marginBottom: '8px' }}>
                 <div className="account-name">{acc.name}</div>
