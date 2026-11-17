@@ -1,12 +1,13 @@
-import { useState, useRef, useEffect, lazy, Suspense } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
+import { lazyWithReload } from '../utils/staleChunk';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal, Wallet, Inbox } from 'lucide-react';
 // Rendered only once the user taps Add, so it does not belong in the chunk
 // that paints the shell.
-const AddTransactionModal = lazy(() => import('./AddTransactionModal'));
+const AddTransactionModal = lazyWithReload(() => import('./AddTransactionModal'));
 // Same reasoning: most sessions never open the review queue.
-const InboxReviewModal = lazy(() => import('./InboxReviewModal'));
+const InboxReviewModal = lazyWithReload(() => import('./InboxReviewModal'));
 import { useInboxDrafts } from '../hooks/useInboxDrafts';
 import MoreMenuModal from './MoreMenuModal';
 import SessionAlert from './SessionAlert';

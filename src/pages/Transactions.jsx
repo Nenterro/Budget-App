@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
+import { lazyWithReload } from '../utils/staleChunk';
 import { AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
 import {
@@ -26,10 +27,10 @@ const getCategoryDetails = (category, type) => {
 };
 
 // Shares the lazily loaded chunk with the one Layout mounts for the FAB.
-const AddTransactionModal = lazy(() => import('../components/AddTransactionModal'));
+const AddTransactionModal = lazyWithReload(() => import('../components/AddTransactionModal'));
 // Opened from a button, so there is no reason for it to be in the bundle that
 // renders the transaction list.
-const ExpenseSharingModal = lazy(() => import('../components/ExpenseSharingModal'));
+const ExpenseSharingModal = lazyWithReload(() => import('../components/ExpenseSharingModal'));
 import UnifiedDropdown from '../components/UnifiedDropdown';
 import UnifiedCalendar from '../components/UnifiedCalendar';
 import FilterModal from '../components/FilterModal';

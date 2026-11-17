@@ -1,4 +1,5 @@
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, Suspense } from 'react';
+import { lazyWithReload } from './utils/staleChunk';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -10,16 +11,16 @@ import { applyTheme } from './utils/theme';
 // Loaded on demand. The chart pages pull in recharts and the settings screens
 // are rarely the first thing opened, so keeping them out of the initial bundle
 // gets the app on screen sooner.
-const Graphs = lazy(() => import('./pages/Graphs'));
-const Stats = lazy(() => import('./pages/Stats'));
-const Budgets = lazy(() => import('./pages/Budgets'));
-const Settings = lazy(() => import('./pages/Settings'));
-const ManageData = lazy(() => import('./pages/ManageData'));
-const SyncSettings = lazy(() => import('./pages/SyncSettings'));
-const AppearanceSettings = lazy(() => import('./pages/AppearanceSettings'));
-const CurrencySettings = lazy(() => import('./pages/CurrencySettings'));
-const SecuritySettings = lazy(() => import('./pages/SecuritySettings'));
-const AutomationSettings = lazy(() => import('./pages/AutomationSettings'));
+const Graphs = lazyWithReload(() => import('./pages/Graphs'));
+const Stats = lazyWithReload(() => import('./pages/Stats'));
+const Budgets = lazyWithReload(() => import('./pages/Budgets'));
+const Settings = lazyWithReload(() => import('./pages/Settings'));
+const ManageData = lazyWithReload(() => import('./pages/ManageData'));
+const SyncSettings = lazyWithReload(() => import('./pages/SyncSettings'));
+const AppearanceSettings = lazyWithReload(() => import('./pages/AppearanceSettings'));
+const CurrencySettings = lazyWithReload(() => import('./pages/CurrencySettings'));
+const SecuritySettings = lazyWithReload(() => import('./pages/SecuritySettings'));
+const AutomationSettings = lazyWithReload(() => import('./pages/AutomationSettings'));
 
 function RouteFallback() {
   return (

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
+import { lazyWithReload } from '../utils/staleChunk';
 import { useData } from '../context/DataContext';
 import { Filter, Settings, Plus, Edit2, Trash2 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
@@ -9,7 +10,7 @@ import FilterModal from '../components/FilterModal';
 import { usePageSettings, useAppearanceSettings } from '../context/SettingsContext';
 // The widget cards pull in recharts (~400 kB). Loading them on demand lets the
 // balance header and the rest of the page paint without waiting on it.
-const DashboardWidgetCard = lazy(() => import('../components/Dashboard/DashboardWidgets'));
+const DashboardWidgetCard = lazyWithReload(() => import('../components/Dashboard/DashboardWidgets'));
 import AddDashboardWidgetModal, { WIDGET_TYPES } from '../components/Dashboard/AddDashboardWidgetModal';
 import EditItemModal from '../components/EditItemModal';
 import { formatCurrency, getCurrencySymbol } from '../utils/format';
