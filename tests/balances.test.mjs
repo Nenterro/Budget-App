@@ -6,7 +6,7 @@
 // not a reporting figure — the period picker owns the widgets below them and
 // nothing else.
 
-import { computeBalances } from '../src/utils/balances.js';
+import { computeBalances, balanceChangesByDay } from '../src/utils/balances.js';
 
 let failed = 0;
 const check = (name, cond, extra = '') => {
@@ -130,6 +130,36 @@ console.log('\n--- Credit cards stay out of the total ---');
     baseCurrency: 'PKR',
   });
   check('a split counts only its non-card part', near(split.totalBalance, 900), `got ${split.totalBalance}`);
+}
+
+console.log('\n--- The balance graph ends where the Home page total does ---');
+{
+  // The graph kept its own arithmetic: transfers skipped, cards counted,
+  // shared expenses netted. Whatever happens, its last point must be the total.
+  const accts = [
+    { id: '1', name: 'Meezan', currency: 'PKR', initialBalance: 1000 },
+    { id: '2', name: 'Wise', currency: 'USD', initialBalance: 100 },
+    { id: '3', name: 'Card', currency: 'PKR', initialBalance: 0, kind: 'credit' },
+  ];
+  const txs = [
+    tx({ date: '2026-01-01', account: 'Meezan', amount: -200 }),
+    tx({ date: '2026-01-02', account: 'Card', amount: -300 }),
+    // PKR 28,000 out, USD 97.5 in: the fee has to show.
+    tx({ date: '2026-01-03', type: 2, account: 'Meezan', transferTo: 'Wise', amount: -28000, receivedAmount: 97.5 }),
+    // Paying the card is what takes its spending out of the total.
+    tx({ date: '2026-01-04', type: 2, account: 'Meezan', transferTo: 'Card', amount: -300 }),
+    tx({ date: '2026-01-05', splits: [{ account: 'Meezan', amount: -100 }, { account: 'Card', amount: -50 }] }),
+    tx({ date: '2026-01-05', account: 'Wise', amount: 10, type: 1 }),
+  ];
+  const args = { transactions: txs, accounts: accts, baseCurrency: 'PKR', exchangeRates };
+  const { opening, daily } = balanceChangesByDay({ ...args, dayOf: d => d });
+  const end = opening + Object.values(daily).reduce((a, b) => a + b, 0);
+  const { totalBalance } = computeBalances(args);
+  check('graph end equals the Home total', near(end, totalBalance), `graph ${end} vs total ${totalBalance}`);
+  check('card spending leaves the graph alone', !('2026-01-02' in daily), JSON.stringify(daily));
+  check('cross-currency fee shows', near(daily['2026-01-03'], -28000 + 97.5 * 280), `got ${daily['2026-01-03']}`);
+  check('card payment lowers the graph', near(daily['2026-01-04'], -300), `got ${daily['2026-01-04']}`);
+  check('USD opening balance converted', near(opening, 1000 + 100 * 280), `got ${opening}`);
 }
 
 if (failed) {

@@ -24,6 +24,23 @@ const convert = (amount, fromCurrency, baseCurrency, exchangeRates) => {
   return (amount / rate) * baseRate;
 };
 
+/**
+ * What a transaction does to each account it touches, in that account's own
+ * currency. A split moves money per line; a transfer moves it twice — out of
+ * the source at its amount, into the destination at `receivedAmount`, which
+ * differs when the two accounts are in different currencies.
+ */
+export function transactionLegs(tx) {
+  if (tx.splits && tx.splits.length > 0 && tx.type !== 2) {
+    return tx.splits.map(s => ({ account: s.account, amount: s.amount }));
+  }
+  if (tx.type !== 2) return [{ account: tx.account, amount: tx.amount }];
+  return [
+    { account: tx.account, amount: tx.amount },
+    { account: tx.transferTo, amount: tx.receivedAmount || Math.abs(tx.amount) }
+  ];
+}
+
 export function computeBalances({ transactions = [], accounts = [], baseCurrency = 'USD', exchangeRates = {} } = {}) {
   let total = 0;
   const split = {};
@@ -50,31 +67,46 @@ export function computeBalances({ transactions = [], accounts = [], baseCurrency
   }
 
   transactions.forEach(tx => {
-    if (tx.splits && tx.splits.length > 0 && tx.type !== 2) {
-      tx.splits.forEach(s => {
-        add(s.amount, currencyOf(s.account), s.account);
-        if (accBalances[s.account]) accBalances[s.account].currentBalance += s.amount;
-      });
-      return;
+    for (const leg of transactionLegs(tx)) {
+      add(leg.amount, currencyOf(leg.account), leg.account);
+      if (accBalances[leg.account]) accBalances[leg.account].currentBalance += leg.amount;
     }
-
-    const cur = currencyOf(tx.account);
-
-    if (tx.type !== 2) {
-      add(tx.amount, cur, tx.account);
-    } else {
-      // A transfer moves money twice: out of the source at its amount, into
-      // the destination at `receivedAmount` — which differs when the two
-      // accounts are in different currencies.
-      const destCur = currencyOf(tx.transferTo);
-      const destAmt = tx.receivedAmount || Math.abs(tx.amount);
-      add(tx.amount, cur, tx.account);
-      add(destAmt, destCur, tx.transferTo);
-      if (accBalances[tx.transferTo]) accBalances[tx.transferTo].currentBalance += destAmt;
-    }
-
-    if (accBalances[tx.account]) accBalances[tx.account].currentBalance += tx.amount;
   });
 
   return { totalBalance: total, accountBalances: Object.values(accBalances), splitBalances: split };
+}
+
+/**
+ * The total balance over time, for the balance graph.
+ *
+ * Built from the same legs, the same credit-card exclusion and the same
+ * conversion as `computeBalances`, so the graph's last point is the Home
+ * page's total. It used to keep its own arithmetic — reporting figures rather
+ * than money moved, transfers skipped, cards counted — and drifted from it.
+ *
+ * Returns the opening total (initial balances) and the net change per day,
+ * keyed by `dayOf(tx.date)`, both in `baseCurrency`.
+ */
+export function balanceChangesByDay({ transactions = [], accounts = [], baseCurrency = 'USD', exchangeRates = {}, dayOf }) {
+  const byName = new Map((accounts || []).map(a => [a.name, a]));
+  const counts = (name) => !isCreditAccount(byName.get(name) || {});
+  const toBase = (amount, name) =>
+    convert(amount, byName.get(name)?.currency || 'USD', baseCurrency, exchangeRates);
+
+  let opening = 0;
+  for (const acc of accounts || []) {
+    if (counts(acc.name)) opening += toBase(Number(acc.initialBalance) || 0, acc.name);
+  }
+
+  const daily = {};
+  for (const tx of transactions) {
+    let delta = 0;
+    for (const leg of transactionLegs(tx)) {
+      if (counts(leg.account)) delta += toBase(leg.amount, leg.account);
+    }
+    if (delta === 0) continue;
+    const key = dayOf(tx.date);
+    daily[key] = (daily[key] || 0) + delta;
+  }
+  return { opening, daily };
 }

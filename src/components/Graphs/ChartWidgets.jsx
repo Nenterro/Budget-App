@@ -10,6 +10,7 @@ import { useData } from '../../context/DataContext';
 import { convertAmount } from '../../utils/exchange';
 import { getEffectiveReportingItems } from '../../utils/txAdjustments';
 import { parseDayLocal, dayStringOf } from '../../utils/date';
+import { balanceChangesByDay } from '../../utils/balances';
 
 const formatCompactCurrency = (amount, currencyCode) => {
   return new Intl.NumberFormat('en-US', {
@@ -77,40 +78,17 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
   const { exchangeRates } = useData();
   
   const { data, ticks } = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    if (!transactions || transactions.length === 0) return { data: [], ticks: [] };
-    
+    // Balances are money in the accounts, not a reporting figure: no netting
+    // of shared expenses, transfers counted, cards left out — exactly as the
+    // Home page total does it, so the two agree.
+    const transactions = rawTxs || [];
+    if (transactions.length === 0) return { data: [], ticks: [] };
+
     const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
-    
-    // Start with the sum of all initial balances from accounts
-    let currentBalance = 0;
-    if (accounts) {
-      accounts.forEach(acc => {
-        let initBal = Number(acc.initialBalance) || 0;
-        const cur = acc.currency || 'USD';
-        if (cur !== baseCurrency) {
-          initBal = convertAmount(initBal, cur, baseCurrency, exchangeRates);
-        }
-        currentBalance += initBal;
-      });
-    }
-    
-    // Calculate net change per day
-    const dailyChanges = {};
-    sorted.forEach(tx => {
-      if (tx.type === 2) return; 
-      const dayKey = dayStringOf(tx.date);
-      let txCurrency = tx.currency;
-      if (!txCurrency) {
-        const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
-        txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
-      }
-      let amt = tx.amount;
-      if (txCurrency !== baseCurrency) {
-        amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
-      }
-      dailyChanges[dayKey] = (dailyChanges[dayKey] || 0) + amt;
+    const { opening, daily: dailyChanges } = balanceChangesByDay({
+      transactions, accounts, baseCurrency, exchangeRates, dayOf: dayStringOf
     });
+    let currentBalance = opening;
 
     // Start with the earliest transaction
     const firstDate = parseDayLocal(sorted[0].date);
@@ -165,7 +143,7 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
     }
     
     return { data: result, ticks: generatedTicks };
-  }, [rawTxs, accounts, dateRange]);
+  }, [rawTxs, accounts, dateRange, baseCurrency, exchangeRates]);
 
   if (data.length === 0) return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '40px' }}>No data</div>;
 
