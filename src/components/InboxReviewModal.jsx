@@ -1272,7 +1272,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         animate={{
                           height: ((isSplit || isExpenseShare || isRepayment) && type !== 2)
                             ? 'auto'
-                            : (type === 2 ? (xfer.cross ? (isMobile ? 66 : 42) : 0) : (isMobile ? 122 : 116)),
+                            : (type === 2 ? (xfer.cross ? 'auto' : 0) : (isMobile ? 122 : 116)),
                           marginTop: (type === 2 && !xfer.cross) ? -16 : -10
                         }}
                         transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
