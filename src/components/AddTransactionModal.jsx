@@ -10,6 +10,7 @@ import { formatAmountInput, formatCurrency, getCurrencySymbol } from '../utils/f
 import { todayString, dayToStoredDate } from '../utils/date';
 import { evalMath } from '../utils/math';
 import { generateId } from '../store/db';
+import { resolveTransferAmounts } from '../utils/transferAmounts';
 import './AddTransactionModal.css';
 
 const slideVariants = {
@@ -37,7 +38,7 @@ function formatPreview(num) {
 }
 
 export default function AddTransactionModal({ isOpen, onClose, initialData = null }) {
-  const { addTransaction, updateTransaction, accounts, categories, payees, saveCategory, savePayee } = useData();
+  const { addTransaction, updateTransaction, accounts, categories, payees, saveCategory, savePayee, exchangeRates } = useData();
   const isMobile = useIsMobile();
   
   const [type, setType] = useState(initialData?.type ?? 0); // 0: expense, 1: income, 2: transfer
@@ -76,7 +77,9 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
   const destCurrency = destAccount.currency || 'PKR';
 
   const [activeField, setActiveField] = useState(null); // 'amount', 'category', 'payee', 'note', 'account', 'transferTo'
-  const [isCrossCurrency, setIsCrossCurrency] = useState(false);
+  // Money moving between currencies arrives as a different figure from the one
+  // that left, so the form asks for both.
+  const isCrossCurrency = type === 2 && sourceCurrency !== destCurrency;
   
   // Saving a new payee or category reloads every store, which hands back fresh
   // array objects for `accounts` too. The init effect below used to depend on
@@ -177,6 +180,14 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
     setSelectedTransferTo(prev => prev || (accounts.length > 1 ? accounts[1].name : accounts[0].name));
   }, [isOpen, accounts]);
 
+  // `amount` and `receivedAmount` hold only what was typed. A side left empty
+  // is shown — and saved — at the rate-converted figure, until it is typed too.
+  const xfer = isCrossCurrency
+    ? resolveTransferAmounts({ sent: amount, received: receivedAmount, from: sourceCurrency, to: destCurrency, rates: exchangeRates })
+    : null;
+  const shownAmount = xfer ? xfer.sent : amount;
+  const shownReceived = xfer ? xfer.received : receivedAmount;
+
   const evalResult = evalMath(amount);
   const showPreview = amount.match(/[+\-*/]/) && evalResult !== null;
 
@@ -184,9 +195,14 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    const finalAmount = evalMath(amount);
+    const finalAmount = evalMath(shownAmount);
     if (finalAmount == null) {
       alert("Please enter a valid amount.");
+      return;
+    }
+    const finalReceived = isCrossCurrency ? evalMath(shownReceived) : null;
+    if (isCrossCurrency && !finalReceived) {
+      alert(`Please enter the amount received in ${destCurrency}.`);
       return;
     }
     
@@ -263,7 +279,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
       account: selectedAccount,
       transferTo: transferAccount,
       currency: sourceCurrency,
-      receivedAmount: isCrossCurrency && receivedAmount ? Math.abs(evalMath(receivedAmount)) : null,
+      receivedAmount: isCrossCurrency ? Math.abs(finalReceived) : null,
       isExpenseShare: isExpenseShare && type !== 2 && finalExpenseShares.length > 0,
       expenseShares: finalExpenseShares.length > 0 ? finalExpenseShares : null,
       repayments: initialData?.repayments || [],
@@ -377,12 +393,12 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
               there. Reserve the clearance in those three. */}
           <div className={`form-row split-row ${showPreview && (type === 2 || isSplit || isExpenseShare) ? 'reserves-math-preview' : ''}`}>
             <div className="form-group flex-2 relative">
-              {amount && <label>Amount ({sourceCurrency})</label>}
+              {shownAmount && <label>{isCrossCurrency ? 'Sent' : 'Amount'} ({sourceCurrency})</label>}
               {isMobile ? (
                 <div onClick={() => setActiveField('amount')} style={{ cursor: 'pointer' }}>
                   <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
                     <CurrencyIcon size={18} className="input-icon" />
-                    <input type="text" placeholder="Amount" value={amount} readOnly />
+                    <input type="text" placeholder={isCrossCurrency ? `Sent (${sourceCurrency})` : 'Amount'} value={shownAmount} readOnly />
                   </div>
                   {showPreview && <div className="math-preview">= {formatPreview(evalResult)}</div>}
                 </div>
@@ -392,8 +408,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                     <CurrencyIcon size={18} className="input-icon" />
                     <input 
                       type="text" 
-                      placeholder="Amount" 
-                      value={amount}
+                      placeholder={isCrossCurrency ? `Sent (${sourceCurrency})` : 'Amount'}
+                      value={shownAmount}
                       onChange={(e) => setAmount(formatAmountInput(e.target.value))}
                       required
                       autoFocus={!isMobile}
@@ -584,16 +600,16 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                 >
                   {isCrossCurrency && (
                     <div className="form-group" style={{ marginTop: isMobile ? '16px' : '0' }}>
-                      {receivedAmount && <label>Received Amount ({destCurrency})</label>}
+                      {shownReceived && <label>Received ({destCurrency})</label>}
                       {isMobile ? (
-                        renderTapField(`Received (${destCurrency})`, receivedAmount, DestCurrencyIcon, 'receivedAmount')
+                        renderTapField(`Received (${destCurrency})`, shownReceived, DestCurrencyIcon, 'receivedAmount')
                       ) : (
                         <div className="input-with-icon">
                           <span className="input-icon" style={{ fontSize: '18px', fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>{getCurrencySymbol(destCurrency)}</span>
                           <input 
                             type="text" 
-                            placeholder={`Received Amount (${destCurrency})`}
-                            value={receivedAmount}
+                            placeholder={`Received (${destCurrency})`}
+                            value={shownReceived}
                             onChange={(e) => setReceivedAmount(formatAmountInput(e.target.value))}
                             required
                           />
@@ -1018,7 +1034,8 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                 activeField === 'category' ? splits.find(s => s.id === activeSplitId)?.category :
                 activeField === 'payee' ? splits.find(s => s.id === activeSplitId)?.payee : ''
               ) : (
-                activeField === 'amount' ? amount :
+                activeField === 'amount' ? shownAmount :
+                activeField === 'receivedAmount' ? shownReceived :
                 activeField === 'note' ? note :
                 activeField === 'category' ? category :
                 activeField === 'payee' ? payee :
@@ -1043,6 +1060,7 @@ export default function AddTransactionModal({ isOpen, onClose, initialData = nul
                 setSplits(splits.map(sp => sp.id === activeSplitId ? { ...sp, [activeField]: val } : sp));
               } else {
                 if (activeField === 'amount') setAmount(val);
+                if (activeField === 'receivedAmount') setReceivedAmount(val);
                 if (activeField === 'note') setNote(val);
                 if (activeField === 'category') setCategory(val);
                 if (activeField === 'payee') setPayee(val);

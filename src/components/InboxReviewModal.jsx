@@ -27,6 +27,7 @@ import {
 import { generateId } from '../store/db';
 import { formatCurrency, getCurrencySymbol, formatAmountInput } from '../utils/format';
 import { evalMath } from '../utils/math';
+import { resolveTransferAmounts } from '../utils/transferAmounts';
 import './InboxReviewModal.css';
 
 // Switching type slides the fields in from the side they came from, exactly as
@@ -133,7 +134,7 @@ const FIELD_DEFAULTS = {
 export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh }) {
   const {
     accounts, categories, payees, transactions,
-    addTransaction, saveTransactionsBatch, savePayee, saveCategory
+    addTransaction, saveTransactionsBatch, savePayee, saveCategory, exchangeRates
   } = useData();
   const { automationRules, setAutomationRules } = useAutomationSettings();
   const isMobile = useIsMobile();
@@ -229,6 +230,31 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     if (suggested && field in suggested) return suggested[field];
     return FIELD_DEFAULTS[field] ?? '';
   }, [edits, suggestions]);
+
+  // A transfer between accounts in different currencies has two amounts, and
+  // the rate does not connect them — spread and fees sit in between. Each side
+  // is what was typed, else what a bank message said, else the other side
+  // converted at the cached rate. `amount` stays the sent side throughout.
+  const transferAmountsFor = useCallback((item) => {
+    const currencyOf = (name) => accounts.find(a => a.name === name)?.currency;
+    const from = currencyOf(valueFor(item, 'account'));
+    const to = currencyOf(valueFor(item, 'transferTo'));
+    if (valueFor(item, 'type') !== 2 || !from || !to || from === to) {
+      return { cross: false };
+    }
+    const edited = edits[item.id] || {};
+    const suggested = suggestions[item.id] || {};
+    // A one-sided credit's `amount` is what arrived, so only a stated sent
+    // figure counts for the sent side.
+    const sent = 'amount' in edited
+      ? edited.amount
+      : ('sentAmount' in suggested ? suggested.sentAmount : suggested.amount);
+    const received = 'receivedAmount' in edited ? edited.receivedAmount : suggested.receivedAmount;
+    const resolved = resolveTransferAmounts({
+      sent: String(sent ?? ''), received: String(received ?? ''), from, to, rates: exchangeRates
+    });
+    return { cross: true, from, to, ...resolved };
+  }, [accounts, valueFor, edits, suggestions, exchangeRates]);
 
   const setField = useCallback((itemId, field, value) => {
     setEdits(current => ({
@@ -403,7 +429,8 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
 
     // evalMath, not parseFloat: the field formats digit groups and accepts
     // arithmetic, and parseFloat("1,200") is 1.
-    const amount = evalMath(valueFor(item, 'amount'));
+    const xfer = transferAmountsFor(item);
+    const amount = evalMath(xfer.cross ? xfer.sent : valueFor(item, 'amount'));
     if (!Number.isFinite(amount) || amount <= 0) {
       alert('Enter a valid amount before adding this transaction.');
       return;
@@ -426,6 +453,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     let finalCategory;
     let finalPayee;
     let transferTo = null;
+    let receivedAmount = null;
 
     if (type === 2) {
       const to = valueFor(item, 'transferTo');
@@ -440,6 +468,14 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
       // The shape the rest of the app expects of a transfer: negative amount
       // on the source account, the destination in transferTo, and the
       // generated payee label the reference rewriting keys off.
+      if (xfer.cross) {
+        receivedAmount = evalMath(xfer.received);
+        if (!Number.isFinite(receivedAmount) || receivedAmount <= 0) {
+          alert(`Enter the amount received in ${xfer.to} before adding this transfer.`);
+          return;
+        }
+        receivedAmount = Math.abs(receivedAmount);
+      }
       finalCategory = 'Transfer';
       finalPayee = `Transfer to ${to}`;
       transferTo = to;
@@ -521,7 +557,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
         account,
         transferTo,
         currency: sourceAccount?.currency || valueFor(item, 'currency'),
-        receivedAmount: null,
+        receivedAmount,
         isExpenseShare: isExpenseShare && finalExpenseShares.length > 0,
         expenseShares: finalExpenseShares.length > 0 ? finalExpenseShares : null,
         splits: finalSplits,
@@ -543,8 +579,8 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     } finally {
       setBusy(false);
     }
-  }, [valueFor, accounts, payees, categories, savePayee, saveCategory, addTransaction,
-      handleRecordRepayment, finishApproval]);
+  }, [valueFor, transferAmountsFor, accounts, payees, categories, savePayee, saveCategory,
+      addTransaction, handleRecordRepayment, finishApproval]);
 
   const handleDismiss = useCallback(async (item) => {
     setBusy(true);
@@ -773,8 +809,9 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                   const type = valueFor(item, 'type');
                   const isTransfer = type === 2;
                   const isIncome = type === 1;
-                  const amount = Math.abs(evalMath(valueFor(item, 'amount')) || 0);
-                  const symbol = getCurrencySymbol(valueFor(item, 'currency'));
+                  const xfer = transferAmountsFor(item);
+                  const amount = Math.abs(evalMath(xfer.cross ? xfer.sent : valueFor(item, 'amount')) || 0);
+                  const symbol = getCurrencySymbol(xfer.cross ? xfer.from : valueFor(item, 'currency'));
 
                   const source = isPair ? (item.pair.debit || item.pair.credit) : item.draft;
                   const level = confidenceLabel(source.confidence || 0);
@@ -858,7 +895,8 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                 const expenseShares = valueFor(item, 'expenseShares');
                 const activeSplitIndex = valueFor(item, 'activeSplitIndex');
                 const activePersonIndex = valueFor(item, 'activePersonIndex');
-                const amountValue = String(valueFor(item, 'amount') ?? '');
+                const xfer = transferAmountsFor(item);
+                const amountValue = String((xfer.cross ? xfer.sent : valueFor(item, 'amount')) ?? '');
 
                 // The account's own currency wins over the one the message
                 // named, as it does in the transaction form: a PKR card billed
@@ -923,6 +961,14 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                     style={{ ...style, fontSize: size, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
                     {getCurrencySymbol(sourceCurrency)}
+                  </span>
+                );
+                const DestCurrencyIcon = ({ size, className, style }) => (
+                  <span
+                    className={className}
+                    style={{ ...style, fontSize: size, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    {getCurrencySymbol(xfer.to)}
                   </span>
                 );
 
@@ -1030,12 +1076,12 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                           Reserve the clearance in those three. */}
                       <div className={`ib-form-row ${showPreview && (type === 2 || isSplit || isExpenseShare) ? 'ib-reserves-math-preview' : ''}`}>
                         <div className="ib-form-group ib-flex-2 ib-relative">
-                          {amountValue && <label>Amount ({sourceCurrency})</label>}
+                          {amountValue && <label>{xfer.cross ? 'Sent' : 'Amount'} ({sourceCurrency})</label>}
                           {isMobile ? (
                             <div onClick={() => openField('amount')} style={{ cursor: 'pointer' }}>
                               <div className="input-with-icon" style={{ pointerEvents: 'none' }}>
                                 <CurrencyIcon size={18} className="input-icon" />
-                                <input type="text" placeholder="Amount" value={amountValue} readOnly />
+                                <input type="text" placeholder={xfer.cross ? `Sent (${sourceCurrency})` : 'Amount'} value={amountValue} readOnly />
                               </div>
                               {showPreview && <div className="ib-math-preview">= {formatCurrency(evalResult)}</div>}
                             </div>
@@ -1045,7 +1091,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                                 <CurrencyIcon size={18} className="input-icon" />
                                 <input
                                   type="text"
-                                  placeholder="Amount"
+                                  placeholder={xfer.cross ? `Sent (${sourceCurrency})` : 'Amount'}
                                   value={amountValue}
                                   onChange={e => setField(item.id, 'amount', formatAmountInput(e.target.value))}
                                 />
@@ -1226,17 +1272,18 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                         animate={{
                           height: ((isSplit || isExpenseShare || isRepayment) && type !== 2)
                             ? 'auto'
-                            : (type === 2 ? 0 : (isMobile ? 122 : 116)),
-                          marginTop: type === 2 ? -16 : -10
+                            : (type === 2 ? (xfer.cross ? (isMobile ? 66 : 42) : 0) : (isMobile ? 122 : 116)),
+                          marginTop: (type === 2 && !xfer.cross) ? -16 : -10
                         }}
                         transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
                         style={{ position: 'relative', overflow: 'visible' }}
                       >
                         <AnimatePresence initial={false} custom={typeDirection} mode="popLayout">
                           {type === 2 ? (
-                            // A transfer needs nothing here: its two accounts
-                            // are above, and it has no category or payee of
-                            // its own. The pane still exists so the tabs slide
+                            // A transfer's accounts are above and it has no
+                            // category or payee of its own. Only a transfer
+                            // across currencies needs this pane, for what
+                            // arrived; otherwise it exists so the tabs slide
                             // rather than cut.
                             <motion.div
                               key="transfer"
@@ -1248,7 +1295,28 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                               transition={{ type: 'tween', ease: 'easeInOut', duration: 0.25 }}
                               className="ib-dynamic-content"
                               style={{ width: '100%' }}
-                            />
+                            >
+                              {xfer.cross && (
+                                <div className="ib-form-group" style={{ marginTop: isMobile ? '16px' : '0' }}>
+                                  {isMobile ? (
+                                    renderTapField(`Received (${xfer.to})`, xfer.received, DestCurrencyIcon, 'receivedAmount')
+                                  ) : (
+                                    <>
+                                      {xfer.received && <label>Received ({xfer.to})</label>}
+                                      <div className="input-with-icon">
+                                        <DestCurrencyIcon size={18} className="input-icon" />
+                                        <input
+                                          type="text"
+                                          placeholder={`Received (${xfer.to})`}
+                                          value={xfer.received}
+                                          onChange={e => setField(item.id, 'receivedAmount', formatAmountInput(e.target.value))}
+                                        />
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </motion.div>
                           ) : (
                             <motion.div
                               key="regular"
@@ -1817,7 +1885,9 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
               activeSplitId
                 ? (valueFor(selected, 'splits')
                     .find(s => s.id === activeSplitId)?.[activeField] || '')
-                : valueFor(selected, activeField)
+                : (activeField === 'amount' || activeField === 'receivedAmount') && transferAmountsFor(selected).cross
+                  ? transferAmountsFor(selected)[activeField === 'amount' ? 'sent' : 'received']
+                  : valueFor(selected, activeField)
             }
             onSelect={(val) => {
               applyPopoverValue(val);

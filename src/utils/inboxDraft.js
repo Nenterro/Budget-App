@@ -741,6 +741,11 @@ export function pairToTransferSuggestion(pair, options = {}) {
   return {
     type: 2,
     amount: String(draftAmount(known) || ''),
+    // Each message states its own side. Across currencies these differ, and
+    // a one-sided credit says what arrived, not what left — so the form keeps
+    // them apart rather than treating `amount` as both.
+    sentAmount: debit ? String(draftAmount(debit) || '') : '',
+    receivedAmount: credit ? String(draftAmount(credit) || '') : '',
     date: toDateInput(known?.parsed?.occurredAt || known?.receivedAt),
     from,
     to,

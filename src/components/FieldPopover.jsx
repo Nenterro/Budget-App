@@ -74,6 +74,7 @@ export default function FieldPopover({
     || field === 'account' || field === 'transferTo';
 
   // Autocomplete starts empty to show all options. Text fields start with initialValue.
+  const isAmount = field === 'amount' || field === 'receivedAmount';
   const [query, setQuery] = useState(isAutocomplete ? '' : (initialValue || ''));
 
   const filtered = isAutocomplete
@@ -116,14 +117,15 @@ export default function FieldPopover({
               className="popped-input"
               placeholder={
                 field === 'amount' ? 'Enter amount (e.g. 50+20)...'
+                  : field === 'receivedAmount' ? 'Enter amount received...'
                   : field === 'note' ? 'Enter note...'
                   : `Search or add ${field}...`
               }
               value={query}
-              onChange={e => setQuery(field === 'amount' ? formatAmountInput(e.target.value) : e.target.value)}
+              onChange={e => setQuery(isAmount ? formatAmountInput(e.target.value) : e.target.value)}
               onKeyDown={handleKeyDown}
               type="text"
-              inputMode={field === 'amount' ? 'decimal' : 'text'}
+              inputMode={isAmount ? 'decimal' : 'text'}
               autoFocus
             />
           )}
