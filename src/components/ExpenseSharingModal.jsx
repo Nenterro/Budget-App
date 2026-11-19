@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronRight, ArrowLeft, Users, Plus, Trash2, Calendar, Check, AlertTriangle, User, Edit2 } from 'lucide-react';
+import { X, ChevronRight, ArrowLeft, Users, Plus, Trash2, Calendar, Check, AlertTriangle, User, Edit2, Search, Store } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import UnifiedDropdown from './UnifiedDropdown';
 import UnifiedCalendar from './UnifiedCalendar';
@@ -11,7 +11,8 @@ import {
   sharePending, personPending, personRepaid, personWrittenOff, totalPending,
   applyWriteOff, editWriteOff, removeWriteOff,
   applyRepayment, editRepayment, removeRepayment,
-  maxWriteOff, maxRepayment, toBatch
+  maxWriteOff, maxRepayment, toBatch,
+  searchShared, personSummary, payeeSummary
 } from '../utils/expenseShares';
 import { format, parseISO } from 'date-fns';
 import './ExpenseSharingModal.css';
@@ -47,11 +48,36 @@ const withCurrentValue = (items, current) => {
 
 const EMPTY_FORM = { person: '', amount: '', account: '', date: '', category: '', payee: '' };
 
+// A per-currency total as one line: "₨1,200.00" or "₨1,200.00 + $30.00".
+// Currencies are never added together — see the note in expenseShares.js.
+const formatTotals = (totals, field, zeroLabel = null) => {
+  const parts = Object.entries(totals || {})
+    .filter(([, t]) => Math.abs(t[field] || 0) >= 0.005)
+    .map(([code, t]) => `${getCurrencySymbol(code)}${formatCurrency(t[field])}`);
+  if (parts.length) return parts.join(' + ');
+  if (zeroLabel !== null) return zeroLabel;
+  return `${getCurrencySymbol(Object.keys(totals || {})[0])}${formatCurrency(0)}`;
+};
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 export default function ExpenseSharingModal({ isOpen, onClose }) {
   const { transactions, saveTransactionsBatch, categories, payees, accounts } = useData();
 
   const [activeTab, setActiveTab] = useState('unsettled');
   const [selectedTxId, setSelectedTxId] = useState(null);
+
+  // Search, and the person/payee summaries it leads to. The summaries are a
+  // stack because they link to each other — a person's payees, a payee's
+  // people — and Back should retrace that path rather than jump to the list.
+  // An open expense sits on top of whatever summary it was opened from.
+  const [query, setQuery] = useState('');
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const [focusStack, setFocusStack] = useState([]); // [{ kind: 'person' | 'payee', name }]
+  const focus = focusStack[focusStack.length - 1] || null;
+  const pushFocus = (kind, name) => setFocusStack(prev => [...prev, { kind, name }]);
+  const popFocus = () => setFocusStack(prev => prev.slice(0, -1));
 
   // One drawer, one form. There used to be three near-identical drawers with
   // their own state, which is how they drifted apart — different validation,
@@ -168,14 +194,41 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
   const settledExpenses = useMemo(
     () => allSharedExpenses.filter(tx => totalPending(tx) <= 0), [allSharedExpenses]);
 
-  const displayedExpenses = activeTab === 'unsettled' ? unsettledExpenses : settledExpenses;
   const selectedTx = useMemo(
     () => transactions.find(t => t.id === selectedTxId), [transactions, selectedTxId]);
 
+  // The account's currency wins over the one stored on the transaction, as it
+  // always has for the symbol shown beside each amount.
+  const currencyCodeOf = (tx) =>
+    accounts?.find(a => a.name === tx.account)?.currency || tx.currency;
+
+  const displayedExpenses = activeTab === 'unsettled' ? unsettledExpenses : settledExpenses;
+
+  // The search box is a picker, not a filter: it can only land on a person or
+  // payee that actually appears on a shared expense, so every summary it opens
+  // has something in it. Suggestions are drawn from the expenses themselves.
+  const suggestions = useMemo(() => {
+    if (!suggestOpen) return [];
+    const { people, payees } = searchShared(allSharedExpenses, query, currencyCodeOf);
+    return [
+      ...people.map(p => ({ ...p, kind: 'person' })),
+      ...payees.map(p => ({ ...p, kind: 'payee' }))
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestOpen, allSharedExpenses, query, accounts]);
+
+  const summary = useMemo(() => {
+    if (!focus) return null;
+    return focus.kind === 'person'
+      ? personSummary(allSharedExpenses, focus.name, currencyCodeOf)
+      : payeeSummary(allSharedExpenses, focus.name, currencyCodeOf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, allSharedExpenses, accounts]);
+
   if (!isOpen) return null;
 
-  const currencyFor = (tx) =>
-    getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency);
+  const currencyFor = (tx) => getCurrencySymbol(currencyCodeOf(tx));
+  const openExpense = (tx) => { setSelectedTxId(tx.id); closeDrawer(); };
 
   // ─── Opening the drawer ──────────────────────────────────────────────────
 
@@ -337,6 +390,196 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
   const config = drawerConfig(selectedTx);
 
+  // ─── Person and payee summaries ──────────────────────────────────────────
+
+  const owesLabel = (totals) => {
+    const pending = formatTotals(totals, 'pending', null);
+    return Object.values(totals).some(t => (t.pending || 0) >= 0.005) ? `${pending} owed` : 'Settled';
+  };
+
+  const pickSuggestion = (s) => {
+    pushFocus(s.kind, s.name);
+    setQuery('');
+    setSuggestOpen(false);
+    setActiveSuggestion(0);
+    closeDrawer();
+  };
+
+  // Bold the part of a suggestion that matched what was typed.
+  const highlightMatch = (text, q) => {
+    const needle = q.trim().toLowerCase();
+    const at = needle ? text.toLowerCase().indexOf(needle) : -1;
+    if (at < 0) return text;
+    return (
+      <>
+        {text.slice(0, at)}
+        <mark>{text.slice(at, at + needle.length)}</mark>
+        {text.slice(at + needle.length)}
+      </>
+    );
+  };
+
+  const statusIcon = (owing, Icon) => (
+    <div className="es-card-icon" style={{ background: owing ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.15)' }}>
+      {owing
+        ? <Icon size={16} style={{ color: '#f59e0b' }} />
+        : <Check size={16} style={{ color: '#10b981' }} />}
+    </div>
+  );
+
+  // One tappable row for a person or payee: who, on how many expenses, and
+  // what is still outstanding. Used by the search results and by each summary
+  // for its links to the other kind.
+  const renderMatchRow = (kind, entry, meta) => {
+    const owing = entry.pending > 0.004;
+    return (
+      <button
+        key={`${kind}:${entry.key}`}
+        type="button"
+        className="es-card"
+        onClick={() => { pushFocus(kind, entry.name); closeDrawer(); }}
+      >
+        {statusIcon(owing, kind === 'person' ? User : Store)}
+        <div className="es-card-info">
+          <span className="es-card-payee">{entry.name || 'Shared expense'}</span>
+          <span className="es-card-meta">{meta || plural(entry.count, 'shared expense')}</span>
+        </div>
+        <div className="es-card-amounts">
+          <span className={owing ? 'es-card-pending' : 'es-card-settled'}>{owesLabel(entry.totals)}</span>
+        </div>
+        <ChevronRight size={16} className="es-card-chevron" />
+      </button>
+    );
+  };
+
+  const renderSummaryHeader = (title, subtitle) => (
+    <div className="es-header">
+      <button className="es-icon-btn" onClick={popFocus} type="button" aria-label="Back">
+        <ArrowLeft size={20} />
+      </button>
+      <div className="es-header-titles">
+        <h2>{title}</h2>
+        <span>{subtitle}</span>
+      </div>
+    </div>
+  );
+
+  const renderOverview = (items) => (
+    <div className="es-overview-card" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+      {items.map(item => (
+        <div key={item.label} className="es-overview-item">
+          <span className="es-overview-label">{item.label}</span>
+          <span className="es-overview-value" style={item.color ? { color: item.color } : undefined} title={item.value}>
+            {item.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+
+  const outstandingColor = (s) => (s.pending > 0.004 ? '#f59e0b' : '#10b981');
+
+  const renderPersonSummary = (s) => {
+    const anyWrittenOff = Object.values(s.totals).some(t => (t.writtenOff || 0) >= 0.005);
+    return (
+      <>
+        {renderSummaryHeader(s.name || 'Shared expense', plural(s.expenses.length, 'shared expense'))}
+        <div className="es-detail-body">
+          {renderOverview([
+            { label: 'Their share', value: formatTotals(s.totals, 'share') },
+            { label: 'Repaid', value: formatTotals(s.totals, 'repaid'), color: '#10b981' },
+            ...(anyWrittenOff ? [{ label: 'Written off', value: formatTotals(s.totals, 'writtenOff'), color: '#ef4444' }] : []),
+            { label: 'Outstanding', value: formatTotals(s.totals, 'pending', 'None'), color: outstandingColor(s) }
+          ])}
+
+          <div className="es-section-title">By payee</div>
+          <div className="es-people">
+            {s.byPayee.map(p => renderMatchRow(
+              'payee', p, `${plural(p.count, 'expense')} • ${formatTotals(p.totals, 'share')} share`
+            ))}
+          </div>
+
+          <div className="es-section-title">Expenses</div>
+          <div className="es-people">
+            {s.expenses.map(e => {
+              const owing = e.pending > 0.004;
+              const symbol = getCurrencySymbol(e.currency);
+              return (
+                <button key={`${e.tx.id}:${e.shareId}`} type="button" className="es-card" onClick={() => openExpense(e.tx)}>
+                  {statusIcon(owing, Users)}
+                  <div className="es-card-info">
+                    <span className="es-card-payee">{e.tx.payee}</span>
+                    <span className="es-card-meta">{e.tx.category} • {formatDateShort(e.tx.date)}</span>
+                  </div>
+                  <div className="es-card-amounts">
+                    <span className="es-card-total">{symbol}{formatCurrency(e.share)}</span>
+                    <span className={owing ? 'es-card-pending' : 'es-card-settled'}>
+                      {owing
+                        ? `${symbol}${formatCurrency(e.pending)} owed`
+                        : e.writtenOff > 0 && e.repaid === 0 ? 'Written off' : 'Settled'}
+                    </span>
+                  </div>
+                  <ChevronRight size={16} className="es-card-chevron" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </>
+    );
+  };
+
+  const renderPayeeSummary = (s) => (
+    <>
+      {renderSummaryHeader(s.name || 'Shared expense', plural(s.expenses.length, 'shared expense'))}
+      <div className="es-detail-body">
+        {renderOverview([
+          { label: 'Total spent', value: formatTotals(s.totals, 'spent') },
+          { label: 'Your share', value: formatTotals(s.totals, 'yours'), color: '#10b981' },
+          { label: 'Outstanding', value: formatTotals(s.totals, 'pending', 'None'), color: outstandingColor(s) }
+        ])}
+
+        <div className="es-section-title">Who owes what</div>
+        <div className="es-people">
+          {s.people.map(p => {
+            const repaid = Object.values(p.totals).some(t => (t.repaid || 0) >= 0.005);
+            return renderMatchRow(
+              'person', p,
+              `${plural(p.count, 'expense')} • ${formatTotals(p.totals, 'share')} share`
+                + (repaid ? ` • ${formatTotals(p.totals, 'repaid')} repaid` : '')
+            );
+          })}
+        </div>
+
+        <div className="es-section-title">Expenses</div>
+        <div className="es-people">
+          {s.expenses.map(e => {
+            const owing = e.pending > 0.004;
+            const symbol = getCurrencySymbol(e.currency);
+            return (
+              <button key={e.tx.id} type="button" className="es-card" onClick={() => openExpense(e.tx)}>
+                {statusIcon(owing, Users)}
+                <div className="es-card-info">
+                  <span className="es-card-payee">{formatDateShort(e.tx.date)}</span>
+                  <span className="es-card-meta">
+                    {[e.tx.category, e.tx.expenseShares.map(sh => sh.name).join(', ')].filter(Boolean).join(' • ')}
+                  </span>
+                </div>
+                <div className="es-card-amounts">
+                  <span className="es-card-total">{symbol}{formatCurrency(e.bill)}</span>
+                  <span className={owing ? 'es-card-pending' : 'es-card-settled'}>
+                    {owing ? `${symbol}${formatCurrency(e.pending)} owed` : 'Settled'}
+                  </span>
+                </div>
+                <ChevronRight size={16} className="es-card-chevron" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <ModalWrapper onClose={drawer ? closeDrawer : onClose}>
       <div className="modal-content expense-sharing-modal" ref={panelRef} onClick={e => e.stopPropagation()}>
@@ -348,7 +591,20 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
             so the incoming one is in place at its natural height in the same
             commit: the crossfade and the resize become one gesture. */}
         <AnimatePresence mode="popLayout">
-          {!selectedTxId || !selectedTx ? (
+          {!selectedTx && summary ? (
+            <motion.div
+              key={`${focus.kind}:${focus.name}`}
+              className="es-view-container"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 16 }}
+              transition={VIEW_TRANSITION}
+            >
+              {focus.kind === 'person'
+                ? renderPersonSummary(summary)
+                : renderPayeeSummary(summary)}
+            </motion.div>
+          ) : !selectedTx ? (
             <motion.div
               key="main-list"
               className="es-view-container"
@@ -363,6 +619,97 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                   <X size={20} />
                 </button>
               </div>
+
+              <div className="es-search input-with-icon">
+                <Search size={16} className="input-icon" />
+                <input
+                  type="text"
+                  placeholder="Find a person or payee"
+                  value={query}
+                  role="combobox"
+                  aria-expanded={suggestOpen}
+                  aria-controls="es-suggestions"
+                  aria-autocomplete="list"
+                  aria-label="Find a person or payee"
+                  autoComplete="off"
+                  onFocus={() => { setSuggestOpen(true); setActiveSuggestion(0); }}
+                  onBlur={() => setSuggestOpen(false)}
+                  onChange={(e) => { setQuery(e.target.value); setSuggestOpen(true); setActiveSuggestion(0); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setSuggestOpen(true);
+                      setActiveSuggestion(i => Math.min(i + 1, suggestions.length - 1));
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setActiveSuggestion(i => Math.max(i - 1, 0));
+                    } else if (e.key === 'Enter' || (e.key === 'Tab' && query.trim() && suggestions.length)) {
+                      // Enter (or Tab, once something is typed) takes the
+                      // highlighted suggestion — the first one unless the
+                      // arrows moved it. Free text never goes anywhere.
+                      const pick = suggestions[activeSuggestion];
+                      if (pick) { e.preventDefault(); pickSuggestion(pick); e.currentTarget.blur(); }
+                    } else if (e.key === 'Escape' && suggestOpen) {
+                      // Close the list, not the whole modal.
+                      e.stopPropagation();
+                      setSuggestOpen(false);
+                    }
+                  }}
+                />
+                {query && (
+                  <button
+                    type="button"
+                    className="es-search-clear"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setQuery(''); setActiveSuggestion(0); }}
+                    aria-label="Clear search"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+
+              {suggestOpen && (
+                  <div className="es-suggestions" id="es-suggestions" role="listbox">
+                    {suggestions.length === 0 ? (
+                      <div className="es-suggestion-empty">
+                        {query.trim()
+                          ? <>No person or payee on a shared expense matches “{query.trim()}”.</>
+                          : 'No shared expenses yet.'}
+                      </div>
+                    ) : suggestions.map((s, i) => {
+                      const owing = s.pending > 0.004;
+                      const firstOfKind = i === 0 || suggestions[i - 1].kind !== s.kind;
+                      return (
+                        <div key={`${s.kind}:${s.key}`}>
+                          {firstOfKind && (
+                            <div className="es-suggestion-group">{s.kind === 'person' ? 'People' : 'Payees'}</div>
+                          )}
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={i === activeSuggestion}
+                            className={`es-suggestion ${i === activeSuggestion ? 'active' : ''}`}
+                            // mousedown would blur the input and close the list
+                            // before the click landed.
+                            onMouseDown={(e) => e.preventDefault()}
+                            onMouseEnter={() => setActiveSuggestion(i)}
+                            onClick={() => pickSuggestion(s)}
+                          >
+                            {s.kind === 'person' ? <User size={14} /> : <Store size={14} />}
+                            <span className="es-suggestion-name">
+                              {highlightMatch(s.name || 'Shared expense', query)}
+                            </span>
+                            <span className="es-suggestion-meta">{plural(s.count, 'expense')}</span>
+                            <span className={owing ? 'es-card-pending' : 'es-card-settled'}>
+                              {owesLabel(s.totals)}
+                            </span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
               <div className="es-tabs" data-tab={activeTab}>
                 <button
@@ -400,7 +747,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                       key={tx.id}
                       type="button"
                       className="es-card"
-                      onClick={() => { setSelectedTxId(tx.id); closeDrawer(); }}
+                      onClick={() => openExpense(tx)}
                     >
                       <div className="es-card-icon" style={{ background: pending > 0 ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.15)' }}>
                         {pending > 0

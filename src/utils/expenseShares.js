@@ -475,3 +475,189 @@ export function findOrphanedLinks(transactions) {
 
   return rebuilt;
 }
+
+// ─── Looking across expenses: by person, by payee ──────────────────────────
+//
+// The list answers one expense at a time. These answer the cross-cutting
+// questions — "what does Ali owe me in total, and on what?", "what has
+// everyone run up at this restaurant?" — from the same per-share arithmetic,
+// so a total here always agrees with the detail view it breaks down into.
+//
+// Money is grouped by currency rather than summed: shared expenses can sit on
+// accounts in different currencies, and adding rupees to dollars gives a
+// number that is wrong in both. `currencyOf(tx)` resolves the code the same
+// way the modal does (account currency first).
+//
+// Names match case-insensitively and ignore surrounding spaces, because the
+// same friend typed as "Ali" and "ali " on two expenses is one person.
+
+export const nameKey = (value) => String(value || '').trim().toLowerCase();
+
+const sharedOnly = (transactions) =>
+  (transactions || []).filter(tx =>
+    tx.isExpenseShare && Array.isArray(tx.expenseShares) && tx.expenseShares.length > 0);
+
+const defaultCurrencyOf = (tx) => tx.currency || '';
+
+const bump = (totals, currency, fields) => {
+  const row = totals[currency] || (totals[currency] = {});
+  for (const [key, value] of Object.entries(fields)) {
+    row[key] = round2((row[key] || 0) + (value || 0));
+  }
+};
+
+const pendingAcross = (totals) =>
+  round2(Object.values(totals).reduce((a, t) => a + (t.pending || 0), 0));
+
+// Write-offs are matched to the share by id where the record has one, the same
+// way removeWriteOff finds it, so two people with one name stay apart.
+const shareWrittenOff = (tx, share) =>
+  (tx.writeOffs || [])
+    .filter(w => (w.shareId ? w.shareId === share.id : w.personName === share.name))
+    .reduce((acc, w) => acc + (w.amount || 0), 0);
+
+// One person's position on one expense. `share` is what they were originally
+// asked for: share.amount has write-offs taken out already, so they go back in.
+const shareFigures = (tx, share) => {
+  const writtenOff = round2(shareWrittenOff(tx, share));
+  return {
+    share: round2((share.amount || 0) + writtenOff),
+    repaid: round2(personRepaid(tx, share.name)),
+    writtenOff,
+    pending: round2(sharePending(tx, share))
+  };
+};
+
+// The bill as it was paid. tx.amount shrinks by every write-off, but the money
+// left the account in full — the written-off part moved to a Bad Debt
+// transaction, it was not refunded.
+const billOf = (tx) =>
+  round2(Math.abs(tx.amount || 0) + (tx.writeOffs || []).reduce((a, w) => a + (w.amount || 0), 0));
+
+const yourShareOf = (tx) =>
+  round2(Math.abs(tx.amount || 0) - (tx.expenseShares || []).reduce((a, s) => a + (s.amount || 0), 0));
+
+// Still-owing expenses first, then newest.
+const byOutstandingThenDate = (a, b) =>
+  (b.pending > 0) - (a.pending > 0) || new Date(b.tx.date) - new Date(a.tx.date);
+
+// Whoever owes most first; the alphabet only breaks ties.
+const byPendingThenName = (a, b) => b.pending - a.pending || a.name.localeCompare(b.name);
+
+// Everyone and every payee whose name contains `query`, with what is still
+// outstanding, for the search results. An empty query matches everything.
+export function searchShared(transactions, query, currencyOf = defaultCurrencyOf) {
+  const q = nameKey(query);
+  const people = new Map();
+  const payees = new Map();
+
+  const add = (map, key, name, tx, pending) => {
+    const entry = map.get(key) || { key, name: name.trim(), ids: new Set(), totals: {} };
+    entry.ids.add(tx.id);
+    bump(entry.totals, currencyOf(tx), { pending });
+    map.set(key, entry);
+  };
+
+  for (const tx of sharedOnly(transactions)) {
+    for (const share of tx.expenseShares) {
+      const key = nameKey(share.name);
+      if (key && key.includes(q)) add(people, key, share.name, tx, sharePending(tx, share));
+    }
+    const key = nameKey(tx.payee);
+    if (key && key.includes(q)) add(payees, key, tx.payee, tx, totalPending(tx));
+  }
+
+  const finish = (e) => ({
+    key: e.key, name: e.name, count: e.ids.size, totals: e.totals, pending: pendingAcross(e.totals)
+  });
+
+  // This feeds an autocomplete, so a name that starts with what was typed
+  // beats one that merely contains it ("Al" → Ali before Khalid); after that,
+  // whoever owes most.
+  const rank = (a, b) => (b.key.startsWith(q) - a.key.startsWith(q)) || byPendingThenName(a, b);
+
+  return {
+    people: [...people.values()].map(finish).sort(rank),
+    payees: [...payees.values()].map(finish).sort(rank)
+  };
+}
+
+// One person across every shared expense they are on: their totals, the same
+// broken down by payee, and each expense with their part of it.
+export function personSummary(transactions, personName, currencyOf = defaultCurrencyOf) {
+  const key = nameKey(personName);
+  const totals = {};
+  const payees = new Map();
+  const expenses = [];
+  let name = String(personName || '').trim();
+
+  for (const tx of sharedOnly(transactions)) {
+    const currency = currencyOf(tx);
+    for (const share of tx.expenseShares) {
+      if (nameKey(share.name) !== key) continue;
+      name = share.name.trim() || name;
+
+      const figures = shareFigures(tx, share);
+      bump(totals, currency, figures);
+      expenses.push({ tx, shareId: share.id, currency, ...figures });
+
+      const payeeKey = nameKey(tx.payee);
+      const entry = payees.get(payeeKey)
+        || { key: payeeKey, name: (tx.payee || '').trim(), count: 0, totals: {} };
+      entry.count += 1;
+      bump(entry.totals, currency, figures);
+      payees.set(payeeKey, entry);
+    }
+  }
+
+  return {
+    name,
+    totals,
+    pending: pendingAcross(totals),
+    byPayee: [...payees.values()]
+      .map(p => ({ ...p, pending: pendingAcross(p.totals) }))
+      .sort(byPendingThenName),
+    expenses: expenses.sort(byOutstandingThenDate)
+  };
+}
+
+// One payee across every shared expense paid there: what was spent, your part,
+// what each person on those expenses owes, and the expenses themselves.
+export function payeeSummary(transactions, payee, currencyOf = defaultCurrencyOf) {
+  const key = nameKey(payee);
+  const totals = {};
+  const people = new Map();
+  const expenses = [];
+  let name = String(payee || '').trim();
+
+  for (const tx of sharedOnly(transactions)) {
+    if (nameKey(tx.payee) !== key) continue;
+    name = (tx.payee || '').trim() || name;
+
+    const currency = currencyOf(tx);
+    const bill = billOf(tx);
+    const pending = round2(totalPending(tx));
+    bump(totals, currency, { spent: bill, yours: yourShareOf(tx), pending });
+    expenses.push({ tx, currency, bill, pending });
+
+    for (const share of tx.expenseShares) {
+      const personKey = nameKey(share.name);
+      if (!personKey) continue;
+      const entry = people.get(personKey)
+        || { key: personKey, name: share.name.trim(), count: 0, totals: {} };
+      entry.count += 1;
+      bump(entry.totals, currency, shareFigures(tx, share));
+      people.set(personKey, entry);
+    }
+  }
+
+  return {
+    name,
+    totals,
+    pending: pendingAcross(totals),
+    people: [...people.values()]
+      .map(p => ({ ...p, pending: pendingAcross(p.totals) }))
+      .sort(byPendingThenName),
+    expenses: expenses.sort(byOutstandingThenDate)
+  };
+}

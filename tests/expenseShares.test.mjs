@@ -2,7 +2,8 @@ import {
   sharePending, personPending, totalPending, personWrittenOff,
   applyWriteOff, editWriteOff, removeWriteOff,
   applyRepayment, editRepayment, removeRepayment,
-  maxWriteOff, maxRepayment, toBatch, findOrphanedLinks, openLoans, splitPayment
+  maxWriteOff, maxRepayment, toBatch, findOrphanedLinks, openLoans, splitPayment,
+  personSummary, payeeSummary, searchShared
 } from '../src/utils/expenseShares.js';
 
 let failed = 0;
@@ -381,6 +382,65 @@ console.log('\n--- Dividing a payment between a loan and the rest ---');
   check('an unreadable share falls back to the ceiling',
         near(splitPayment(1000, 400, NaN).toLoan, 400));
   check('undefined everything', near(splitPayment().toLoan, 0));
+}
+
+console.log('\n--- Across expenses: by person and by payee ---');
+{
+  // Two dinners at the same place, one lunch elsewhere, and one expense in
+  // dollars so the currency grouping is exercised.
+  let dinner1 = base(); // Ali 400, Sara 300, at Dinner
+  dinner1 = applyRepayment(dinner1, { personName: 'Ali', amount: 100, date: '2026-08-02' }).parentTx;
+  dinner1 = applyWriteOff(dinner1, 's2', { amount: 50 }).parentTx; // Sara 250 left
+
+  const dinner2 = { ...base(), id: 'tx2', date: '2026-09-01T00:00:00.000Z', payee: 'dinner ',
+    expenseShares: [{ id: 's3', name: 'ali', amount: 200 }] };
+
+  const lunch = { ...base(), id: 'tx3', payee: 'Lunch', amount: -90, currency: 'USD',
+    expenseShares: [{ id: 's4', name: 'Ali', amount: 30 }] };
+
+  const plain = { id: 'tx4', amount: -50, payee: 'Dinner' }; // not shared: ignored
+  const all = [dinner1, dinner2, lunch, plain];
+
+  const ali = personSummary(all, 'ALI');
+  check('names fold case and spaces into one person', ali.expenses.length === 3, `${ali.expenses.length}`);
+  check('Ali owes 500 in PKR across both dinners', near(ali.totals.PKR.pending, 500), JSON.stringify(ali.totals));
+  check('Ali repaid 100 in PKR', near(ali.totals.PKR.repaid, 100));
+  check('USD is kept apart from PKR', near(ali.totals.USD.pending, 30));
+  check('by payee: the two dinners are one row', ali.byPayee.length === 2, JSON.stringify(ali.byPayee.map(p => p.name)));
+  const aliDinner = ali.byPayee.find(p => p.key === 'dinner');
+  check('by payee: Dinner counts 2 expenses', aliDinner.count === 2);
+  check('by payee: Dinner owes 500', near(aliDinner.totals.PKR.pending, 500));
+
+  const sara = personSummary(all, 'Sara');
+  check('Sara was asked for 300 originally', near(sara.totals.PKR.share, 300), JSON.stringify(sara.totals));
+  check('Sara had 50 written off', near(sara.totals.PKR.writtenOff, 50));
+  check('Sara still owes 250', near(sara.totals.PKR.pending, 250));
+
+  const dinner = payeeSummary(all, 'Dinner');
+  check('payee covers both dinners, not the unshared one', dinner.expenses.length === 2);
+  check('spent is the full bills, write-off included', near(dinner.totals.PKR.spent, 2000), JSON.stringify(dinner.totals));
+  check('your share across dinners is 300 + 800', near(dinner.totals.PKR.yours, 1100));
+  check('outstanding at Dinner is 300 + 250 + 200', near(dinner.totals.PKR.pending, 750));
+  check('people sorted by most owed', dinner.people[0].key === 'ali' && near(dinner.people[0].pending, 500),
+        JSON.stringify(dinner.people.map(p => [p.key, p.pending])));
+
+  const found = searchShared(all, 'al');
+  check('search finds Ali once', found.people.length === 1 && found.people[0].count === 3,
+        JSON.stringify(found.people));
+  check('search pending is per currency', near(found.people[0].totals.PKR.pending, 500) && near(found.people[0].totals.USD.pending, 30));
+  check('search matches no payee for "al"', found.payees.length === 0);
+  check('search by payee', searchShared(all, 'din').payees[0].count === 2);
+  check('empty search lists everyone', searchShared(all, '').people.length === 2);
+
+  check('search only offers names that exist', searchShared(all, 'zed').people.length === 0
+        && searchShared(all, 'zed').payees.length === 0);
+
+  // Ranking for the autocomplete: starts-with beats contains, even when the
+  // contains-match owes more.
+  const khalid = { ...base(), id: 'tx5', payee: 'Cafe',
+    expenseShares: [{ id: 's5', name: 'Khalid', amount: 900 }] };
+  const ranked = searchShared([...all, khalid], 'al').people.map(p => p.key);
+  check('prefix match ranks first', ranked[0] === 'ali' && ranked[1] === 'khalid', JSON.stringify(ranked));
 }
 
 console.log(failed === 0 ? '\nALL EXPENSE-SHARE CHECKS PASSED\n' : `\n${failed} CHECK(S) FAILED\n`);
