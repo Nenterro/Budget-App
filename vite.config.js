@@ -7,7 +7,11 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Not autoUpdate: that activated a new build's worker straight away and
+      // deleted the old build's files while the open page still needed them.
+      // The new worker now waits, and src/utils/appUpdate.js switches over
+      // when the app is backgrounded or freshly opened with no form open.
+      registerType: 'prompt',
       includeAssets: ['favicon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
         name: 'Budget',
