@@ -3,7 +3,7 @@ import {
   applyWriteOff, editWriteOff, removeWriteOff,
   applyRepayment, editRepayment, removeRepayment,
   maxWriteOff, maxRepayment, toBatch, findOrphanedLinks, openLoans, splitPayment,
-  personSummary, payeeSummary, searchShared
+  personSummary, payeeSummary, searchShared, roundingSettlement, planRepayment, roundingTolerance
 } from '../src/utils/expenseShares.js';
 
 let failed = 0;
@@ -382,6 +382,111 @@ console.log('\n--- Dividing a payment between a loan and the rest ---');
   check('an unreadable share falls back to the ceiling',
         near(splitPayment(1000, 400, NaN).toLoan, 400));
   check('undefined everything', near(splitPayment().toLoan, 0));
+}
+
+console.log('\n--- Rounded repayments settle in full ---');
+{
+  // Ali owes 400, your share is 300.
+  const down = applyRepayment(base(), { personName: 'Ali', amount: 390, date: '2026-08-02', settleInFull: true });
+  check('rounding down: records the 390 received', near(down.amount, 390), `${down.amount}`);
+  check('rounding down: Ali is settled', near(personPending(down.parentTx, 'Ali'), 0));
+  check('rounding down: Ali share becomes 390', near(down.parentTx.expenseShares[0].amount, 390));
+  check('rounding down: you absorb 10', near(yourShare(down.parentTx), 310), `${yourShare(down.parentTx)}`);
+  check('rounding down: parent amount untouched', near(down.parentTx.amount, -1000));
+  check('rounding down: income tx is 390', near(down.childTx.create.amount, 390));
+  check('rounding down: adjustment recorded', near(down.parentTx.repayments[0].adjustment, -10));
+
+  const up = applyRepayment(base(), { personName: 'Ali', amount: 410, date: '2026-08-02', settleInFull: true });
+  check('rounding up: records 410', near(up.amount, 410));
+  check('rounding up: Ali settled', near(personPending(up.parentTx, 'Ali'), 0));
+  check('rounding up: your share drops to 290', near(yourShare(up.parentTx), 290));
+
+  // Without the flag, the old behaviour stands: capped, nothing moves.
+  const plain = applyRepayment(base(), { personName: 'Ali', amount: 390, date: '2026-08-02' });
+  check('without settle: Ali still owes 10', near(personPending(plain.parentTx, 'Ali'), 10));
+  const over = applyRepayment(base(), { personName: 'Ali', amount: 420, date: '2026-08-02' });
+  check('without settle: overpayment capped at 400', near(over.amount, 400));
+
+  // Too far off is not a rounding: treated as an ordinary partial payment.
+  const far = applyRepayment(base(), { personName: 'Ali', amount: 250, date: '2026-08-02', settleInFull: true });
+  check('beyond tolerance: Ali still owes 150', near(personPending(far.parentTx, 'Ali'), 150));
+  check('beyond tolerance: no adjustment', !far.parentTx.repayments[0].adjustment);
+  check('400 owed: 300 allowed (floor of 100)', roundingSettlement(base(), 'Ali', 300)?.diff === -100);
+  check('400 owed: 500 allowed', roundingSettlement(base(), 'Ali', 500)?.diff === 100);
+  check('400 owed: 299 refused', roundingSettlement(base(), 'Ali', 299) === null);
+  check('400 owed: 501 refused', roundingSettlement(base(), 'Ali', 501) === null);
+  check('tolerance: 1,234 -> 100', roundingTolerance(1234) === 100);
+  check('tolerance: 400 -> 100 (floor)', roundingTolerance(400) === 100);
+  check('tolerance: 15,600 -> 1,000', roundingTolerance(15600) === 1000);
+  check('tolerance: 99,999 -> 1,000', roundingTolerance(99999) === 1000);
+  check('tolerance: 100,000 -> 10,000', roundingTolerance(100000) === 10000);
+  check('tolerance: 87 -> 100 (floor)', roundingTolerance(87) === 100);
+  check('tolerance: nothing owed -> 0', roundingTolerance(0) === 0);
+  const big = { ...base(), amount: -3000, expenseShares: [{ id: 's1', name: 'Ali', amount: 1234 }] };
+  check('1,234 owed: 1,200 settles', roundingSettlement(big, 'Ali', 1200)?.diff === -34);
+  check('1,234 owed: 1,300 settles', roundingSettlement(big, 'Ali', 1300)?.diff === 66);
+  check('1,234 owed: 1,100 does not', roundingSettlement(big, 'Ali', 1100) === null);
+  check('roundingSettlement: exact amount is not a rounding', roundingSettlement(base(), 'Ali', 400) === null);
+
+  // Rounding up cannot take more than your own share.
+  const tiny = { ...base(), amount: -405, expenseShares: [{ id: 's1', name: 'Ali', amount: 400 }] }; // your share 5
+  check('rounding up past your share refused', roundingSettlement(tiny, 'Ali', 410) === null);
+  check('rounding up within your share allowed', roundingSettlement(tiny, 'Ali', 405)?.diff === 5);
+
+  // Reversible: deleting restores the share.
+  const rep = down.parentTx.repayments[0];
+  const undone = removeRepayment(down.parentTx, rep.id).parentTx;
+  check('delete: Ali owes 400 again', near(personPending(undone, 'Ali'), 400), `${personPending(undone, 'Ali')}`);
+  check('delete: your share back to 300', near(yourShare(undone), 300));
+
+  // Editing starts from the original share rather than stacking adjustments.
+  const reEdit = editRepayment(down.parentTx, rep.id,
+    { personName: 'Ali', amount: 410, account: 'Cash', date: '2026-08-02', settleInFull: true }, null).parentTx;
+  check('edit to 410: share 410, settled', near(reEdit.expenseShares[0].amount, 410) && near(personPending(reEdit, 'Ali'), 0),
+        JSON.stringify(reEdit.expenseShares[0]));
+  check('edit to 410: adjustment +10', near(reEdit.repayments[0].adjustment, 10));
+  const unSettle = editRepayment(down.parentTx, rep.id,
+    { personName: 'Ali', amount: 390, account: 'Cash', date: '2026-08-02' }, null).parentTx;
+  check('edit without settle: share back to 400, owes 10',
+        near(unSettle.expenseShares[0].amount, 400) && near(personPending(unSettle, 'Ali'), 10));
+  check('edit without settle: adjustment cleared', !unSettle.repayments[0].adjustment);
+
+  // A partial payment first, then the rest rounded.
+  const part = applyRepayment(base(), { personName: 'Ali', amount: 200, date: '2026-08-02' }).parentTx;
+  const rest = applyRepayment(part, { personName: 'Ali', amount: 190, account: 'Bank', date: '2026-08-05', settleInFull: true });
+  check('partial then rounded: rest takes 190 and settles', near(rest.amount, 190) && near(personPending(rest.parentTx, 'Ali'), 0));
+  check('partial then rounded: share 390', near(rest.parentTx.expenseShares[0].amount, 390));
+}
+
+console.log('\n--- Inbox: planning a rounded repayment ---');
+{
+  const tx = base(); // Ali owes 400, your share 300
+
+  const up = planRepayment(tx, 'Ali', 410, null);
+  check('410 for 400: all of it goes to the loan', near(up.toLoan, 410) && near(up.remainder, 0), JSON.stringify(up));
+  check('410 for 400: settles', up.settling && near(up.loanRemaining, 0));
+  // The prefilled field holds the ceiling (400); that still means "the lot".
+  check('prefilled ceiling still offers the rounding', planRepayment(tx, 'Ali', 410, 400).settling);
+  const upOff = planRepayment(tx, 'Ali', 410, null, false);
+  check('switched off: 400 to loan, 10 stays queued', near(upOff.toLoan, 400) && near(upOff.remainder, 10) && !upOff.settling);
+  check('switched off: still says a rounding is available', !!upOff.rounding);
+
+  const down = planRepayment(tx, 'Ali', 390, null);
+  check('390 for 400: settles with 390', down.settling && near(down.toLoan, 390) && near(down.remainder, 0));
+  const downOff = planRepayment(tx, 'Ali', 390, null, false);
+  check('switched off: 10 left owing', near(downOff.loanRemaining, 10));
+
+  const big = planRepayment(tx, 'Ali', 1000, null);
+  check('a large payment is not a rounding', !big.rounding && near(big.toLoan, 400) && near(big.remainder, 600));
+  const typed = planRepayment(tx, 'Ali', 1000, 390);
+  check('390 typed from a large payment settles, rest queued',
+        typed.settling && near(typed.toLoan, 390) && near(typed.remainder, 610), JSON.stringify(typed));
+  const tooMuch = planRepayment(tx, 'Ali', 1000, 600);
+  check('600 typed is over, not a rounding', tooMuch.over && !tooMuch.rounding);
+  const typedUp = planRepayment(tx, 'Ali', 1000, 410);
+  check('410 typed from a large payment rounds up', typedUp.settling && near(typedUp.toLoan, 410) && !typedUp.over);
+  const typedFar = planRepayment(tx, 'Ali', 1000, 520);
+  check('520 typed is past the step, so over', typedFar.over && !typedFar.rounding);
 }
 
 console.log('\n--- Across expenses: by person and by payee ---');

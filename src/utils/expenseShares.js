@@ -200,6 +200,70 @@ function findShareFor(tx, record) {
 export const maxRepayment = (tx, personName, existingRepayment = null) =>
   round2(personPending(tx, personName) + (existingRepayment ? existingRepayment.amount : 0));
 
+// ─── Rounded repayments ────────────────────────────────────────────────────
+//
+// People rarely send the exact figure: 1,234 owed comes back as 1,200 or
+// 1,250. Accepting it "in full" means the amount they sent becomes what they
+// owed — their share moves by the difference, so they show as settled, and
+// your own share absorbs it (a little more if they rounded down, a little less
+// if they rounded up). The parent's amount is untouched: you paid what you
+// paid.
+//
+// The difference is stored on the repayment as `adjustment`, which is what
+// makes it reversible: deleting the repayment takes it back off the share,
+// and editing one starts again from the share as it was before.
+
+// How far from what is owed a payment may be and still settle it: one step of
+// the amount's second digit from the left, which is how people round, but
+// never less than ROUNDING_MINIMUM. 15,600 allows 1,000 either way; 1,234 and
+// 400 both allow 100 (the floor); 87 allows 100 too, so any payment at all
+// can settle a debt that small — the toggle still says so and can be turned
+// off.
+//
+// The floor is a plain number, picked for rupees. It is not converted, so in
+// a currency with much larger units it is generous accordingly.
+export const ROUNDING_MINIMUM = 100;
+
+export function roundingTolerance(owed) {
+  const value = Math.abs(Number(owed) || 0);
+  if (!(value > 0)) return 0;
+  return Math.max(ROUNDING_MINIMUM, 10 ** (Math.floor(Math.log10(value)) - 1));
+}
+
+const yourShare = (tx) =>
+  round2(Math.abs(tx.amount || 0) - (tx.expenseShares || []).reduce((a, s) => a + (s.amount || 0), 0));
+
+// The expense as it would be without this repayment's adjustment.
+export function withoutAdjustment(tx, record) {
+  if (!record?.adjustment) return tx;
+  return {
+    ...tx,
+    expenseShares: (tx.expenseShares || []).map(s =>
+      (s.name === record.personName ? { ...s, amount: round2(s.amount - record.adjustment) } : s)),
+    repayments: (tx.repayments || []).map(r => (r.id === record.id ? { ...r, adjustment: 0 } : r))
+  };
+}
+
+const adjustShare = (shares, personName, delta) =>
+  (delta ? (shares || []).map(s => (s.name === personName ? { ...s, amount: round2(s.amount + delta) } : s)) : shares);
+
+/**
+ * Whether `amount` from `personName` can be accepted as settling what they
+ * owe, and by how much their share would move. Null when it is not a
+ * rounding: exact, too far off, or more than your own share could absorb.
+ * `existingRepayment` is the record being edited, if any (same person only).
+ */
+export function roundingSettlement(tx, personName, amount, existingRepayment = null) {
+  const owed = maxRepayment(tx, personName, existingRepayment);
+  const paid = round2(Number(amount) || 0);
+  const diff = round2(paid - owed);
+  if (!(owed > 0) || !(paid > 0) || Math.abs(diff) < 0.005) return null;
+  if (Math.abs(diff) > roundingTolerance(owed) + 0.005) return null;
+  // Rounding up takes the extra out of your share, which cannot go below zero.
+  if (diff > 0 && diff > yourShare(tx) + 0.005) return null;
+  return { owed, paid, diff };
+}
+
 // What the repayment's own transaction says it is. A caller with something to
 // add — the inbox, which knows the message the payment was detected from —
 // passes it as `note` and gets both, rather than replacing the only line that
@@ -209,14 +273,18 @@ const repaymentNote = (tx, extra) => {
   return extra ? `${base} • ${extra}` : base;
 };
 
-export function applyRepayment(tx, { personName, amount, account, date, currency, note }) {
+export function applyRepayment(tx, { personName, amount, account, date, currency, note, settleInFull = false }) {
   const share = (tx.expenseShares || []).find(s => s.name === personName);
   if (!share) return null;
+
+  // Accepting a rounded figure moves their share to meet it; anything not
+  // within the rounding tolerance is an ordinary (capped) repayment.
+  const adjustment = settleInFull ? (roundingSettlement(tx, personName, amount)?.diff || 0) : 0;
 
   // A repayment larger than the debt used to be accepted silently: the person
   // showed as settled, the surplus vanished from the share, and the linked
   // income transaction still booked the full amount.
-  const capped = round2(Math.min(amount, sharePending(tx, share)));
+  const capped = round2(Math.min(amount, sharePending(tx, share) + adjustment));
   if (!(capped > 0)) return null;
 
   const day = (date || '').substring(0, 10);
@@ -237,7 +305,12 @@ export function applyRepayment(tx, { personName, amount, account, date, currency
     const existing = tx.repayments[existingIndex];
     const mergedAmount = round2(existing.amount + capped);
     updatedRepayments = [...tx.repayments];
-    updatedRepayments[existingIndex] = { ...existing, amount: mergedAmount };
+    const mergedAdjustment = round2((existing.adjustment || 0) + adjustment);
+    updatedRepayments[existingIndex] = {
+      ...existing,
+      amount: mergedAmount,
+      ...(mergedAdjustment ? { adjustment: mergedAdjustment } : {})
+    };
     childTx = { mergeInto: existing.linkedTxId, amount: mergedAmount };
   } else {
     const linkedTxId = generateId();
@@ -247,7 +320,8 @@ export function applyRepayment(tx, { personName, amount, account, date, currency
       amount: capped,
       date: day,
       account: accountToUse,
-      linkedTxId
+      linkedTxId,
+      ...(adjustment ? { adjustment } : {})
     }];
     childTx = {
       create: touch({
@@ -269,31 +343,39 @@ export function applyRepayment(tx, { personName, amount, account, date, currency
   const parentTx = touch({
     ...tx,
     repayments: updatedRepayments,
-    expenseShares: recomputeShares(tx.expenseShares, updatedRepayments)
+    expenseShares: recomputeShares(adjustShare(tx.expenseShares, personName, adjustment), updatedRepayments)
   });
 
-  return { parentTx, childTx, amount: capped };
+  return { parentTx, childTx, amount: capped, adjustment };
 }
 
-export function editRepayment(tx, repaymentId, { personName, amount, account, date, currency }, linkedTx) {
+export function editRepayment(tx, repaymentId, { personName, amount, account, date, currency, settleInFull = false }, linkedTx) {
   const existing = (tx.repayments || []).find(r => r.id === repaymentId);
   if (!existing) return null;
 
-  const ceiling = maxRepayment(tx, personName, existing.personName === personName ? existing : null);
+  // Start from the share as it was before this repayment moved it, so an edit
+  // never stacks a second adjustment on the first.
+  const base = withoutAdjustment(tx, existing);
+  const samePerson = existing.personName === personName ? existing : null;
+  const adjustment = settleInFull
+    ? (roundingSettlement(base, personName, amount, samePerson)?.diff || 0)
+    : 0;
+
+  const ceiling = round2(maxRepayment(base, personName, samePerson) + adjustment);
   const capped = round2(Math.max(0, Math.min(amount, ceiling)));
   if (!(capped > 0)) return null;
 
   const day = (date || existing.date || '').substring(0, 10);
-  const updatedRepayments = (tx.repayments || []).map(r =>
-    r.id === repaymentId
-      ? { ...r, personName, amount: capped, account, date: day }
-      : r
-  );
+  const updatedRepayments = (base.repayments || []).map(r => {
+    if (r.id !== repaymentId) return r;
+    const { adjustment: _old, ...rest } = r;
+    return { ...rest, personName, amount: capped, account, date: day, ...(adjustment ? { adjustment } : {}) };
+  });
 
   const parentTx = touch({
     ...tx,
     repayments: updatedRepayments,
-    expenseShares: recomputeShares(tx.expenseShares, updatedRepayments)
+    expenseShares: recomputeShares(adjustShare(base.expenseShares, personName, adjustment), updatedRepayments)
   });
 
   const childTx = linkedTx
@@ -316,10 +398,12 @@ export function removeRepayment(tx, repaymentId) {
 
   const updatedRepayments = (tx.repayments || []).filter(r => r.id !== repaymentId);
 
+  // A rounded repayment moved the share to meet it; taking it away moves the
+  // share back, so they owe what they owed before.
   const parentTx = touch({
     ...tx,
     repayments: updatedRepayments,
-    expenseShares: recomputeShares(tx.expenseShares, updatedRepayments)
+    expenseShares: recomputeShares(withoutAdjustment(tx, record).expenseShares, updatedRepayments)
   });
 
   return { parentTx, deleteIds: record.linkedTxId ? [record.linkedTxId] : [] };
@@ -390,6 +474,50 @@ export function splitPayment(detected, pending, applied) {
 
   const toLoan = round2(Math.max(0, Math.min(wanted, ceiling)));
   return { ceiling, toLoan, remainder: round2(total - toLoan) };
+}
+
+// The same division, aware of rounding. A payment a little off what is owed —
+// 390 or 410 against 400 — can settle the loan in full (see
+// roundingSettlement), in which case all of it goes to the loan and nothing is
+// left in the queue. `settle` is the user's choice; `rounding` says whether
+// the choice applies at all, so the screen knows whether to offer it.
+//
+// Which figure is the near miss: if the loan is being given everything it can
+// take, the whole payment (410 arriving for 400 owed); if the user typed less,
+// what they typed (390 of a larger payment); if they typed more, that.
+export function planRepayment(tx, personName, detected, applied, settle = true) {
+  const pending = tx ? personPending(tx, personName) : 0;
+  const total = round2(Math.max(0, Number(detected) || 0));
+  const split = splitPayment(total, pending, applied);
+  const given = applied !== null && applied !== undefined && Number.isFinite(Number(applied));
+  const wanted = given ? round2(Number(applied)) : split.ceiling;
+
+  const candidate = wanted > split.ceiling + 0.005
+    ? Math.min(wanted, total)
+    : wanted >= split.ceiling - 0.005 ? total : wanted;
+  const rounding = tx && candidate > 0 && candidate <= total + 0.005
+    ? roundingSettlement(tx, personName, candidate)
+    : null;
+
+  if (rounding && settle) {
+    return {
+      ceiling: split.ceiling,
+      toLoan: rounding.paid,
+      remainder: round2(total - rounding.paid),
+      loanRemaining: 0,
+      rounding,
+      settling: true,
+      over: false
+    };
+  }
+
+  return {
+    ...split,
+    loanRemaining: round2(Math.max(0, pending - split.toLoan)),
+    rounding,
+    settling: false,
+    over: given && wanted > split.ceiling + 0.005
+  };
 }
 
 // ─── Turning a mutation into a save batch ──────────────────────────────────

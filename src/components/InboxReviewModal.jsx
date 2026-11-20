@@ -14,7 +14,7 @@ import { useData } from '../context/DataContext';
 import { dayToStoredDate, dayStringOf } from '../utils/date';
 import { useAutomationSettings } from '../context/SettingsContext';
 import { deleteDraft, reduceDraftAmount } from '../store/inbox';
-import { openLoans, applyRepayment, splitPayment, toBatch } from '../utils/expenseShares';
+import { openLoans, applyRepayment, splitPayment, planRepayment, toBatch } from '../utils/expenseShares';
 import {
   draftToSuggestion,
   learnFromApproval,
@@ -96,7 +96,10 @@ const FIELD_DEFAULTS = {
   loanId: '',
   // How much of the payment goes to the loan. Empty means "as much as it can
   // take" — resolved against the loan, which the default cannot know.
-  repayAmount: ''
+  repayAmount: '',
+  // Accept a payment a little off what is owed as settling it in full. Only
+  // offered when it applies (planRepayment); on unless switched off.
+  settleRounding: true
 };
 
 /**
@@ -376,8 +379,10 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
     // Split against the loan as it is now, not as the picker drew it. An
     // amount that was within the ceiling a minute ago may not be.
     const entered = valueFor(item, 'repayAmount');
-    const { toLoan, remainder } = splitPayment(
-      detected, loan.pending, entered === '' ? null : evalMath(entered));
+    const { toLoan, remainder, settling } = planRepayment(
+      parent, loan.personName, detected,
+      entered === '' ? null : evalMath(entered),
+      valueFor(item, 'settleRounding') !== false);
 
     if (!(toLoan > 0)) {
       alert('Enter how much of this payment goes to the loan.');
@@ -390,6 +395,7 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
         applyRepayment(parent, {
           personName: loan.personName,
           amount: toLoan,
+          settleInFull: settling,
           account,
           date: valueFor(item, 'date'),
           currency: accounts.find(a => a.name === account)?.currency,
@@ -926,16 +932,19 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                 const detected = Math.abs(evalResult || 0);
                 const enteredRepay = valueFor(item, 'repayAmount');
                 const wantsToLoan = enteredRepay === '' ? null : evalMath(enteredRepay);
-                const { ceiling: repayCeiling, toLoan, remainder } =
-                  splitPayment(detected, loan?.pending, wantsToLoan);
-
-                // Typing more than the loan can take is capped by splitPayment,
-                // but silently capping would move money the user did not agree
-                // to move. It is said out loud instead.
-                const overRepaying = wantsToLoan !== null
-                  && Number.isFinite(wantsToLoan)
-                  && wantsToLoan > repayCeiling + 0.005;
-                const loanRemaining = loan ? Math.max(0, loan.pending - toLoan) : 0;
+                // planRepayment is splitPayment plus rounding: a payment a
+                // little off what is owed can settle it in full, and the
+                // handler below plans it the same way when it saves.
+                const loanParent = loan ? transactions.find(t => t.id === loan.txId) : null;
+                const settleRounding = valueFor(item, 'settleRounding') !== false;
+                const {
+                  ceiling: repayCeiling, toLoan, remainder, loanRemaining,
+                  rounding: repayRounding, settling,
+                  // Typing more than the loan can take is capped, but silently
+                  // capping would move money the user did not agree to move.
+                  // It is said out loud instead.
+                  over: overRepaying
+                } = planRepayment(loanParent, loan?.personName, detected, wantsToLoan, settleRounding);
 
                 // A shared expense's currency is its account's, as it is
                 // everywhere else the two disagree.
@@ -1654,6 +1663,40 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                                             />
                                           </div>
                                         </div>
+
+                                        {/* People round: 390 or 410 for 400.
+                                            Settling in full moves their share
+                                            to what they sent. */}
+                                        {repayRounding && (() => {
+                                          const sym = loanSymbol(loan);
+                                          const gap = `${sym}${formatCurrency(Math.abs(repayRounding.diff))}`;
+                                          const down = repayRounding.diff < 0;
+                                          return (
+                                            <button
+                                              type="button"
+                                              role="switch"
+                                              aria-checked={settleRounding}
+                                              className={`settle-toggle ${settleRounding ? 'on' : ''}`}
+                                              onClick={() => setField(item.id, 'settleRounding', !settleRounding)}
+                                            >
+                                              <span className="settle-toggle-check">{settleRounding && <Check size={13} />}</span>
+                                              <span className="settle-toggle-text">
+                                                <span className="settle-toggle-title">
+                                                  Settle in full ({down ? 'rounded down' : 'rounded up'} by {gap})
+                                                </span>
+                                                <span className="settle-toggle-detail">
+                                                  {settleRounding
+                                                    ? <>{loan.personName}'s share becomes {sym}{formatCurrency(repayRounding.paid)}. {down
+                                                        ? <>You cover the {gap}.</>
+                                                        : <>Your share goes down by {gap}.</>}</>
+                                                    : down
+                                                      ? <>{gap} stays outstanding.</>
+                                                      : <>Only {sym}{formatCurrency(repayCeiling)} goes to the loan; {gap} stays in the queue.</>}
+                                                </span>
+                                              </span>
+                                            </button>
+                                          );
+                                        })()}
                                       </>
                                     ) : (
                                       <div className="ib-warning">
@@ -1783,7 +1826,9 @@ export default function InboxReviewModal({ isOpen, onClose, drafts, onRefresh })
                                   </span>
                                 )}
                                 {loanRemaining < 0.005
-                                  ? <span style={{ color: '#10b981', fontWeight: 600 }}>Settles {loan.personName} in full ✓</span>
+                                  ? <span style={{ color: '#10b981', fontWeight: 600 }}>
+                                      Settles {loan.personName} in full{settling ? ' (rounded)' : ''} ✓
+                                    </span>
                                   : (
                                     <span style={{ color: '#f59e0b', fontWeight: 600 }}>
                                       {loan.personName} will still owe {loanSymbol(loan)}{formatCurrency(loanRemaining)}

@@ -11,7 +11,7 @@ import {
   sharePending, personPending, personRepaid, personWrittenOff, totalPending,
   applyWriteOff, editWriteOff, removeWriteOff,
   applyRepayment, editRepayment, removeRepayment,
-  maxWriteOff, maxRepayment, toBatch,
+  maxWriteOff, maxRepayment, toBatch, roundingSettlement, withoutAdjustment,
   searchShared, personSummary, payeeSummary
 } from '../utils/expenseShares';
 import { format, parseISO } from 'date-fns';
@@ -46,7 +46,10 @@ const withCurrentValue = (items, current) => {
   return options;
 };
 
-const EMPTY_FORM = { person: '', amount: '', account: '', date: '', category: '', payee: '' };
+// `settle`: accept a slightly-off repayment as settling the debt in full (see
+// roundingSettlement). On by default for a new repayment, since a rounded
+// figure is nearly always meant that way; the drawer says what it will do.
+const EMPTY_FORM = { person: '', amount: '', account: '', date: '', category: '', payee: '', settle: true };
 
 // A per-currency total as one line: "₨1,200.00" or "₨1,200.00 + $30.00".
 // Currencies are never added together — see the note in expenseShares.js.
@@ -251,7 +254,10 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       person: rep.personName,
       amount: formatAmountInput(String(rep.amount)),
       account: rep.account || tx.account || accounts[0]?.name || '',
-      date: (rep.date || today()).substring(0, 10)
+      date: (rep.date || today()).substring(0, 10),
+      // An existing partial payment must not turn into a settlement just
+      // because the edit drawer was opened; only one that already was stays so.
+      settle: !!rep.adjustment
     });
   };
 
@@ -299,7 +305,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
         amount,
         account: form.account,
         date: form.date,
-        currency: accounts.find(a => a.name === form.account)?.currency
+        currency: accounts.find(a => a.name === form.account)?.currency,
+        settleInFull: form.settle
       }));
     } else if (drawer.kind === 'repay-edit') {
       const rep = (tx.repayments || []).find(r => r.id === drawer.recordId);
@@ -308,7 +315,8 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
         amount,
         account: form.account,
         date: form.date,
-        currency: accounts.find(a => a.name === form.account)?.currency
+        currency: accounts.find(a => a.name === form.account)?.currency,
+        settleInFull: form.settle
       }, linkedTxFor(rep)));
     } else if (drawer.kind === 'writeoff') {
       await commit(applyWriteOff(tx, drawer.shareId, {
@@ -343,14 +351,21 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
 
     let ceiling;
     let subject;
+    let rounding = null;
     if (isRepay) {
       const record = drawer.kind === 'repay-edit'
         ? (tx.repayments || []).find(r => r.id === drawer.recordId)
         : null;
+      // An edited repayment is measured against the share as it was before
+      // that repayment rounded it, exactly as editRepayment will.
+      const base = record ? withoutAdjustment(tx, record) : tx;
       // Only this record's own amount frees up headroom, and only while it is
       // still assigned to the same person.
       const existing = record && record.personName === form.person ? record : null;
-      ceiling = form.person ? maxRepayment(tx, form.person, existing) : 0;
+      ceiling = form.person ? maxRepayment(base, form.person, existing) : 0;
+      rounding = form.person && amount !== null
+        ? roundingSettlement(base, form.person, amount, existing)
+        : null;
       subject = form.person;
     } else {
       const existing = drawer.kind === 'writeoff-edit'
@@ -365,8 +380,10 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
     let error = null;
     if (isRepay && !form.person) error = 'Choose who paid you back.';
     else if (amount === null || amount <= 0) error = 'Enter an amount greater than zero.';
-    else if (amount > ceiling + 0.005) {
-      error = isRepay
+    else if (amount > ceiling + 0.005 && !(rounding && form.settle)) {
+      error = isRepay && rounding
+        ? `That is more than ${subject} owes (${currencyFor(tx)}${formatCurrency(ceiling)}). Turn on "Settle in full" to accept it.`
+        : isRepay
         ? `That is more than ${subject} still owes (${currencyFor(tx)}${formatCurrency(ceiling)}).`
         : `Only ${currencyFor(tx)}${formatCurrency(ceiling)} is outstanding for ${subject}.`;
     }
@@ -385,7 +402,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
       'writeoff-edit': 'Save changes'
     };
 
-    return { isRepay, ceiling, error, title: titles[drawer.kind], confirmLabel: confirmLabels[drawer.kind] };
+    return { isRepay, ceiling, rounding, error, title: titles[drawer.kind], confirmLabel: confirmLabels[drawer.kind] };
   };
 
   const config = drawerConfig(selectedTx);
@@ -886,6 +903,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                                   <span className="es-record-name">{rep.personName}</span>
                                   <span className="es-record-meta">
                                     {formatDateShort(rep.date)}{rep.account ? ` • ${rep.account}` : ''}
+                                    {rep.adjustment ? ` • settled, rounded ${rep.adjustment < 0 ? 'down' : 'up'} ${currency}${formatCurrency(Math.abs(rep.adjustment))}` : ''}
                                   </span>
                                 </div>
                                 <span className="es-record-amount positive">
@@ -1002,7 +1020,7 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                       Amount
                       {config.ceiling > 0 && (
                         <span className="es-input-hint">
-                          max {currencyFor(selectedTx)}{formatCurrency(config.ceiling)}
+                          {config.isRepay ? 'owes' : 'max'} {currencyFor(selectedTx)}{formatCurrency(config.ceiling)}
                         </span>
                       )}
                     </label>
@@ -1017,6 +1035,40 @@ export default function ExpenseSharingModal({ isOpen, onClose }) {
                       />
                     </div>
                   </div>
+
+                  {/* Only offered when the figure is a near miss — within
+                      roundingTolerance of what is owed (a step of its second digit). Anything further off
+                      is an ordinary partial payment, or too much. */}
+                  {config.isRepay && config.rounding && (() => {
+                    const { diff, paid } = config.rounding;
+                    const c = currencyFor(selectedTx);
+                    const gap = `${c}${formatCurrency(Math.abs(diff))}`;
+                    return (
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={form.settle}
+                        className={`settle-toggle ${form.settle ? 'on' : ''}`}
+                        onClick={() => setField('settle', !form.settle)}
+                      >
+                        <span className="settle-toggle-check">{form.settle && <Check size={13} />}</span>
+                        <span className="settle-toggle-text">
+                          <span className="settle-toggle-title">
+                            Settle in full ({diff < 0 ? 'rounded down' : 'rounded up'} by {gap})
+                          </span>
+                          <span className="settle-toggle-detail">
+                            {form.settle
+                              ? <>{form.person}'s share becomes {c}{formatCurrency(round2(paid))} and they're marked settled. {diff < 0
+                                  ? <>You cover the {gap}.</>
+                                  : <>Your share goes down by {gap}.</>}</>
+                              : diff < 0
+                                ? <>Recorded as a partial payment; {gap} stays outstanding.</>
+                                : <>Without this, only what is owed can be recorded.</>}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })()}
 
                   {!config.isRepay && (
                     <>

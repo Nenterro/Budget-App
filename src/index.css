@@ -756,3 +756,63 @@ body {
 .icon-btn.active-filter svg {
   filter: drop-shadow(0 0 4px var(--accent-color));
 }
+
+/* ── Settle-in-full toggle ───────────────────────────────────────────────
+   Offered when a repayment is a near miss of what is owed (390 or 410 for
+   400). Used by both the shared-expenses drawer and the inbox's repayment
+   tool, so it lives here rather than in either component's stylesheet. */
+.settle-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.settle-toggle.on {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.settle-toggle-check {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+}
+
+.settle-toggle.on .settle-toggle-check {
+  background: #10b981;
+  border-color: #10b981;
+}
+
+.settle-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settle-toggle-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settle-toggle-detail {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
