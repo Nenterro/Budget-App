@@ -1,257 +1,122 @@
 // The Claude page: chat with Claude about the budget, hand it receipts and
 // statements, and approve the changes it prepares.
 //
-// Claude itself runs on the home server (budget-agent), not here. This page
-// sends messages, follows the conversation as a stream of events, and answers
-// approval cards. Nothing Claude stages is written to the budget until the
-// Approve button on its card is pressed; the server waits for that answer.
+// Claude runs on the home server (budget-agent); this page sends messages,
+// follows the conversation as a stream of events, and answers approval cards.
+// Nothing Claude stages is written until Approve is pressed on its card: the
+// server waits for that answer.
+//
+// The page scrolls with .main-content like every other page (an inner scroll
+// area would turn every downward swipe into the app's pull-to-refresh), with
+// the header and the composer sticky.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Sparkles, Send, Paperclip, Square, X, Check, Loader2, AlertTriangle, MessageSquarePlus,
-  History, Trash2, FileText, Image as ImageIcon, ShieldCheck,
+  Sparkles, SquarePen, PanelLeft, Trash2, AlertTriangle, ArrowDown, Paperclip, Receipt, PieChart, Inbox, Scale, X,
 } from 'lucide-react';
 import {
   canUseClaude, listConversations, getConversation, deleteConversation, sendMessage, stopConversation,
-  answerApproval, uploadFile, fetchImage, streamConversation,
+  answerApproval, streamConversation,
 } from '../utils/claudeApi';
+import Markdown from '../components/claude/Markdown';
+import ReviewCard from '../components/claude/ReviewCard';
+import StepGroup from '../components/claude/StepGroup';
+import Composer from '../components/claude/Composer';
 import './ClaudeChat.css';
 
 const SUGGESTIONS = [
-  'How much have I spent this month, and on what?',
-  'Review my detected transactions',
-  'Here is a receipt, add it',
-  'Reconcile my Askari statement',
+  { icon: PieChart, title: 'Where did my money go?', text: 'How much have I spent this month, and on what?' },
+  { icon: Inbox, title: 'Detected transactions', text: 'Go through my detected transactions and suggest how to file them' },
+  { icon: Receipt, title: 'Add a receipt', text: 'I am attaching a receipt, add it to the right account' },
+  { icon: Scale, title: 'Reconcile a statement', text: 'Reconcile my Askari account against the statement I am attaching' },
 ];
 
-// ─── a small, safe Markdown renderer (React elements, never HTML) ─────────
+const fade = { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] } };
 
-function inline(text, keyBase) {
-  const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)/g;
-  let last = 0;
-  let m;
-  let i = 0;
-  while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    const tok = m[0];
-    const k = `${keyBase}-${i++}`;
-    if (tok.startsWith('**')) out.push(<strong key={k}>{tok.slice(2, -2)}</strong>);
-    else if (tok.startsWith('`')) out.push(<code key={k}>{tok.slice(1, -1)}</code>);
-    else out.push(<em key={k}>{tok.slice(1, -1)}</em>);
-    last = m.index + tok.length;
+function ago(iso) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+/** Events -> turns: a user message, then everything Claude did in reply. */
+function buildTurns(events) {
+  const turns = [];
+  let cur = null;
+  for (const ev of events) {
+    if (ev.t === 'user') { cur = { key: ev.seq, user: ev, items: [] }; turns.push(cur); continue; }
+    if (!cur) { cur = { key: `t${ev.seq}`, user: null, items: [] }; turns.push(cur); }
+    const last = cur.items[cur.items.length - 1];
+    if (ev.t === 'tool' || ev.t === 'image') {
+      if (last?.kind === 'steps') last.items.push(ev);
+      else cur.items.push({ kind: 'steps', key: ev.seq, items: [ev] });
+    } else if (ev.t === 'assistant') cur.items.push({ kind: 'text', key: ev.seq, ev });
+    else if (ev.t === 'approval') cur.items.push({ kind: 'approval', key: ev.seq, ev });
+    else if (ev.t === 'error') cur.items.push({ kind: 'error', key: ev.seq, ev });
   }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
+  return turns;
 }
 
-function Markdown({ text }) {
-  const lines = text.replace(/\r/g, '').split('\n');
-  const blocks = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.trim().startsWith('```')) {
-      const body = [];
-      i += 1;
-      while (i < lines.length && !lines[i].trim().startsWith('```')) body.push(lines[i++]);
-      i += 1;
-      blocks.push(<pre key={blocks.length}><code>{body.join('\n')}</code></pre>);
-      continue;
-    }
-    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
-      const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
-      const head = cells(line);
-      const align = cells(lines[i + 1]).map((c) => (c.endsWith(':') ? 'right' : 'left'));
-      const rows = [];
-      i += 2;
-      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(cells(lines[i++]));
-      blocks.push(
-        <div className="cc-table-wrap" key={blocks.length}>
-          <table>
-            <thead><tr>{head.map((h, j) => <th key={j} style={{ textAlign: align[j] }}>{inline(h, `h${j}`)}</th>)}</tr></thead>
-            <tbody>{rows.map((r, ri) => (
-              <tr key={ri}>{r.map((c, j) => <td key={j} style={{ textAlign: align[j] }}>{inline(c, `c${ri}${j}`)}</td>)}</tr>
-            ))}</tbody>
-          </table>
-        </div>
-      );
-      continue;
-    }
-    const heading = line.match(/^(#{1,4})\s+(.*)$/);
-    if (heading) {
-      blocks.push(<p className="cc-heading" key={blocks.length}>{inline(heading[2], `hd${i}`)}</p>);
-      i += 1;
-      continue;
-    }
-    if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
-      const ordered = /^\s*\d+\./.test(line);
-      const items = [];
-      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*([-*]|\d+\.)\s+/, ''));
-        i += 1;
-      }
-      const Tag = ordered ? 'ol' : 'ul';
-      blocks.push(<Tag key={blocks.length}>{items.map((it, j) => <li key={j}>{inline(it, `li${i}${j}`)}</li>)}</Tag>);
-      continue;
-    }
-    if (!line.trim()) { i += 1; continue; }
-    const para = [];
-    while (i < lines.length && lines[i].trim() && !/^\s*([-*]|\d+\.)\s+|^#{1,4}\s|^\s*\||^\s*```/.test(lines[i])) {
-      para.push(lines[i++]);
-    }
-    if (!para.length) { para.push(lines[i++]); }
-    blocks.push(<p key={blocks.length}>{inline(para.join('\n'), `p${i}`)}</p>);
-  }
-  return <div className="cc-md">{blocks}</div>;
-}
-
-// ─── event views ─────────────────────────────────────────────────────────
-
-function ToolRow({ ev }) {
+function ConversationList({ items, activeId, onOpen, onDelete, onNew }) {
   return (
-    <div className={`cc-tool cc-tool-${ev.status}`}>
-      {ev.status === 'running' ? <Loader2 size={14} className="cc-spin" />
-        : ev.status === 'error' ? <X size={14} /> : <Check size={14} />}
-      <span>{ev.label}</span>
-    </div>
-  );
-}
-
-function ToolImage({ file }) {
-  const [src, setSrc] = useState(null);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const ctl = new AbortController();
-    let url;
-    fetchImage(file, ctl.signal).then((u) => { url = u; setSrc(u); }).catch(() => {});
-    return () => { ctl.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [file]);
-  if (!src) return <div className="cc-image cc-image-loading"><ImageIcon size={18} /></div>;
-  return (
-    <>
-      <button className="cc-image" onClick={() => setOpen(true)} title="What Claude looked at">
-        <img src={src} alt="What Claude looked at" />
-      </button>
-      {open && (
-        <div className="cc-lightbox" onClick={() => setOpen(false)}>
-          <img src={src} alt="What Claude looked at" />
-        </div>
-      )}
-    </>
-  );
-}
-
-const OP_LABEL = { create: 'Add', update: 'Change', delete: 'Remove' };
-
-function ApprovalCard({ ev, onAnswer }) {
-  const [busy, setBusy] = useState(false);
-  const pending = ev.status === 'pending';
-  const answer = async (approve) => {
-    setBusy(true);
-    try { await onAnswer(ev.id, approve); } finally { setBusy(false); }
-  };
-  return (
-    <div className={`cc-approval cc-approval-${ev.status}`}>
-      <div className="cc-approval-head">
-        <ShieldCheck size={18} />
-        <span>{ev.kind === 'apply' ? 'Approve these changes?' : 'Allow this step?'}</span>
-      </div>
-
-      {ev.kind === 'apply' && ev.staged?.groups && (
-        <div className="cc-approval-body">
-          {ev.staged.groups.map((g) => (
-            <div className="cc-group" key={g.id}>
-              {g.changes.length > 1 && <div className="cc-group-title">{g.title}</div>}
-              {g.changes.map((c) => (
-                <div className="cc-change" key={c.n}>
-                  <div className="cc-change-line">
-                    <span className={`cc-op cc-op-${c.op}`}>{OP_LABEL[c.op] || c.op}</span>
-                    <span className="cc-change-summary">{c.summary}</span>
-                  </div>
-                  {c.was && <div className="cc-diff">was: {c.was}</div>}
-                  {c.diff.map((d, j) => <div className="cc-diff" key={j}>{d}</div>)}
-                  {c.warnings.map((w, j) => <div className="cc-warn" key={j}><AlertTriangle size={12} /> {w}</div>)}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-      {ev.kind === 'apply' && ev.staged?.error && <div className="cc-warn">Could not load the changes: {ev.staged.error}</div>}
-      {ev.kind === 'tool' && (
-        <div className="cc-approval-body">
-          <div className="cc-change-summary">{ev.tool}</div>
-          <pre className="cc-tool-input">{JSON.stringify(ev.input, null, 1).slice(0, 1200)}</pre>
-        </div>
-      )}
-
-      {pending ? (
-        <div className="cc-approval-actions">
-          <button className="btn-secondary" disabled={busy} onClick={() => answer(false)}>Deny</button>
-          <button className="btn-primary" disabled={busy} onClick={() => answer(true)}>
-            {busy ? <Loader2 size={16} className="cc-spin" /> : <Check size={16} />} Approve
+    <div className="cc-list">
+      <button className="cc-new" onClick={onNew}><SquarePen size={16} /> New chat</button>
+      <div className="cc-list-label">Recent</div>
+      {items.length === 0 && <div className="cc-list-empty">Nothing yet.</div>}
+      {items.map((c) => (
+        <div key={c.id} className={`cc-list-item ${c.id === activeId ? 'active' : ''}`}>
+          <button className="cc-list-open" onClick={() => onOpen(c.id)}>
+            <span className="cc-list-title">{c.title}</span>
+            <span className="cc-list-time">{c.running && <span className="cc-live-dot" />}{c.running ? 'working' : ago(c.updatedAt)}</span>
           </button>
+          <button className="cc-list-del" title="Delete" disabled={c.running} onClick={() => onDelete(c.id)}><Trash2 size={14} /></button>
         </div>
-      ) : (
-        <div className={`cc-approval-status cc-status-${ev.status}`}>
-          {ev.status === 'approved' ? 'Approved' : 'Denied'}
-        </div>
-      )}
+      ))}
     </div>
   );
 }
-
-function Event({ ev, onAnswer }) {
-  switch (ev.t) {
-    case 'user':
-      return (
-        <div className="cc-user">
-          {ev.files?.length > 0 && (
-            <div className="cc-files">{ev.files.map((f) => (
-              <span className="cc-file-chip" key={f.name}><FileText size={12} /> {f.name.replace(/^\d{8}-\d{6}-[a-f0-9]{6}-/, '')}</span>
-            ))}</div>
-          )}
-          {ev.text && <div className="cc-user-text">{ev.text}</div>}
-        </div>
-      );
-    case 'assistant': return <div className="cc-assistant"><Markdown text={ev.text} /></div>;
-    case 'tool': return <ToolRow ev={ev} />;
-    case 'image': return <ToolImage file={ev.file} />;
-    case 'approval': return <ApprovalCard ev={ev} onAnswer={onAnswer} />;
-    case 'error': return <div className="cc-error"><AlertTriangle size={14} /> {ev.message}</div>;
-    default: return null;
-  }
-}
-
-// ─── the page ────────────────────────────────────────────────────────────
 
 export default function ClaudeChat() {
   const [params, setParams] = useSearchParams();
   const conversationId = params.get('c');
   const [events, setEvents] = useState([]);
+  const [liveText, setLiveText] = useState('');
   const [running, setRunning] = useState(false);
-  const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState([]);
   const [error, setError] = useState(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
+  const [dragging, setDragging] = useState(false);
   const streamRef = useRef(null);
   const lastSeq = useRef(-1);
-  const bottomRef = useRef(null);
-  const fileInput = useRef(null);
+  const composer = useRef(null);
+  const endRef = useRef(null);
+
+  const scroller = () => document.querySelector('.main-content');
+  const scrollToEnd = (smooth = true) => endRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+
+  const refreshList = useCallback(() => {
+    listConversations().then((r) => setConversations(r.conversations)).catch(() => {});
+  }, []);
+  useEffect(() => { if (canUseClaude()) refreshList(); }, [refreshList]);
 
   const applyEvent = useCallback((ev) => {
-    if (ev.t === 'idle') { setRunning(false); return; }
+    if (ev.t === 'delta') { setLiveText(ev.text); return; }
+    if (ev.t === 'idle') { setRunning(false); setLiveText(''); refreshList(); return; }
     if (ev.t === 'patch') {
       setEvents((prev) => prev.map((e) => (e.seq === ev.target ? { ...e, ...ev.patch } : e)));
       return;
     }
     if (typeof ev.seq !== 'number') return;
+    if (ev.t === 'assistant' || ev.t === 'tool') setLiveText('');
     lastSeq.current = Math.max(lastSeq.current, ev.seq);
     setEvents((prev) => (prev.some((e) => e.seq === ev.seq) ? prev : [...prev, ev]));
-  }, []);
+  }, [refreshList]);
 
   const follow = useCallback(async (id) => {
     streamRef.current?.abort();
@@ -267,11 +132,12 @@ export default function ClaudeChat() {
     }
   }, [applyEvent]);
 
-  // Load a conversation when the URL names one; pick up a turn still running.
+  // Open the conversation the URL names; pick up a turn that is still running.
   useEffect(() => {
     streamRef.current?.abort();
     lastSeq.current = -1;
     setEvents([]);
+    setLiveText('');
     setRunning(false);
     setError(null);
     if (!conversationId) return undefined;
@@ -281,18 +147,20 @@ export default function ClaudeChat() {
         if (cancelled) return;
         c.events.forEach((ev) => { lastSeq.current = Math.max(lastSeq.current, ev.seq); });
         setEvents(c.events);
+        requestAnimationFrame(() => scrollToEnd(false));
         if (c.running) follow(conversationId);
       })
       .catch((e) => !cancelled && setError(e.status === 404 ? 'That conversation no longer exists.' : e.message));
     return () => { cancelled = true; streamRef.current?.abort(); };
   }, [conversationId, follow]);
 
-  // A phone suspends the page; when it comes back, catch up on what happened.
+  // A phone suspends the page; catch up when it comes back.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible' || !conversationId || streamRef.current) return;
       getConversation(conversationId).then((c) => {
         c.events.forEach(applyEvent);
+        setEvents((prev) => prev.map((e) => c.events.find((x) => x.seq === e.seq) || e));
         if (c.running) follow(conversationId); else setRunning(false);
       }).catch(() => {});
     };
@@ -300,164 +168,195 @@ export default function ClaudeChat() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [conversationId, follow, applyEvent]);
 
+  // Follow new content only while the reader is at the bottom.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [events.length, running]);
+    const el = scroller();
+    if (!el) return undefined;
+    const onScroll = () => setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+  useEffect(() => { if (atBottom) scrollToEnd(); }, [events.length, liveText, running]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addFiles = (files) => {
-    for (const file of files) {
-      const key = `${file.name}-${file.size}-${Date.now()}-${Math.random()}`;
-      setAttachments((prev) => [...prev, { key, label: file.name, status: 'uploading' }]);
-      uploadFile(file)
-        .then((r) => setAttachments((prev) => prev.map((a) => (a.key === key ? { ...a, status: 'ready', name: r.name, type: r.type } : a))))
-        .catch((e) => setAttachments((prev) => prev.map((a) => (a.key === key ? { ...a, status: 'error', error: e.message } : a))));
-    }
-  };
-
-  const ready = attachments.filter((a) => a.status === 'ready');
-  const uploading = attachments.some((a) => a.status === 'uploading');
-  const canSend = !running && !uploading && (text.trim() || ready.length);
-
-  const send = async (override) => {
-    const message = (override ?? text).trim();
-    if (running || uploading || (!message && !ready.length)) return;
+  const onSend = async (text, files) => {
     setError(null);
     try {
-      const { conversationId: id } = await sendMessage({ conversationId, text: message, files: ready });
-      setText('');
-      setAttachments([]);
+      const { conversationId: id } = await sendMessage({ conversationId, text, files });
+      setAtBottom(true);
       if (id !== conversationId) {
         lastSeq.current = -1;
         setParams({ c: id });
       } else {
         follow(id);
       }
+      refreshList();
+      return true;
     } catch (e) {
       setError(e.message);
+      return false;
     }
   };
 
-  // A new conversation's turn starts as soon as the URL effect loads it.
   const onAnswer = async (approvalId, approve) => {
     try {
       await answerApproval(conversationId, approvalId, approve);
+      if (!streamRef.current) follow(conversationId);
     } catch (e) {
       setError(e.message);
     }
   };
 
-  const openHistory = async () => {
-    setHistoryOpen(true);
-    try { setHistory((await listConversations()).conversations); } catch (e) { setError(e.message); }
+  const onDelete = async (id) => {
+    try {
+      await deleteConversation(id);
+      setConversations((prev) => prev.filter((x) => x.id !== id));
+      if (id === conversationId) setParams({});
+    } catch (e) {
+      setError(e.message);
+    }
   };
+
+  const open = (id) => { setParams(id ? { c: id } : {}); setSheetOpen(false); };
+
+  // A bottom sheet on a phone, a side panel on anything wider.
+  const sheetFrom = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches ? { x: '-100%' } : { y: '100%' };
+  const turns = useMemo(() => buildTurns(events), [events]);
+  const title = conversations.find((c) => c.id === conversationId)?.title;
+  const waitingOnYou = events.some((e) => e.t === 'approval' && e.status === 'pending');
 
   if (!canUseClaude()) {
     return (
       <div className="page-container claude-page">
-        <div className="cc-empty"><Sparkles size={32} /><p>Sign in to talk to Claude about your budget.</p></div>
+        <div className="cc-welcome"><div className="cc-orb"><Sparkles size={26} /></div><h2>Sign in to use Claude</h2></div>
       </div>
     );
   }
 
   return (
-    <div className="page-container claude-page">
-      <div className="cc-header">
-        <h1 className="page-title"><Sparkles size={22} /> Claude</h1>
-        <div className="cc-header-actions">
-          <button className="glass-icon-btn" title="Past conversations" onClick={openHistory}><History size={18} /></button>
-          <button className="glass-icon-btn" title="New conversation" onClick={() => setParams({})}><MessageSquarePlus size={18} /></button>
-        </div>
-      </div>
+    <div
+      className="page-container claude-page"
+      onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setDragging(true); } }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false); }}
+      onDrop={(e) => { e.preventDefault(); setDragging(false); composer.current?.addFiles([...e.dataTransfer.files]); }}
+    >
+      <aside className="cc-sidebar">
+        <ConversationList items={conversations} activeId={conversationId} onOpen={open} onDelete={onDelete} onNew={() => open(null)} />
+      </aside>
 
-      <div className="cc-thread">
-        {!conversationId && events.length === 0 && (
-          <div className="cc-empty">
-            <Sparkles size={32} />
-            <p>Ask about your money, attach a receipt or statement, or have Claude tidy things up. It asks before it changes anything.</p>
-            <div className="cc-suggestions">
-              {SUGGESTIONS.map((s) => <button key={s} className="cc-suggestion" onClick={() => setText(s)}>{s}</button>)}
-            </div>
-          </div>
-        )}
-        {events.map((ev) => <Event key={ev.seq} ev={ev} onAnswer={onAnswer} />)}
-        {running && !events.some((e) => e.t === 'approval' && e.status === 'pending') && (
-          <div className="cc-thinking"><Loader2 size={14} className="cc-spin" /> Working…</div>
-        )}
-        {error && <div className="cc-error"><AlertTriangle size={14} /> {error}</div>}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="cc-composer glass-panel">
-        {attachments.length > 0 && (
-          <div className="cc-attachments">
-            {attachments.map((a) => (
-              <span key={a.key} className={`cc-file-chip cc-file-${a.status}`} title={a.error || ''}>
-                {a.status === 'uploading' ? <Loader2 size={12} className="cc-spin" /> : a.status === 'error' ? <AlertTriangle size={12} /> : <FileText size={12} />}
-                {a.label}
-                <button onClick={() => setAttachments((prev) => prev.filter((x) => x.key !== a.key))} title="Remove"><X size={12} /></button>
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="cc-input-row">
-          <button className="cc-icon-btn" title="Attach a receipt or statement" onClick={() => fileInput.current?.click()}>
-            <Paperclip size={18} />
+      <section className="cc-main">
+        <header className="cc-header">
+          <button className="cc-icon cc-sheet-btn" title="Conversations" onClick={() => { refreshList(); setSheetOpen(true); }}>
+            <PanelLeft size={18} />
           </button>
-          <input
-            ref={fileInput} type="file" multiple hidden
-            accept="image/*,application/pdf,.pdf,.csv,text/csv,.xlsx,.txt"
-            onChange={(e) => { addFiles([...e.target.files]); e.target.value = ''; }}
-          />
-          <textarea
-            rows={1}
-            value={text}
-            placeholder={running ? 'Claude is working…' : 'Message Claude'}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(min-width: 768px)').matches) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          {running ? (
-            <button className="cc-icon-btn cc-stop" title="Stop" onClick={() => stopConversation(conversationId).catch(() => {})}>
-              <Square size={16} />
-            </button>
-          ) : (
-            <button className="cc-icon-btn cc-send" title="Send" disabled={!canSend} onClick={() => send()}>
-              <Send size={18} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {historyOpen && (
-        <div className="modal-overlay" onClick={() => setHistoryOpen(false)}>
-          <div className="modal-content cc-history" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Conversations</h2>
-              <button className="close-btn" onClick={() => setHistoryOpen(false)}><X size={20} /></button>
-            </div>
-            <div className="cc-history-list">
-              {history.length === 0 && <p className="cc-muted">No conversations yet.</p>}
-              {history.map((c) => (
-                <div key={c.id} className={`cc-history-item ${c.id === conversationId ? 'active' : ''}`}>
-                  <button className="cc-history-open" onClick={() => { setParams({ c: c.id }); setHistoryOpen(false); }}>
-                    <span className="cc-history-title">{c.title}</span>
-                    <span className="cc-muted">{new Date(c.updatedAt).toLocaleString()}{c.running ? ' · working' : ''}</span>
-                  </button>
-                  <button className="cc-icon-btn" title="Delete" disabled={c.running} onClick={async () => {
-                    await deleteConversation(c.id).catch((e) => setError(e.message));
-                    setHistory((prev) => prev.filter((x) => x.id !== c.id));
-                    if (c.id === conversationId) setParams({});
-                  }}><Trash2 size={16} /></button>
-                </div>
-              ))}
-            </div>
+          <div className="cc-header-title">
+            <Sparkles size={16} className="cc-header-mark" />
+            <span>{title || 'Claude'}</span>
           </div>
+          <button className="cc-icon" title="New chat" onClick={() => open(null)}><SquarePen size={18} /></button>
+        </header>
+
+        <div className="cc-thread">
+          {!conversationId && events.length === 0 && (
+            <motion.div className="cc-welcome" {...fade}>
+              <div className="cc-orb"><Sparkles size={26} /></div>
+              <h2>What can I help with?</h2>
+              <p>I can read everything in your budget, look at any page, and prepare changes. Nothing changes until you approve it.</p>
+              <div className="cc-suggest">
+                {SUGGESTIONS.map(({ icon: Icon, title: t, text }) => (
+                  <button key={t} className="cc-suggest-card" onClick={() => composer.current?.setText(text)}>
+                    <Icon size={18} />
+                    <span className="cc-suggest-title">{t}</span>
+                    <span className="cc-suggest-text">{text}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {turns.map((turn, ti) => {
+            const last = ti === turns.length - 1;
+            const lastItem = turn.items[turn.items.length - 1];
+            const stepRunning = lastItem?.kind === 'steps' && lastItem.items.some((x) => x.status === 'running');
+            const showDots = last && running && !liveText && !waitingOnYou && !stepRunning;
+            const hasReply = turn.items.length > 0 || (last && (running || liveText));
+            return (
+              <Fragment key={turn.key}>
+                {turn.user && (
+                  <motion.div className="cc-user" {...fade}>
+                    {turn.user.files?.length > 0 && (
+                      <div className="cc-user-files">
+                        {turn.user.files.map((f) => (
+                          <span key={f.name} className="cc-user-file"><Paperclip size={12} />{f.name.replace(/^\d{8}-\d{6}-[a-f0-9]{6}-/, '')}</span>
+                        ))}
+                      </div>
+                    )}
+                    {turn.user.text && <div className="cc-user-text">{turn.user.text}</div>}
+                  </motion.div>
+                )}
+                {hasReply && (
+                  <motion.div className="cc-turn" {...fade}>
+                    <div className="cc-avatar"><Sparkles size={14} /></div>
+                    <div className="cc-turn-body">
+                      {turn.items.map((it) => {
+                        if (it.kind === 'text') return <Markdown key={it.key} text={it.ev.text} />;
+                        if (it.kind === 'steps') return <StepGroup key={it.key} items={it.items} />;
+                        if (it.kind === 'approval') return <ReviewCard key={it.key} ev={it.ev} onAnswer={onAnswer} />;
+                        return <div key={it.key} className="cc-error"><AlertTriangle size={14} /> {it.ev.message}</div>;
+                      })}
+                      {last && liveText && <div className="cc-live"><Markdown text={liveText} /></div>}
+                      {showDots && <div className="cc-dots"><span /><span /><span /></div>}
+                    </div>
+                  </motion.div>
+                )}
+              </Fragment>
+            );
+          })}
+
+          {error && <div className="cc-error cc-error-global"><AlertTriangle size={14} /> {error}</div>}
+          <div ref={endRef} className="cc-end" />
         </div>
-      )}
+
+        <div className="cc-dock">
+          <AnimatePresence>
+            {!atBottom && events.length > 0 && (
+              <motion.button className="cc-jump" onClick={() => scrollToEnd()} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}>
+                <ArrowDown size={16} />
+              </motion.button>
+            )}
+          </AnimatePresence>
+          <Composer
+            ref={composer}
+            running={running}
+            onSend={onSend}
+            onStop={() => stopConversation(conversationId).catch(() => {})}
+            placeholder={waitingOnYou ? 'Waiting for your approval above' : running ? 'Claude is working…' : 'Ask about your budget…'}
+          />
+        </div>
+      </section>
+
+      <AnimatePresence>
+        {dragging && (
+          <motion.div className="cc-drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <Paperclip size={28} /><span>Drop to attach</span>
+          </motion.div>
+        )}
+        {sheetOpen && (
+          <motion.div className="cc-sheet-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSheetOpen(false)}>
+            <motion.div
+              className="cc-sheet"
+              initial={sheetFrom} animate={{ x: 0, y: 0 }} exit={sheetFrom}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="cc-sheet-head">
+                <span>Conversations</span>
+                <button className="cc-icon" onClick={() => setSheetOpen(false)}><X size={18} /></button>
+              </div>
+              <ConversationList items={conversations} activeId={conversationId} onOpen={open} onDelete={onDelete} onNew={() => open(null)} />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
