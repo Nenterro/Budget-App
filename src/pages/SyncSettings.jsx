@@ -70,7 +70,7 @@ function formatAgo(timestamp, now) {
 
 export default function SyncSettings() {
   const navigate = useNavigate();
-  const [url, setUrl] = useState(localStorage.getItem('PB_URL') || 'https://huz-budget.duckdns.org:8888');
+  const [url, setUrl] = useState(localStorage.getItem('PB_URL') || 'https://budget-api.huzaifa.page');
   const [status, setStatus] = useState('Detecting...');
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -248,7 +248,7 @@ export default function SyncSettings() {
               type="url"
               value={url}
               onChange={e => setUrl(e.target.value)}
-              placeholder="https://huz-budget.duckdns.org:8888"
+              placeholder="https://budget-api.huzaifa.page"
               required
             />
             {saveError && (
