@@ -21,6 +21,7 @@ const AppearanceSettings = lazyWithReload(() => import('./pages/AppearanceSettin
 const CurrencySettings = lazyWithReload(() => import('./pages/CurrencySettings'));
 const SecuritySettings = lazyWithReload(() => import('./pages/SecuritySettings'));
 const AutomationSettings = lazyWithReload(() => import('./pages/AutomationSettings'));
+const ClaudeChat = lazyWithReload(() => import('./pages/ClaudeChat'));
 
 function RouteFallback() {
   return (
@@ -80,6 +81,7 @@ export default function App() {
             <Route path="stats" element={<Stats />} />
             <Route path="transactions" element={<Transactions />} />
             <Route path="budgets" element={<Budgets />} />
+            <Route path="claude" element={<ClaudeChat />} />
             <Route path="settings" element={<Settings />} />
             <Route path="settings/:type" element={<ManageData />} />
             <Route path="settings/sync" element={<SyncSettings />} />

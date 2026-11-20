@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, Suspense } from 'react';
 import { lazyWithReload } from '../utils/staleChunk';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal, Wallet, Inbox } from 'lucide-react';
+import { LayoutDashboard, LineChart, PieChart, Calculator, List, Settings, Pin, PinOff, Plus, Home, MoreHorizontal, Wallet, Inbox, Sparkles } from 'lucide-react';
 // Rendered only once the user taps Add, so it does not belong in the chunk
 // that paints the shell.
 const AddTransactionModal = lazyWithReload(() => import('./AddTransactionModal'));
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { path: '/graphs', label: 'Graphs', icon: LineChart },
   { path: '/stats', label: 'Stats', icon: Calculator },
   { path: '/transactions', label: 'Transactions', icon: List },
+  { path: '/claude', label: 'Claude', icon: Sparkles },
 ];
 
 function GradientDef() {

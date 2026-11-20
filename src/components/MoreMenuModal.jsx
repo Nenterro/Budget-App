@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { NavLink } from 'react-router-dom';
-import { Settings, Database, X, Palette, HelpCircle, Info, Calculator } from 'lucide-react';
+import { Settings, Database, X, Palette, HelpCircle, Info, Calculator, Sparkles } from 'lucide-react';
 import './MoreMenuModal.css';
 
 export default function MoreMenuModal({ isOpen, onClose }) {
@@ -29,6 +29,10 @@ export default function MoreMenuModal({ isOpen, onClose }) {
             </div>
             
             <div className="more-modal-body">
+              <NavLink to="/claude" className="more-menu-item" onClick={onClose}>
+                <div className="more-icon-circle"><Sparkles size={20} /></div>
+                <span>Ask Claude</span>
+              </NavLink>
               <NavLink to="/stats" className="more-menu-item" onClick={onClose}>
                 <div className="more-icon-circle"><Calculator size={20} /></div>
                 <span>Detailed Stats</span>
