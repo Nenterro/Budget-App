@@ -11,13 +11,14 @@ import {
   IncomeByPayee
 } from './ChartWidgets';
 
-export default function ChartCard({ graph, onRemove, transactions, advancedFilteredTransactions, accounts, dateRange }) {
+export default function ChartCard({ graph, onRemove, transactions, advancedFilteredTransactions, allTransactions, excludedAccounts, accounts, dateRange }) {
   const typeDef = GRAPH_TYPES.find(t => t.id === graph.type) || { title: 'Unknown Graph' };
 
   const renderChart = () => {
     switch (graph.type) {
       case 'balance_over_time':
-        return <BalanceOverTime transactions={advancedFilteredTransactions} accounts={accounts} dateRange={dateRange} />;
+        // Unfiltered on purpose; see BalanceOverTime.
+        return <BalanceOverTime transactions={allTransactions} excludedAccounts={excludedAccounts} accounts={accounts} dateRange={dateRange} />;
       case 'spending_per_month':
         return <SpendingPerMonth transactions={advancedFilteredTransactions} accounts={accounts} />;
       case 'income_per_month':

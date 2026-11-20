@@ -162,6 +162,31 @@ console.log('\n--- The balance graph ends where the Home page total does ---');
   check('USD opening balance converted', near(opening, 1000 + 100 * 280), `got ${opening}`);
 }
 
+console.log('\n--- The graph with an account excluded: its money out, its transfers still arriving ---');
+{
+  // The bug: the Graphs page dropped every transaction recorded on an
+  // excluded account, so a transfer out of it vanished from the receiving
+  // account too, and the graph ended far below the real total.
+  const accts = [
+    { name: 'Meezan', currency: 'PKR', initialBalance: 1000 },
+    { name: 'Wise', currency: 'USD', initialBalance: 0 },
+  ];
+  const transactions = [
+    tx({ date: '2026-01-01', account: 'Wise', type: 1, amount: 100 }),                                   // $100 earned
+    tx({ date: '2026-01-02', account: 'Wise', type: 2, amount: -50, transferTo: 'Meezan', receivedAmount: 14000 }),
+    tx({ date: '2026-01-03', account: 'Meezan', amount: -400 }),
+  ];
+  const args = { transactions, accounts: accts, baseCurrency: 'PKR', exchangeRates, dayOf: (d) => d };
+  const all = balanceChangesByDay(args);
+  const noWise = balanceChangesByDay({ ...args, excludedAccounts: ['Wise'] });
+  const end = (r) => r.opening + Object.values(r.daily).reduce((a, b) => a + b, 0);
+  check('everything: Meezan 1000+14000-400 plus Wise $50', near(end(all), 14600 + 50 * 280), `got ${end(all)}`);
+  check('Wise excluded: only Meezan, transfer still arrives', near(end(noWise), 14600), `got ${end(noWise)}`);
+  check('Wise excluded: its own income is not counted', !('2026-01-01' in noWise.daily), JSON.stringify(noWise.daily));
+  const dropWhole = balanceChangesByDay({ ...args, transactions: transactions.filter(t => t.account !== 'Wise'), excludedAccounts: ['Wise'] });
+  check('(dropping whole transactions loses the transfer: the old bug)', near(end(dropWhole), 600), `got ${end(dropWhole)}`);
+}
+
 if (failed) {
   console.error(`\n${failed} balance check(s) failed.`);
   process.exit(1);

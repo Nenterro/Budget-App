@@ -86,10 +86,18 @@ export function computeBalances({ transactions = [], accounts = [], baseCurrency
  *
  * Returns the opening total (initial balances) and the net change per day,
  * keyed by `dayOf(tx.date)`, both in `baseCurrency`.
+ *
+ * `excludedAccounts` leaves those accounts' money out, leg by leg. It is NOT
+ * the same as dropping their transactions: a transfer out of an excluded
+ * account still lands in an included one, and dropping the transfer whole
+ * lost that money too. That is how excluding one foreign-currency account on
+ * the Graphs page once left the graph ending at a small fraction of the real
+ * total.
  */
-export function balanceChangesByDay({ transactions = [], accounts = [], baseCurrency = 'USD', exchangeRates = {}, dayOf }) {
+export function balanceChangesByDay({ transactions = [], accounts = [], baseCurrency = 'USD', exchangeRates = {}, dayOf, excludedAccounts = [] }) {
   const byName = new Map((accounts || []).map(a => [a.name, a]));
-  const counts = (name) => !isCreditAccount(byName.get(name) || {});
+  const excluded = new Set(excludedAccounts);
+  const counts = (name) => !excluded.has(name) && !isCreditAccount(byName.get(name) || {});
   const toBase = (amount, name) =>
     convert(amount, byName.get(name)?.currency || 'USD', baseCurrency, exchangeRates);
 

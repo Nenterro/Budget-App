@@ -140,6 +140,8 @@ export default function Graphs() {
             onRemove={() => handleRemoveGraph(graph.id)}
             transactions={fullyFiltered}
             advancedFilteredTransactions={advancedFiltered}
+            allTransactions={transactions}
+            excludedAccounts={filterState.excludedAccounts}
             accounts={accounts}
             dateRange={currentRange}
           />

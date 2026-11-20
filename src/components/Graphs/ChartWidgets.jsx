@@ -73,10 +73,16 @@ const CustomTooltip = ({ active, payload, label, formatter, labelFormatter }) =>
 import { AreaChart, Area } from 'recharts'; // Make sure AreaChart and Area are available
 
 // 1. Balance Over Time (Area Chart)
-export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
+// Takes every transaction, never the filtered list: a balance is the money in
+// the accounts, and leaving out a category, payee or amount band would only
+// make it wrong. An excluded account is honoured the one way that makes
+// sense for a balance: that account's money is left out (see
+// balanceChangesByDay), while transfers it made into other accounts still
+// arrive there.
+export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange, excludedAccounts }) {
   const { baseCurrency } = useAppearanceSettings();
   const { exchangeRates } = useData();
-  
+
   const { data, ticks } = useMemo(() => {
     // Balances are money in the accounts, not a reporting figure: no netting
     // of shared expenses, transfers counted, cards left out — exactly as the
@@ -86,14 +92,17 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
 
     const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
     const { opening, daily: dailyChanges } = balanceChangesByDay({
-      transactions, accounts, baseCurrency, exchangeRates, dayOf: dayStringOf
+      transactions, accounts, baseCurrency, exchangeRates, dayOf: dayStringOf,
+      excludedAccounts: excludedAccounts ? [...excludedAccounts] : [],
     });
     let currentBalance = opening;
 
-    // Start with the earliest transaction
+    // From the earliest transaction to today, or to the latest one if it is
+    // dated ahead: the Home total counts those, so the line has to reach them.
     const firstDate = parseDayLocal(sorted[0].date);
+    const lastDate = parseDayLocal(sorted[sorted.length - 1].date);
     const today = startOfDay(new Date());
-    const totalDays = differenceInDays(today, firstDate);
+    const totalDays = differenceInDays(isAfter(lastDate, today) ? lastDate : today, firstDate);
 
     let result = [];
     for (let i = 0; i <= totalDays; i++) {
@@ -143,7 +152,7 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange }) {
     }
     
     return { data: result, ticks: generatedTicks };
-  }, [rawTxs, accounts, dateRange, baseCurrency, exchangeRates]);
+  }, [rawTxs, accounts, dateRange, baseCurrency, exchangeRates, excludedAccounts]);
 
   if (data.length === 0) return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '40px' }}>No data</div>;
 
