@@ -17,6 +17,10 @@ export function DataProvider({ children }) {
   const [payees, setPayees] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [exchangeRates, setExchangeRates] = useState({});
+  // Where the rates came from (market or Elevate), for Currency settings.
+  const [exchangeRateInfo, setExchangeRateInfo] = useState(null);
+  // Bumped to make App reload rates now (the settings page's refresh button).
+  const [rateReloadKey, setRateReloadKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(async () => {
@@ -584,7 +588,7 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider value={{ 
-      transactions, accounts, categories, payees, budgets, exchangeRates, setExchangeRates, isLoading, loadData,
+      transactions, accounts, categories, payees, budgets, exchangeRates, setExchangeRates, exchangeRateInfo, setExchangeRateInfo, rateReloadKey, setRateReloadKey, isLoading, loadData,
       syncStatus,
       addTransaction, updateTransaction, deleteTransaction, saveTransactionsBatch,
       countReferences,

@@ -265,6 +265,11 @@ export const useAppearanceSettings = () => {
   const setDisplayMode = (mode) => {
     setPageSettings('appearance', (cur) => ({ ...cur, displayMode: mode }));
   };
+
+  // 'market' or 'elevate' — see src/utils/exchange.js.
+  const setRateSource = (source) => {
+    setPageSettings('appearance', (cur) => ({ ...cur, rateSource: source }));
+  };
   
   return {
     activeTheme: appearance.theme,
@@ -273,7 +278,9 @@ export const useAppearanceSettings = () => {
     baseCurrency: appearance.baseCurrency || 'PKR',
     setBaseCurrency,
     displayMode: appearance.displayMode || 'unified',
-    setDisplayMode
+    setDisplayMode,
+    rateSource: appearance.rateSource || 'market',
+    setRateSource
   };
 };
 

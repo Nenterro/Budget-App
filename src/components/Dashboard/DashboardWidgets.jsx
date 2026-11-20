@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useBaseMoney } from '../../hooks/useBaseMoney';
 import { Trash2, Plus, X } from 'lucide-react';
 import { formatCurrency, getCurrencySymbol } from '../../utils/format';
 import { parseISO, format, subDays, isAfter, startOfDay } from 'date-fns';
@@ -148,8 +149,7 @@ function QuickStats({ widget, onUpdate, transactions, advancedFilteredTransactio
 }
 
 function RecentTransactions({ transactions, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
+  const money = useBaseMoney();
   
   const recent = useMemo(() => {
     let flattened = [];
@@ -188,7 +188,9 @@ function RecentTransactions({ transactions, accounts }) {
               <span className="rt-date">{format(parseISO(tx.date), 'MMM dd')} • {tx.category}</span>
             </div>
             <div className="rt-amount" style={{ color: isIncome ? '#10b981' : (tx.type === 2 ? '#fff' : '#ef4444') }}>
-              {isIncome ? '+' : (tx.type !== 2 ? '-' : '')}{getCurrencySymbol(tx.currency || baseCurrency)}{formatCurrency(Math.abs(tx.amount), true)}
+              {/* The account's currency, not `tx.currency || base`: most records
+                  carry no currency, so a dollar payment read as rupees. */}
+              {isIncome ? '+' : (tx.type !== 2 ? '-' : '')}{money.show(tx.amount, money.currencyOf(tx), { noDecimals: true }).text}
             </div>
           </div>
         );

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useBaseMoney } from '../hooks/useBaseMoney';
 import { lazyWithReload } from '../utils/staleChunk';
 import { useData } from '../context/DataContext';
 import { Filter, Settings, Plus, Edit2, Trash2 } from 'lucide-react';
@@ -40,6 +41,11 @@ export default function Dashboard() {
 
 
   // Filter Logic
+  // The amount filter is typed in the base currency (its fields show that
+  // symbol), so in unified mode a foreign amount is compared after converting.
+  const money = useBaseMoney();
+  const filterMagnitude = (tx) => Math.abs(money.show(tx.amount, money.currencyOf(tx)).amount);
+
   const { fullyFiltered, advancedFiltered, currentRange } = useMemo(() => {
     let advancedResult = transactions;
     if (filterState.excludedCategories.size > 0) {
@@ -55,11 +61,11 @@ export default function Dashboard() {
     // comparison against "min 100" silently excluded every expense there is.
     if (filterState.minAmount !== '' && filterState.minAmount !== null) {
       const min = Math.abs(parseFloat(filterState.minAmount));
-      if (!isNaN(min)) advancedResult = advancedResult.filter(tx => Math.abs(tx.amount) >= min);
+      if (!isNaN(min)) advancedResult = advancedResult.filter(tx => filterMagnitude(tx) >= min);
     }
     if (filterState.maxAmount !== '' && filterState.maxAmount !== null) {
       const max = Math.abs(parseFloat(filterState.maxAmount));
-      if (!isNaN(max)) advancedResult = advancedResult.filter(tx => Math.abs(tx.amount) <= max);
+      if (!isNaN(max)) advancedResult = advancedResult.filter(tx => filterMagnitude(tx) <= max);
     }
 
     let fullyResult = advancedResult;
@@ -70,7 +76,7 @@ export default function Dashboard() {
       fullyResult = advancedResult.filter(tx => isWithinRange(tx.date, computedRange));
     }
     return { fullyFiltered: fullyResult, advancedFiltered: advancedResult, currentRange: computedRange };
-  }, [transactions, selectedPeriod, filterState, customRange]);
+  }, [transactions, selectedPeriod, filterState, customRange, money]);
 
   const { baseCurrency, displayMode } = useAppearanceSettings();
   const { exchangeRates } = useData();
@@ -262,14 +268,29 @@ export default function Dashboard() {
 
 // A credit card reads as what is owed, with the limit it is eating into; every
 // other account reads as its balance. The wording lives in describeBalance.
+//
+// In unified mode a foreign account is restated in the base currency, limit
+// included, with what it actually holds underneath.
 function AccountBalance({ acc }) {
-  const view = describeBalance(acc);
+  const money = useBaseMoney();
+  const factor = money.show(1, acc.currency || 'USD');
+  const shown = factor.original
+    ? {
+        ...acc,
+        currency: factor.currency,
+        currentBalance: (Number(acc.currentBalance) || 0) * factor.amount,
+        creditLimit: Number(acc.creditLimit) > 0 ? Number(acc.creditLimit) * factor.amount : acc.creditLimit
+      }
+    : acc;
+  const view = describeBalance(shown);
+  const original = factor.original ? describeBalance(acc).text : null;
   return (
     <>
       <div className={`account-balance ${view.tone === 'negative' ? 'is-negative' : ''}`}>
         {view.text}
         {view.caption && <span className="account-balance-caption">{view.caption}</span>}
       </div>
+      {original && <div className="account-balance-original">{original}</div>}
       {view.limit && (
         <div className="account-limit">
           <div className="account-limit-track">

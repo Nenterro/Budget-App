@@ -345,6 +345,14 @@
   color: var(--text-secondary);
 }
 
+/* What a foreign account really holds, under its converted balance. */
+.account-card .account-balance-original {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 /* Hairline between cash accounts and credit cards in the scroller. */
 .accounts-divider {
   flex: 0 0 1px;

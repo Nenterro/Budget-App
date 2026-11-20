@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, Suspense } from 'react';
+import { useBaseMoney } from '../hooks/useBaseMoney';
 import { lazyWithReload } from '../utils/staleChunk';
 import { AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
@@ -67,6 +68,11 @@ export default function Transactions() {
   }, [openTxId]);
 
   // Filter Logic
+  // The amount filter is typed in the base currency (its fields show that
+  // symbol), so in unified mode a foreign amount is compared after converting.
+  const money = useBaseMoney();
+  const filterMagnitude = (tx) => Math.abs(money.show(tx.amount, money.currencyOf(tx)).amount);
+
   const filteredTransactions = useMemo(() => {
     let flattened = [];
     transactions.forEach(tx => {
@@ -121,15 +127,15 @@ export default function Transactions() {
     // comparison against "min 100" silently excluded every expense there is.
     if (filterState.minAmount !== '' && filterState.minAmount !== null) {
       const min = Math.abs(parseFloat(filterState.minAmount));
-      if (!isNaN(min)) result = result.filter(tx => Math.abs(tx.amount) >= min);
+      if (!isNaN(min)) result = result.filter(tx => filterMagnitude(tx) >= min);
     }
     if (filterState.maxAmount !== '' && filterState.maxAmount !== null) {
       const max = Math.abs(parseFloat(filterState.maxAmount));
-      if (!isNaN(max)) result = result.filter(tx => Math.abs(tx.amount) <= max);
+      if (!isNaN(max)) result = result.filter(tx => filterMagnitude(tx) <= max);
     }
 
     return result;
-  }, [transactions, selectedPeriod, searchQuery, filterState, customRange]);
+  }, [transactions, selectedPeriod, searchQuery, filterState, customRange, money]);
 
   // Grouping Logic
   const groupedTransactions = useMemo(() => {
@@ -262,12 +268,27 @@ export default function Transactions() {
 
                         <div className="tx-right">
                           <div className={`tx-amount ${tx.type === 0 || tx.type === 'expense' ? 'expense' : tx.type === 1 || tx.type === 'income' ? 'income' : 'transfer'}`}>
-                            {getCurrencySymbol(accounts?.find(a => a.name === tx.account)?.currency || tx.currency)}{formatCurrency(Math.abs(tx.amount))}
-                            {(tx.type === 2 || tx.type === 'transfer') && tx.receivedAmount && (
-                              <span style={{ fontSize: '11px', opacity: 0.7, display: 'block', marginTop: '2px', color: 'var(--text-secondary)' }}>
-                                → {getCurrencySymbol(accounts.find(a => a.name === tx.transferTo)?.currency)}{formatCurrency(tx.receivedAmount)}
-                              </span>
-                            )}
+                            {(() => {
+                              // Unified mode restates the amount in base and keeps
+                              // the original underneath; a transfer's received leg
+                              // stays as it landed.
+                              const shown = money.show(tx.amount, money.currencyOf(tx));
+                              const isTransfer = tx.type === 2 || tx.type === 'transfer';
+                              const received = isTransfer && tx.receivedAmount
+                                ? `→ ${getCurrencySymbol(money.accountCurrency(tx.transferTo))}${formatCurrency(tx.receivedAmount)}`
+                                : null;
+                              const sub = [shown.original, received].filter(Boolean).join(' ');
+                              return (
+                                <>
+                                  {shown.text}
+                                  {sub && (
+                                    <span style={{ fontSize: '11px', opacity: 0.7, display: 'block', marginTop: '2px', color: 'var(--text-secondary)' }}>
+                                      {sub}
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                           <div className="tx-actions">
                             <button

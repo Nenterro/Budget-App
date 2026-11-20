@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useBaseMoney } from '../hooks/useBaseMoney';
 import { Plus, Filter, Settings, Home } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { NavLink } from 'react-router-dom';
@@ -34,6 +35,11 @@ export default function Graphs() {
   const [showFilterModal, setShowFilterModal] = useState(false);
 
   // Filter Logic
+  // The amount filter is typed in the base currency (its fields show that
+  // symbol), so in unified mode a foreign amount is compared after converting.
+  const money = useBaseMoney();
+  const filterMagnitude = (tx) => Math.abs(money.show(tx.amount, money.currencyOf(tx)).amount);
+
   const { fullyFiltered, advancedFiltered, currentRange } = useMemo(() => {
     let advancedResult = transactions;
 
@@ -50,11 +56,11 @@ export default function Graphs() {
     // comparison against "min 100" silently excluded every expense there is.
     if (filterState.minAmount !== '' && filterState.minAmount !== null) {
       const min = Math.abs(parseFloat(filterState.minAmount));
-      if (!isNaN(min)) advancedResult = advancedResult.filter(tx => Math.abs(tx.amount) >= min);
+      if (!isNaN(min)) advancedResult = advancedResult.filter(tx => filterMagnitude(tx) >= min);
     }
     if (filterState.maxAmount !== '' && filterState.maxAmount !== null) {
       const max = Math.abs(parseFloat(filterState.maxAmount));
-      if (!isNaN(max)) advancedResult = advancedResult.filter(tx => Math.abs(tx.amount) <= max);
+      if (!isNaN(max)) advancedResult = advancedResult.filter(tx => filterMagnitude(tx) <= max);
     }
 
     let fullyResult = advancedResult;
@@ -66,7 +72,7 @@ export default function Graphs() {
     }
 
     return { fullyFiltered: fullyResult, advancedFiltered: advancedResult, currentRange: computedRange };
-  }, [transactions, selectedPeriod, filterState, customRange]);
+  }, [transactions, selectedPeriod, filterState, customRange, money]);
 
   const handleAddGraph = (type, symbol) => {
     const newGraph = { id: Date.now().toString(), type, symbol };

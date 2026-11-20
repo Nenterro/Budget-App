@@ -3,7 +3,7 @@ import { formatCurrency, getCurrencySymbol } from '../../utils/format';
 import { parseISO, differenceInDays } from 'date-fns';
 import { useAppearanceSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
-import { convertAmount } from '../../utils/exchange';
+import { convertAmount, currencyOfTx } from '../../utils/exchange';
 import { getEffectiveReportingItems } from '../../utils/txAdjustments';
 import { parseDayLocal } from '../../utils/date';
 
@@ -136,93 +136,78 @@ function StatDisplay({ value, currency, isPercentage, color, title, subtitle, mi
     </div>
   );
 }
+// Every tile below works in the base currency: each amount is converted from
+// its account's currency first. They used to add raw amounts across
+// currencies and label the sum with the first account's currency.
+const useInBase = (accounts) => {
+  const { baseCurrency } = useAppearanceSettings();
+  const { exchangeRates } = useData();
+  const inBase = (tx) => convertAmount(Number(tx.amount) || 0, currencyOfTx(tx, accounts, baseCurrency), baseCurrency, exchangeRates);
+  return { baseCurrency, exchangeRates, inBase };
+};
+
+const largestOfType = (rawTxs, isType, inBase) => {
+  let max = null;
+  getEffectiveReportingItems(rawTxs).forEach(tx => {
+    if (!isType(tx)) return;
+    const amount = Math.abs(inBase(tx));
+    if (!max || amount > max.amount) max = { tx, amount };
+  });
+  return max;
+};
+
+const topBy = (rawTxs, key, inBase) => {
+  const sums = {};
+  getEffectiveReportingItems(rawTxs).forEach(tx => {
+    if (tx.type === 0 || tx.type === 'expense') {
+      const k = key(tx);
+      sums[k] = (sums[k] || 0) + Math.abs(inBase(tx));
+    }
+  });
+  let top = null;
+  let max = 0;
+  Object.keys(sums).forEach(k => {
+    if (sums[k] > max) { max = sums[k]; top = k; }
+  });
+  return { name: top || 'None', amount: max };
+};
+
+const isExpense = tx => tx.type === 0 || tx.type === 'expense';
+const isIncome = tx => tx.type === 1 || tx.type === 'income';
+
 export function LargestExpense({ transactions: rawTxs, accounts, mini }) {
-  const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
-  const largest = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    let max = null;
-    transactions.forEach(tx => {
-      if (tx.type === 0 || tx.type === 'expense') {
-        if (!max || Math.abs(tx.amount) > Math.abs(max.amount)) {
-          max = tx;
-        }
-      }
-    });
-    return max;
-  }, [rawTxs]);
-  
+  const { baseCurrency, exchangeRates, inBase } = useInBase(accounts);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const largest = useMemo(() => largestOfType(rawTxs, isExpense, inBase), [rawTxs, accounts, baseCurrency, exchangeRates]);
+
   if (!largest) return <StatDisplay value={0} currency={baseCurrency} color="#ef4444" title="Largest Expense" mini={mini} />;
-  const subtitle = `${largest.category || 'Uncategorized'} - ${largest.payee || 'Unknown Payee'}`;
+  const subtitle = `${largest.tx.category || 'Uncategorized'} - ${largest.tx.payee || 'Unknown Payee'}`;
   return <StatDisplay value={-largest.amount} currency={baseCurrency} color="#ef4444" title="Largest Expense" subtitle={subtitle} mini={mini} />;
 }
 
 export function LargestIncome({ transactions: rawTxs, accounts, mini }) {
-  const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
-  const largest = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    let max = null;
-    transactions.forEach(tx => {
-      if (tx.type === 1 || tx.type === 'income') {
-        if (!max || Math.abs(tx.amount) > Math.abs(max.amount)) {
-          max = tx;
-        }
-      }
-    });
-    return max;
-  }, [rawTxs]);
-  
+  const { baseCurrency, exchangeRates, inBase } = useInBase(accounts);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const largest = useMemo(() => largestOfType(rawTxs, isIncome, inBase), [rawTxs, accounts, baseCurrency, exchangeRates]);
+
   if (!largest) return <StatDisplay value={0} currency={baseCurrency} color="#10b981" title="Largest Income" mini={mini} />;
-  const subtitle = `${largest.category || 'Uncategorized'} - ${largest.payee || 'Unknown Payee'}`;
+  const subtitle = `${largest.tx.category || 'Uncategorized'} - ${largest.tx.payee || 'Unknown Payee'}`;
   return <StatDisplay value={largest.amount} currency={baseCurrency} color="#10b981" title="Largest Income" subtitle={subtitle} mini={mini} />;
 }
 
 export function HighestSpendCategory({ transactions: rawTxs, accounts, mini }) {
-  const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
-  const highest = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    const sums = {};
-    transactions.forEach(tx => {
-      if (tx.type === 0 || tx.type === 'expense') {
-        const cat = tx.category || 'Uncategorized';
-        sums[cat] = (sums[cat] || 0) + Math.abs(tx.amount);
-      }
-    });
-    let top = null;
-    let max = 0;
-    Object.keys(sums).forEach(k => {
-      if (sums[k] > max) {
-        max = sums[k];
-        top = k;
-      }
-    });
-    return { name: top || 'None', amount: max };
-  }, [rawTxs]);
-  
+  const { baseCurrency, exchangeRates, inBase } = useInBase(accounts);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const highest = useMemo(() => topBy(rawTxs, tx => tx.category || 'Uncategorized', inBase), [rawTxs, accounts, baseCurrency, exchangeRates]);
+
   return <StatDisplay value={highest.name} color="#f59e0b" title="Top Category" subtitle={`${getCurrencySymbol(baseCurrency)}${formatCurrency(highest.amount)} total spend`} mini={mini} />;
 }
 
 export function HighestSpendPayee({ transactions: rawTxs, accounts, mini }) {
-  const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
-  const highest = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    const sums = {};
-    transactions.forEach(tx => {
-      if (tx.type === 0 || tx.type === 'expense') {
-        const payee = tx.payee || 'Unknown';
-        sums[payee] = (sums[payee] || 0) + Math.abs(tx.amount);
-      }
-    });
-    let top = null;
-    let max = 0;
-    Object.keys(sums).forEach(k => {
-      if (sums[k] > max) {
-        max = sums[k];
-        top = k;
-      }
-    });
-    return { name: top || 'None', amount: max };
-  }, [rawTxs]);
-  
+  const { baseCurrency, exchangeRates, inBase } = useInBase(accounts);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const highest = useMemo(() => topBy(rawTxs, tx => tx.payee || 'Unknown', inBase), [rawTxs, accounts, baseCurrency, exchangeRates]);
+
   return <StatDisplay value={highest.name} color="#3b82f6" title="Top Payee" subtitle={`${getCurrencySymbol(baseCurrency)}${formatCurrency(highest.amount)} total spend`} mini={mini} />;
 }
 
@@ -275,25 +260,26 @@ export function MostActivePayee({ transactions: rawTxs, mini }) {
 }
 
 export function AverageExpenseSize({ transactions: rawTxs, accounts, mini }) {
-  const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
+  const { baseCurrency, exchangeRates, inBase } = useInBase(accounts);
   const { avg, count } = useMemo(() => {
     const transactions = getEffectiveReportingItems(rawTxs);
     let sum = 0;
     let count = 0;
     transactions.forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
-        sum += Math.abs(tx.amount);
+        sum += Math.abs(inBase(tx));
         count++;
       }
     });
     return { avg: count > 0 ? sum / count : 0, count };
-  }, [rawTxs]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawTxs, accounts, baseCurrency, exchangeRates]);
   
   return <StatDisplay value={avg} currency={baseCurrency} color="#ef4444" title="Avg Expense" subtitle={`Based on ${count} expenses`} mini={mini} />;
 }
 
 export function RetainedSavings({ advancedFilteredTransactions, dateRange, accounts, mini }) {
-  const baseCurrency = accounts && accounts.length > 0 ? accounts[0].currency : 'PKR';
+  const { baseCurrency, exchangeRates, inBase } = useInBase(accounts);
   
   const retained = useMemo(() => {
     if (!advancedFilteredTransactions || advancedFilteredTransactions.length === 0) return 0;
@@ -302,7 +288,7 @@ export function RetainedSavings({ advancedFilteredTransactions, dateRange, accou
     let startingBalance = 0;
     if (accounts) {
       accounts.forEach(acc => {
-        startingBalance += (Number(acc.initialBalance) || 0);
+        startingBalance += convertAmount(Number(acc.initialBalance) || 0, acc.currency || 'USD', baseCurrency, exchangeRates);
       });
     }
     
@@ -323,24 +309,26 @@ export function RetainedSavings({ advancedFilteredTransactions, dateRange, accou
       
       if (startT && txTime < startT) {
         if (tx.type !== 2) { // 2 = transfer
-          startingBalance += tx.amount;
+          startingBalance += inBase(tx);
         }
       } else if ((!startT || txTime >= startT) && (!endT || txTime <= endT)) {
         if (tx.type === 0 || tx.type === 'expense') {
-          expensesInPeriod += Math.abs(tx.amount);
+          expensesInPeriod += Math.abs(inBase(tx));
         } else if (tx.type === 1 || tx.type === 'income') {
-          incomeInPeriod += Math.abs(tx.amount);
+          incomeInPeriod += Math.abs(inBase(tx));
         }
       }
     });
     
     return startingBalance + incomeInPeriod - expensesInPeriod;
-  }, [advancedFilteredTransactions, dateRange, accounts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [advancedFilteredTransactions, dateRange, accounts, baseCurrency, exchangeRates]);
   
   return <StatDisplay value={retained} currency={baseCurrency} color="#8b5cf6" title="Ending Balance" subtitle="Start + Income - Expense" mini={mini} />;
 }
 
 export function RetainedSavingsRate({ advancedFilteredTransactions, dateRange, accounts, mini }) {
+  const { baseCurrency, exchangeRates, inBase } = useInBase(accounts);
   const rate = useMemo(() => {
     if (!advancedFilteredTransactions || advancedFilteredTransactions.length === 0) return 0;
     
@@ -348,7 +336,7 @@ export function RetainedSavingsRate({ advancedFilteredTransactions, dateRange, a
     let startingBalance = 0;
     if (accounts) {
       accounts.forEach(acc => {
-        startingBalance += (Number(acc.initialBalance) || 0);
+        startingBalance += convertAmount(Number(acc.initialBalance) || 0, acc.currency || 'USD', baseCurrency, exchangeRates);
       });
     }
     
@@ -369,20 +357,21 @@ export function RetainedSavingsRate({ advancedFilteredTransactions, dateRange, a
       
       if (startT && txTime < startT) {
         if (tx.type !== 2) { // 2 = transfer
-          startingBalance += tx.amount;
+          startingBalance += inBase(tx);
         }
       } else if ((!startT || txTime >= startT) && (!endT || txTime <= endT)) {
         if (tx.type === 0 || tx.type === 'expense') {
-          expensesInPeriod += Math.abs(tx.amount);
+          expensesInPeriod += Math.abs(inBase(tx));
         } else if (tx.type === 1 || tx.type === 'income') {
-          incomeInPeriod += Math.abs(tx.amount);
+          incomeInPeriod += Math.abs(inBase(tx));
         }
       }
     });
     
     const endingBalance = startingBalance + incomeInPeriod - expensesInPeriod;
     return startingBalance > 0 ? (endingBalance / startingBalance) * 100 : 0;
-  }, [advancedFilteredTransactions, dateRange, accounts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [advancedFilteredTransactions, dateRange, accounts, baseCurrency, exchangeRates]);
   
   return <StatDisplay value={rate} isPercentage={true} color="#8b5cf6" title="Ending Balance Rate" subtitle="% of starting balance" mini={mini} />;
 }
