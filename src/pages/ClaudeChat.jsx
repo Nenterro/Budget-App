@@ -11,15 +11,17 @@
 // the header and the composer sticky.
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Sparkles, SquarePen, PanelLeft, Trash2, AlertTriangle, ArrowDown, Paperclip, Receipt, PieChart, Inbox, Scale, X,
+  Sparkles, SquarePen, PanelLeft, Trash2, AlertTriangle, ArrowDown, Paperclip, Receipt, PieChart, Inbox, Scale, X, RotateCcw,
 } from 'lucide-react';
 import {
   canUseClaude, listConversations, getConversation, deleteConversation, sendMessage, stopConversation,
-  answerApproval, streamConversation,
+  answerApproval, streamConversation, warmConversation,
 } from '../utils/claudeApi';
+import * as cache from '../utils/claudeCache';
 import Markdown from '../components/claude/Markdown';
 import ReviewCard from '../components/claude/ReviewCard';
 import StepGroup from '../components/claude/StepGroup';
@@ -49,7 +51,7 @@ function buildTurns(events) {
   const turns = [];
   let cur = null;
   for (const ev of events) {
-    if (ev.t === 'user') { cur = { key: ev.seq, user: ev, items: [] }; turns.push(cur); continue; }
+    if (ev.t === 'user') { cur = { key: ev.clientId || ev.seq, user: ev, items: [] }; turns.push(cur); continue; }
     if (!cur) { cur = { key: `t${ev.seq}`, user: null, items: [] }; turns.push(cur); }
     const last = cur.items[cur.items.length - 1];
     if (ev.t === 'tool' || ev.t === 'image') {
@@ -62,7 +64,7 @@ function buildTurns(events) {
   return turns;
 }
 
-function ConversationList({ items, activeId, onOpen, onDelete, onNew }) {
+function ConversationList({ items, activeId, onOpen, onDelete, onNew, onPrefetch }) {
   return (
     <div className="cc-list">
       <button className="cc-new" onClick={onNew}><SquarePen size={16} /> New chat</button>
@@ -70,7 +72,7 @@ function ConversationList({ items, activeId, onOpen, onDelete, onNew }) {
       {items.length === 0 && <div className="cc-list-empty">Nothing yet.</div>}
       {items.map((c) => (
         <div key={c.id} className={`cc-list-item ${c.id === activeId ? 'active' : ''}`}>
-          <button className="cc-list-open" onClick={() => onOpen(c.id)}>
+          <button className="cc-list-open" onClick={() => onOpen(c.id)} onPointerDown={() => onPrefetch(c.id)} onPointerEnter={() => onPrefetch(c.id)}>
             <span className="cc-list-title">{c.title}</span>
             <span className="cc-list-time">{c.running && <span className="cc-live-dot" />}{c.running ? 'working' : ago(c.updatedAt)}</span>
           </button>
@@ -81,14 +83,24 @@ function ConversationList({ items, activeId, onOpen, onDelete, onNew }) {
   );
 }
 
+const newId = () => crypto.randomUUID();
+const maxSeq = (events) => events.reduce((m, e) => (typeof e.seq === 'number' && e.seq > m ? e.seq : m), -1);
+const settled = (events) => events.filter((e) => !e.pending);
+
 export default function ClaudeChat() {
   const [params, setParams] = useSearchParams();
   const conversationId = params.get('c');
-  const [events, setEvents] = useState([]);
+  // A new chat already has its id: the server is told it when warming up and
+  // when the first message goes, so starting a chat never waits on a reply.
+  const [draftId, setDraftId] = useState(newId);
+  const activeId = conversationId || draftId;
+
+  const [events, setEvents] = useState(() => cache.getConvo(conversationId)?.events || []);
   const [liveText, setLiveText] = useState('');
+  const [thinking, setThinking] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
-  const [conversations, setConversations] = useState([]);
+  const [conversations, setConversations] = useState(cache.getList);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [dragging, setDragging] = useState(false);
@@ -96,26 +108,55 @@ export default function ClaudeChat() {
   const lastSeq = useRef(-1);
   const composer = useRef(null);
   const endRef = useRef(null);
+  const freshRef = useRef(null);
+  const baseSeq = useRef(Infinity); // events up to here were on screen already: no entrance animation // a conversation this page just created: nothing on the server to load yet
 
   const scroller = () => document.querySelector('.main-content');
   const scrollToEnd = (smooth = true) => endRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
 
+  const showList = useCallback((next) => { cache.setList(next); setConversations(next); }, []);
   const refreshList = useCallback(() => {
-    listConversations().then((r) => setConversations(r.conversations)).catch(() => {});
-  }, []);
-  useEffect(() => { if (canUseClaude()) refreshList(); }, [refreshList]);
+    listConversations().then((r) => showList(r.conversations)).catch(() => {});
+  }, [showList]);
+
+  // The list: the cached copy now (or once IndexedDB has loaded), the server's when it answers.
+  useEffect(() => {
+    if (!canUseClaude()) return;
+    cache.ready.then(() => setConversations((prev) => (prev.length ? prev : cache.getList())));
+    refreshList();
+  }, [refreshList]);
+
+  // Keep the on-device copy of the open conversation current.
+  useEffect(() => {
+    if (!conversationId) return;
+    const real = settled(events);
+    if (real.length) cache.setConvo(conversationId, { id: conversationId, events: real });
+  }, [events, conversationId]);
 
   const applyEvent = useCallback((ev) => {
-    if (ev.t === 'delta') { setLiveText(ev.text); return; }
-    if (ev.t === 'idle') { setRunning(false); setLiveText(''); refreshList(); return; }
-    if (ev.t === 'patch') {
-      setEvents((prev) => prev.map((e) => (e.seq === ev.target ? { ...e, ...ev.patch } : e)));
-      return;
+    switch (ev.t) {
+      case 'thinking': setThinking(true); return;
+      case 'delta': setThinking(false); setLiveText(ev.text); return;
+      case 'idle':
+        setRunning(false);
+        setLiveText('');
+        setThinking(false);
+        refreshList();
+        return;
+      case 'patch':
+        setEvents((prev) => prev.map((e) => (e.seq === ev.target ? { ...e, ...ev.patch } : e)));
+        return;
+      default:
     }
     if (typeof ev.seq !== 'number') return;
-    if (ev.t === 'assistant' || ev.t === 'tool') setLiveText('');
+    if (ev.t === 'assistant' || ev.t === 'tool') { setLiveText(''); setThinking(false); }
     lastSeq.current = Math.max(lastSeq.current, ev.seq);
-    setEvents((prev) => (prev.some((e) => e.seq === ev.seq) ? prev : [...prev, ev]));
+    setEvents((prev) => {
+      if (prev.some((e) => e.seq === ev.seq)) return prev;
+      // The server's copy of a message this page already showed replaces it.
+      const rest = ev.t === 'user' && ev.clientId ? prev.filter((e) => e.clientId !== ev.clientId) : prev;
+      return [...rest, ev];
+    });
   }, [refreshList]);
 
   const follow = useCallback(async (id) => {
@@ -132,41 +173,57 @@ export default function ClaudeChat() {
     }
   }, [applyEvent]);
 
-  // Open the conversation the URL names; pick up a turn that is still running.
+  // Switching conversations: show the cached copy at once, warm Claude up,
+  // then take the server's copy and pick up a turn that is still running.
   useEffect(() => {
-    streamRef.current?.abort();
-    lastSeq.current = -1;
-    setEvents([]);
     setLiveText('');
-    setRunning(false);
+    setThinking(false);
     setError(null);
+    warmConversation(activeId);
+    if (freshRef.current === activeId) return undefined; // just created here and already on screen
+    streamRef.current?.abort();
+    const show = (evs) => {
+      lastSeq.current = maxSeq(evs);
+      baseSeq.current = maxSeq(evs);
+      setEvents(evs);
+      requestAnimationFrame(() => scrollToEnd(false));
+    };
+    show(cache.getConvo(conversationId)?.events || []);
+    setRunning(false);
     if (!conversationId) return undefined;
     let cancelled = false;
+    let fromServer = false;
+    cache.ready.then(() => {
+      const cached = cache.getConvo(conversationId);
+      if (!cancelled && !fromServer && cached) show(cached.events);
+    });
     getConversation(conversationId)
       .then((c) => {
         if (cancelled) return;
-        c.events.forEach((ev) => { lastSeq.current = Math.max(lastSeq.current, ev.seq); });
-        setEvents(c.events);
-        requestAnimationFrame(() => scrollToEnd(false));
+        fromServer = true;
+        show(c.events);
         if (c.running) follow(conversationId);
       })
-      .catch((e) => !cancelled && setError(e.status === 404 ? 'That conversation no longer exists.' : e.message));
-    return () => { cancelled = true; streamRef.current?.abort(); };
-  }, [conversationId, follow]);
+      .catch((e) => !cancelled && e.status === 404 && setError('That conversation no longer exists.'));
+    return () => { cancelled = true; };
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => streamRef.current?.abort(), []);
 
   // A phone suspends the page; catch up when it comes back.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible' || !conversationId || streamRef.current) return;
+      warmConversation(conversationId);
       getConversation(conversationId).then((c) => {
-        c.events.forEach(applyEvent);
-        setEvents((prev) => prev.map((e) => c.events.find((x) => x.seq === e.seq) || e));
+        lastSeq.current = maxSeq(c.events);
+        setEvents((prev) => [...c.events, ...prev.filter((e) => e.pending)]);
         if (c.running) follow(conversationId); else setRunning(false);
       }).catch(() => {});
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [conversationId, follow, applyEvent]);
+  }, [conversationId, follow]);
 
   // Follow new content only while the reader is at the bottom.
   useEffect(() => {
@@ -176,47 +233,83 @@ export default function ClaudeChat() {
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
-  useEffect(() => { if (atBottom) scrollToEnd(); }, [events.length, liveText, running]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (atBottom) scrollToEnd(); }, [events.length, liveText, running, thinking]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onSend = async (text, files) => {
+  // Sending: the message is on screen and the box is clear before the
+  // request leaves; the reply streams back on the same request.
+  const onSend = (text, files) => {
     setError(null);
-    try {
-      const { conversationId: id } = await sendMessage({ conversationId, text, files });
-      setAtBottom(true);
-      if (id !== conversationId) {
-        lastSeq.current = -1;
-        setParams({ c: id });
-      } else {
-        follow(id);
-      }
-      refreshList();
-      return true;
-    } catch (e) {
-      setError(e.message);
-      return false;
+    const id = activeId;
+    const clientId = newId();
+    const mine = { t: 'user', seq: `pending-${clientId}`, pending: true, clientId, text,
+      files: files.map((f) => ({ name: f.name, type: f.type })) };
+    setEvents((prev) => [...prev.filter((e) => !e.failed), mine]);
+    setRunning(true);
+    setThinking(false);
+    setAtBottom(true);
+    setConversations(cache.touchInList(id, { title: (text || files[0]?.label || 'Files').slice(0, 60), running: true }));
+    if (!conversationId) {
+      freshRef.current = id;
+      setParams({ c: id });
     }
+
+    streamRef.current?.abort();
+    const ctl = new AbortController();
+    streamRef.current = ctl;
+    sendMessage({ conversationId: id, text, files, clientId }, applyEvent, ctl.signal)
+      .catch((e) => {
+        if (ctl.signal.aborted) return;
+        setRunning(false);
+        setEvents((prev) => prev.map((ev) => (ev.clientId === clientId && ev.pending ? { ...ev, failed: e.message } : ev)));
+      })
+      .finally(() => { if (streamRef.current === ctl) streamRef.current = null; });
+    return true;
   };
 
+  const retry = (ev) => {
+    setEvents((prev) => prev.filter((e) => e !== ev));
+    onSend(ev.text || '', []);
+  };
+
+  // Answering a card shows the answer at once; it goes back if the server refuses.
   const onAnswer = async (approvalId, approve) => {
+    const patch = (status) => setEvents((prev) => prev.map((e) => (e.t === 'approval' && e.id === approvalId ? { ...e, status } : e)));
+    patch(approve ? 'approved' : 'denied');
     try {
       await answerApproval(conversationId, approvalId, approve);
       if (!streamRef.current) follow(conversationId);
     } catch (e) {
-      setError(e.message);
+      patch('pending');
+      setError(e.status === 409 ? 'That request had already ended.' : e.message);
     }
   };
 
   const onDelete = async (id) => {
+    const before = conversations;
+    cache.removeConvo(id);
+    setConversations(cache.getList());
+    if (id === conversationId) open(null);
     try {
       await deleteConversation(id);
-      setConversations((prev) => prev.filter((x) => x.id !== id));
-      if (id === conversationId) setParams({});
     } catch (e) {
+      showList(before);
       setError(e.message);
     }
   };
 
-  const open = (id) => { setParams(id ? { c: id } : {}); setSheetOpen(false); };
+  // Fetch a conversation as soon as a finger or pointer lands on it in the
+  // list, so it is usually cached before the tap completes.
+  const prefetch = (id) => {
+    if (id === conversationId) return;
+    getConversation(id).then((c) => cache.setConvo(id, { id, events: c.events })).catch(() => {});
+  };
+
+  function open(id) {
+    freshRef.current = null;
+    if (!id) setDraftId(newId());
+    setParams(id ? { c: id } : {});
+    setSheetOpen(false);
+  }
 
   // A bottom sheet on a phone, a side panel on anything wider.
   const sheetFrom = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches ? { x: '-100%' } : { y: '100%' };
@@ -240,7 +333,7 @@ export default function ClaudeChat() {
       onDrop={(e) => { e.preventDefault(); setDragging(false); composer.current?.addFiles([...e.dataTransfer.files]); }}
     >
       <aside className="cc-sidebar">
-        <ConversationList items={conversations} activeId={conversationId} onOpen={open} onDelete={onDelete} onNew={() => open(null)} />
+        <ConversationList items={conversations} activeId={conversationId} onOpen={open} onDelete={onDelete} onNew={() => open(null)} onPrefetch={prefetch} />
       </aside>
 
       <section className="cc-main">
@@ -278,11 +371,12 @@ export default function ClaudeChat() {
             const lastItem = turn.items[turn.items.length - 1];
             const stepRunning = lastItem?.kind === 'steps' && lastItem.items.some((x) => x.status === 'running');
             const showDots = last && running && !liveText && !waitingOnYou && !stepRunning;
-            const hasReply = turn.items.length > 0 || (last && (running || liveText));
+            const hasReply = turn.items.length > 0 || (last && running && !turn.user?.failed);
+            const anim = typeof turn.key === 'number' && turn.key <= baseSeq.current ? { initial: false } : fade;
             return (
               <Fragment key={turn.key}>
                 {turn.user && (
-                  <motion.div className="cc-user" {...fade}>
+                  <motion.div className={`cc-user ${turn.user.pending ? 'pending' : ''} ${turn.user.failed ? 'failed' : ''}`} {...anim}>
                     {turn.user.files?.length > 0 && (
                       <div className="cc-user-files">
                         {turn.user.files.map((f) => (
@@ -291,10 +385,15 @@ export default function ClaudeChat() {
                       </div>
                     )}
                     {turn.user.text && <div className="cc-user-text">{turn.user.text}</div>}
+                    {turn.user.failed && (
+                      <button className="cc-retry" onClick={() => retry(turn.user)} title={turn.user.failed}>
+                        <AlertTriangle size={12} /> Not sent · <RotateCcw size={12} /> Retry
+                      </button>
+                    )}
                   </motion.div>
                 )}
                 {hasReply && (
-                  <motion.div className="cc-turn" {...fade}>
+                  <motion.div className="cc-turn" {...anim}>
                     <div className="cc-avatar"><Sparkles size={14} /></div>
                     <div className="cc-turn-body">
                       {turn.items.map((it) => {
@@ -304,7 +403,9 @@ export default function ClaudeChat() {
                         return <div key={it.key} className="cc-error"><AlertTriangle size={14} /> {it.ev.message}</div>;
                       })}
                       {last && liveText && <div className="cc-live"><Markdown text={liveText} /></div>}
-                      {showDots && <div className="cc-dots"><span /><span /><span /></div>}
+                      {showDots && (thinking
+                        ? <div className="cc-thinking"><span>Thinking</span></div>
+                        : <div className="cc-dots"><span /><span /><span /></div>)}
                     </div>
                   </motion.div>
                 )}
@@ -334,7 +435,9 @@ export default function ClaudeChat() {
         </div>
       </section>
 
-      <AnimatePresence>
+      {/* Portalled: the page's fade-in transform would otherwise trap these
+          fixed overlays inside it, under the bottom nav. */}
+      {createPortal(<AnimatePresence>
         {dragging && (
           <motion.div className="cc-drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <Paperclip size={28} /><span>Drop to attach</span>
@@ -352,11 +455,11 @@ export default function ClaudeChat() {
                 <span>Conversations</span>
                 <button className="cc-icon" onClick={() => setSheetOpen(false)}><X size={18} /></button>
               </div>
-              <ConversationList items={conversations} activeId={conversationId} onOpen={open} onDelete={onDelete} onNew={() => open(null)} />
+              <ConversationList items={conversations} activeId={conversationId} onOpen={open} onDelete={onDelete} onNew={() => open(null)} onPrefetch={prefetch} />
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>, document.body)}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 // the full list on tap. Pictures it took of the app sit underneath.
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronRight, Loader2, X, Image as ImageIcon } from 'lucide-react';
 import { fetchImage } from '../../utils/claudeApi';
 
@@ -10,20 +11,21 @@ function Thumb({ file }) {
   const [src, setSrc] = useState(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    const ctl = new AbortController();
-    let url;
-    fetchImage(file, ctl.signal).then((u) => { url = u; setSrc(u); }).catch(() => {});
-    return () => { ctl.abort(); if (url) URL.revokeObjectURL(url); };
+    let live = true;
+    // Shared and kept for the session (claudeApi caches it), so not revoked here.
+    fetchImage(file).then((u) => live && setSrc(u)).catch(() => {});
+    return () => { live = false; };
   }, [file]);
   return (
     <>
       <button className="ccs-thumb" onClick={() => src && setOpen(true)} title="What Claude looked at">
         {src ? <img src={src} alt="What Claude looked at" /> : <ImageIcon size={16} />}
       </button>
-      {open && (
+      {open && createPortal(
         <div className="ccs-lightbox" onClick={() => setOpen(false)}>
           <img src={src} alt="What Claude looked at" />
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

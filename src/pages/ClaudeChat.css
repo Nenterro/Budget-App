@@ -132,6 +132,34 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+.cc-user.pending .cc-user-text { opacity: 0.72; }
+.cc-user.failed .cc-user-text { opacity: 0.6; border-color: color-mix(in srgb, var(--expense-color) 50%, transparent); }
+.cc-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: none;
+  background: color-mix(in srgb, var(--expense-color) 12%, transparent);
+  color: var(--expense-color);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cc-thinking {
+  align-self: flex-start;
+  font-size: 13.5px;
+  padding: 4px 0;
+}
+.cc-thinking span {
+  background: linear-gradient(90deg, var(--text-muted) 0%, var(--text-primary) 50%, var(--text-muted) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: cc-shimmer 1.6s linear infinite;
+}
 .cc-user-files { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .cc-user-file {
   display: inline-flex;

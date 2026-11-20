@@ -174,6 +174,24 @@ export default function Layout() {
 
   const { drafts, refresh: refreshInbox, count: inboxCount } = useInboxDrafts();
 
+  // Once the app is idle, fetch the Claude page's code and conversation list
+  // so opening it is instant. Loaded on demand here, so the shell's own
+  // bundle stays as it was.
+  useEffect(() => {
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 2000));
+    const cancel = window.cancelIdleCallback || clearTimeout;
+    const handle = idle(() => {
+      import('../pages/ClaudeChat').catch(() => {});
+      Promise.all([import('../utils/claudeApi'), import('../utils/claudeCache')])
+        .then(([api, cache]) => {
+          if (!api.canUseClaude()) return;
+          api.listConversations().then((r) => cache.setList(r.conversations)).catch(() => {});
+        })
+        .catch(() => {});
+    });
+    return () => cancel(handle);
+  }, []);
+
   const location = useLocation();
 
   useEffect(() => {
