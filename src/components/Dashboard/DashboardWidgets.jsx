@@ -1,24 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useBaseMoney } from '../../hooks/useBaseMoney';
 import { Trash2, Plus, X } from 'lucide-react';
-import { formatCurrency, getCurrencySymbol } from '../../utils/format';
 import { parseISO, format, subDays, isAfter, startOfDay } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { CurrencyBarChart } from '../Graphs/CurrencyChart';
+import { addMoney, moneyEntries, formatOne } from '../../utils/money';
 import * as Widgets from '../Stats/StatWidgets';
 import AddStatModal from '../Stats/AddStatModal';
-import { useAppearanceSettings } from '../../context/SettingsContext';
-import { useData } from '../../context/DataContext';
-import { convertAmount } from '../../utils/exchange';
 import { getEffectiveReportingItems } from '../../utils/txAdjustments';
 
 import { WIDGET_TYPES } from './AddDashboardWidgetModal';
-
-const formatCompactNumber = (amount) => {
-  return new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 1
-  }).format(amount);
-};
 
 export default function DashboardWidgetCard({ widget, onUpdate, onRemove, transactions, advancedFilteredTransactions, accounts, dateRange }) {
   const typeDef = WIDGET_TYPES.find(t => t.id === widget.type) || { title: 'Unknown Widget' };
@@ -199,37 +189,30 @@ function RecentTransactions({ transactions, accounts }) {
   );
 }
 
-function MiniCashFlow({ transactions: rawTxs, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
+function MiniCashFlow({ transactions: rawTxs }) {
+  const money = useBaseMoney();
   const { income, expense } = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    let inc = 0, exp = 0;
-    transactions.forEach(tx => {
-      let txCurrency = tx.currency;
-      if (!txCurrency) {
-        const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
-        txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
-      }
-      let amt = Math.abs(tx.amount);
-      if (txCurrency !== baseCurrency && exchangeRates) {
-        amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
-      }
-      
-      if (tx.type === 1 || tx.type === 'income') inc += amt;
-      else if (tx.type === 0 || tx.type === 'expense') exp += amt;
+    const income = {};
+    const expense = {};
+    getEffectiveReportingItems(rawTxs).forEach(tx => {
+      const cur = money.currencyOf(tx);
+      const amt = Math.abs(Number(tx.amount) || 0);
+      if (tx.type === 1 || tx.type === 'income') addMoney(income, cur, amt);
+      else if (tx.type === 0 || tx.type === 'expense') addMoney(expense, cur, amt);
     });
-    return { income: inc, expense: exp };
-  }, [rawTxs, baseCurrency, exchangeRates, accounts]);
+    return { income, expense };
+  }, [rawTxs, money]);
 
-  const total = income + expense;
-  const incomePercent = total > 0 ? (income / total) * 100 : 50;
+  // The bar compares in and out, so it is converted in both modes.
+  const inBase = money.inBase(income);
+  const total = inBase + money.inBase(expense);
+  const incomePercent = total > 0 ? (inBase / total) * 100 : 50;
 
   return (
     <div>
       <div className="cf-labels">
-        <span className="cf-pill cf-pill-in">In: {getCurrencySymbol(baseCurrency)}{formatCurrency(income, true)}</span>
-        <span className="cf-pill cf-pill-out">Out: {getCurrencySymbol(baseCurrency)}{formatCurrency(expense, true)}</span>
+        <span className="cf-pill cf-pill-in">In: {money.formatMap(income, { noDecimals: true })}</span>
+        <span className="cf-pill cf-pill-out">Out: {money.formatMap(expense, { noDecimals: true })}</span>
       </div>
       <div className="cf-bar-container">
         <div className="cf-bar-fill" style={{ width: `${incomePercent}%` }}></div>
@@ -238,208 +221,99 @@ function MiniCashFlow({ transactions: rawTxs, accounts }) {
   );
 }
 
-function TopCategories({ transactions: rawTxs, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  
-  const topCategories = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    const sums = {};
-    let totalExpense = 0;
-    
-    transactions.forEach(tx => {
+// Top spending groups: ranked and barred by converted total (comparing needs
+// one scale), labelled per currency in native mode.
+function useTopSpend(rawTxs, keyOf) {
+  const money = useBaseMoney();
+  return useMemo(() => {
+    const groups = {};
+    getEffectiveReportingItems(rawTxs).forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
-        const cat = tx.category || 'Uncategorized';
-        let txCurrency = tx.currency;
-        if (!txCurrency) {
-          const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
-          txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
-        }
-        let amt = Math.abs(tx.amount);
-        if (txCurrency !== baseCurrency && exchangeRates) {
-          amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
-        }
-        sums[cat] = (sums[cat] || 0) + amt;
-        totalExpense += amt;
+        const k = keyOf(tx);
+        if (!groups[k]) groups[k] = {};
+        addMoney(groups[k], money.currencyOf(tx), Math.abs(Number(tx.amount) || 0));
       }
     });
-
-    const maxAmount = Math.max(0, ...Object.values(sums));
-
-    return Object.keys(sums)
-      .map(cat => ({ name: cat, amount: sums[cat], percent: maxAmount > 0 ? (sums[cat] / maxAmount) * 100 : 0 }))
+    const ranked = Object.entries(groups).map(([name, map]) => ({ name, map, amount: money.inBase(map) }));
+    const maxAmount = Math.max(0, ...ranked.map(r => r.amount));
+    return ranked
+      .map(r => ({ ...r, percent: maxAmount > 0 ? (r.amount / maxAmount) * 100 : 0 }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 4);
-  }, [rawTxs, baseCurrency, exchangeRates, accounts]);
+  }, [rawTxs, keyOf, money]);
+}
 
-  if (topCategories.length === 0) return <div style={{ color: 'var(--text-secondary)' }}>No expenses found.</div>;
-
+function TopSpendList({ items, barColour, empty }) {
+  const money = useBaseMoney();
+  if (items.length === 0) return <div style={{ color: 'var(--text-secondary)' }}>{empty}</div>;
   return (
     <div className="tc-list">
-      {topCategories.map(cat => (
-        <div key={cat.name} className="tc-item">
-          <span style={{ width: '80px', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cat.name}</span>
-          <div className="tc-bar-bg">
-            <div className="tc-bar-fill" style={{ width: `${cat.percent}%` }}></div>
+      {items.map(item => {
+        const lines = money.native
+          ? moneyEntries(item.map, money.baseCurrency).map(([c, a]) => formatOne(a, c, { noDecimals: true }))
+          : [formatOne(item.amount, money.baseCurrency, { noDecimals: true })];
+        return (
+          <div key={item.name} className="tc-item">
+            <span style={{ width: '80px', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+            <div className="tc-bar-bg">
+              <div className="tc-bar-fill" style={{ width: `${item.percent}%`, ...(barColour ? { background: barColour } : {}) }}></div>
+            </div>
+            <span className="money-lines" style={{ minWidth: '60px', textAlign: 'right', alignItems: 'flex-end', fontSize: '13px', fontWeight: 500 }}>
+              {lines.map((l, i) => <span key={i} className={i ? 'money-line-minor' : undefined}>{l}</span>)}
+            </span>
           </div>
-          <span style={{ width: '60px', textAlign: 'right', fontSize: '13px', fontWeight: 500 }}>
-            {getCurrencySymbol(baseCurrency)}{formatCurrency(cat.amount, true)}
-          </span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-function TopPayees({ transactions: rawTxs, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  
-  const topPayees = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    const sums = {};
-    let totalExpense = 0;
-    
-    transactions.forEach(tx => {
-      if (tx.type === 0 || tx.type === 'expense') {
-        const payee = tx.payee ? tx.payee.trim() : 'Unknown';
-        let txCurrency = tx.currency;
-        if (!txCurrency) {
-          const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
-          txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
-        }
-        let amt = Math.abs(tx.amount);
-        if (txCurrency !== baseCurrency && exchangeRates) {
-          amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
-        }
-        sums[payee] = (sums[payee] || 0) + amt;
-        totalExpense += amt;
-      }
-    });
+const categoryOf = tx => tx.category || 'Uncategorized';
+const payeeOf = tx => (tx.payee ? tx.payee.trim() : 'Unknown');
 
-    const maxAmount = Math.max(0, ...Object.values(sums));
-
-    return Object.keys(sums)
-      .map(payee => ({ name: payee, amount: sums[payee], percent: maxAmount > 0 ? (sums[payee] / maxAmount) * 100 : 0 }))
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 4);
-  }, [rawTxs, baseCurrency, exchangeRates, accounts]);
-
-  if (topPayees.length === 0) return <div style={{ color: 'var(--text-secondary)' }}>No expenses found.</div>;
-
-  return (
-    <div className="tc-list">
-      {topPayees.map(payee => (
-        <div key={payee.name} className="tc-item">
-          <span style={{ width: '80px', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{payee.name}</span>
-          <div className="tc-bar-bg">
-            <div className="tc-bar-fill" style={{ width: `${payee.percent}%`, background: '#f43f5e' }}></div>
-          </div>
-          <span style={{ width: '60px', textAlign: 'right', fontSize: '13px', fontWeight: 500 }}>
-            {getCurrencySymbol(baseCurrency)}{formatCurrency(payee.amount, true)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
+function TopCategories({ transactions: rawTxs }) {
+  const items = useTopSpend(rawTxs, categoryOf);
+  return <TopSpendList items={items} empty="No expenses found." />;
 }
 
-export function SevenDayExpenseChart({ transactions: rawTxs, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  
-  const chartData = useMemo(() => {
-    const transactions = getEffectiveReportingItems(rawTxs);
-    const data = [];
+function TopPayees({ transactions: rawTxs }) {
+  const items = useTopSpend(rawTxs, payeeOf);
+  return <TopSpendList items={items} barColour="#f43f5e" empty="No expenses found." />;
+}
+
+export function SevenDayExpenseChart({ transactions: rawTxs }) {
+  const money = useBaseMoney();
+
+  const rows = useMemo(() => {
     const today = startOfDay(new Date());
-    
-    // Create an array of the last 7 days
+    const days = [];
     for (let i = 6; i >= 0; i--) {
       const d = subDays(today, i);
-      data.push({
-        dateObj: d,
-        day: format(d, 'EEE'), // e.g., 'Mon'
-        fullDate: format(d, 'MMM dd'), // e.g., 'Jul 15'
-        expense: 0
-      });
+      days.push({ dateObj: d, day: format(d, 'EEE'), fullDate: format(d, 'MMM dd'), money: {} });
     }
-
-    // Accumulate expenses
-    transactions.forEach(tx => {
+    getEffectiveReportingItems(rawTxs).forEach(tx => {
       if (tx.type === 0 || tx.type === 'expense') {
         const txDate = startOfDay(parseISO(tx.date));
-        const dayMatch = data.find(d => d.dateObj.getTime() === txDate.getTime());
-        if (dayMatch) {
-          let txCurrency = tx.currency;
-          if (!txCurrency) {
-            const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
-            txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
-          }
-          let amt = Math.abs(tx.amount);
-          if (txCurrency !== baseCurrency && exchangeRates) {
-            amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
-          }
-          dayMatch.expense += amt;
-        }
+        const dayMatch = days.find(d => d.dateObj.getTime() === txDate.getTime());
+        if (dayMatch) addMoney(dayMatch.money, money.currencyOf(tx), Math.abs(Number(tx.amount) || 0));
       }
     });
-
-    return data;
-  }, [rawTxs, baseCurrency, exchangeRates, accounts]);
-
-  const CustomTooltip = ({ active, payload }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div style={{ background: '#1e1e24', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 12px', borderRadius: '8px', color: '#fff' }}>
-          <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>{payload[0].payload.fullDate}</p>
-          <p style={{ margin: 0, fontWeight: 600, color: '#ef4444' }}>
-            {getCurrencySymbol(baseCurrency)}{formatCurrency(payload[0].value)}
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
+    return days;
+  }, [rawTxs, money]);
 
   return (
     <div style={{ width: '100%', flex: 1, minHeight: '150px', marginTop: '16px' }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id="colorExpenseBar" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ef4444" stopOpacity={1}/>
-              <stop offset="100%" stopColor="#ef4444" stopOpacity={0.5}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-          <XAxis 
-            dataKey="day" 
-            stroke="var(--text-secondary)" 
-            fontSize={12} 
-            tickLine={false} 
-            axisLine={false} 
-            dy={10}
-          />
-          <YAxis 
-            stroke="var(--text-secondary)" 
-            fontSize={12} 
-            tickLine={false} 
-            axisLine={false} 
-            tickFormatter={(val) => formatCompactNumber(val)} 
-            width={40} 
-          />
-          <Tooltip content={<CustomTooltip />} cursor={false} />
-          <Bar 
-            dataKey="expense" 
-            fill="url(#colorExpenseBar)" 
-            fillOpacity={0.8} 
-            activeBar={{ fillOpacity: 1 }} 
-            barSize={24} 
-            radius={[4, 4, 0, 0]} 
-            style={{ transition: 'fill-opacity 0.3s ease' }} 
-          />
-        </BarChart>
-      </ResponsiveContainer>
+      <CurrencyBarChart
+        rows={rows}
+        xKey="day"
+        colour="#ef4444"
+        idPrefix="colorExpenseBar"
+        fillOpacity={0.8}
+        barSize={24}
+        labelOf={(row) => row.fullDate}
+        xAxisProps={{ dy: 10 }}
+        margin={{ top: 0, right: 0, left: 0, bottom: 0 }}
+      />
     </div>
   );
 }

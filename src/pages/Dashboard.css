@@ -245,6 +245,8 @@
 }
 .cf-labels {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;

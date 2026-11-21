@@ -68,42 +68,13 @@ export default function CurrencySettings() {
               </div>
             </div>
             
-            <div className="display-mode-toggles" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', width: '100%' }}>
-              <button 
-                className={`mode-btn ${displayMode === 'unified' ? 'active' : ''}`}
-                onClick={() => setDisplayMode('unified')}
-                style={{
-                  padding: '12px',
-                  borderRadius: '12px',
-                  border: `1px solid ${displayMode === 'unified' ? 'var(--accent-color)' : 'rgba(255,255,255,0.1)'}`,
-                  background: displayMode === 'unified' ? 'var(--accent-color)' : 'rgba(255,255,255,0.04)',
-                  color: displayMode === 'unified' ? '#fff' : 'var(--text-primary)',
-                  fontWeight: '600',
-                  fontSize: '14px',
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  transition: 'all 0.2s'
-                }}
-              >
+            <div className="segmented" role="radiogroup" aria-label="Display mode">
+              <button type="button" role="radio" aria-checked={displayMode === 'unified'}
+                className={`segment ${displayMode === 'unified' ? 'active' : ''}`} onClick={() => setDisplayMode('unified')}>
                 Unified (Converted)
               </button>
-              <button 
-                className={`mode-btn ${displayMode === 'split' ? 'active' : ''}`}
-                disabled
-                style={{
-                  padding: '12px',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(255,255,255,0.05)',
-                  background: 'rgba(255,255,255,0.02)',
-                  color: 'var(--text-secondary)',
-                  fontWeight: '500',
-                  fontSize: '14px',
-                  cursor: 'not-allowed',
-                  opacity: 0.5,
-                  textAlign: 'center'
-                }}
-                title="Native split mode coming soon"
-              >
+              <button type="button" role="radio" aria-checked={displayMode === 'split'}
+                className={`segment ${displayMode === 'split' ? 'active' : ''}`} onClick={() => setDisplayMode('split')}>
                 Native (Split)
               </button>
             </div>
@@ -168,7 +139,7 @@ export default function CurrencySettings() {
                 <strong>Elevate Pay rate:</strong> US dollars convert at Elevate's own "Live rate" (what you get when you move money out of Elevate), checked every 10 minutes while the app is open. Other currencies keep the market rate.
               </p>
               <p style={{ margin: 0 }}>
-                <strong>Native Mode:</strong> Balances and totals are displayed in their original account currencies without conversion.
+                <strong>Native Mode:</strong> Every amount stays in its own currency and totals are kept apart per currency (₨… + $…). Graphs get a second scale for the second currency, and pie slices show their currency split as an outer ring. Ratios, rankings, Ending Balance and Budgets have no honest per-currency version, so they stay converted and are tagged as such.
               </p>
             </div>
           </div>

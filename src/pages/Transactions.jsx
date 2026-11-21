@@ -68,10 +68,8 @@ export default function Transactions() {
   }, [openTxId]);
 
   // Filter Logic
-  // The amount filter is typed in the base currency (its fields show that
-  // symbol), so in unified mode a foreign amount is compared after converting.
+
   const money = useBaseMoney();
-  const filterMagnitude = (tx) => Math.abs(money.show(tx.amount, money.currencyOf(tx)).amount);
 
   const filteredTransactions = useMemo(() => {
     let flattened = [];
@@ -125,13 +123,10 @@ export default function Transactions() {
     }
     // Magnitude, not signed value: expenses are stored negative, so a signed
     // comparison against "min 100" silently excluded every expense there is.
-    if (filterState.minAmount !== '' && filterState.minAmount !== null) {
-      const min = Math.abs(parseFloat(filterState.minAmount));
-      if (!isNaN(min)) result = result.filter(tx => filterMagnitude(tx) >= min);
-    }
-    if (filterState.maxAmount !== '' && filterState.maxAmount !== null) {
-      const max = Math.abs(parseFloat(filterState.maxAmount));
-      if (!isNaN(max)) result = result.filter(tx => filterMagnitude(tx) <= max);
+    // The limits are typed in the filter's own currency and converted into
+    // each transaction's (see passesAmountFilter in src/utils/money.js).
+    if ((filterState.minAmount !== '' && filterState.minAmount !== null) || (filterState.maxAmount !== '' && filterState.maxAmount !== null)) {
+      result = result.filter(tx => money.passesAmount(tx, filterState));
     }
 
     return result;

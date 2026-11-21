@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, Suspense } from 'react';
+import { orderCurrencies } from '../utils/money';
 import { useBaseMoney } from '../hooks/useBaseMoney';
 import { lazyWithReload } from '../utils/staleChunk';
 import { useData } from '../context/DataContext';
@@ -41,10 +42,8 @@ export default function Dashboard() {
 
 
   // Filter Logic
-  // The amount filter is typed in the base currency (its fields show that
-  // symbol), so in unified mode a foreign amount is compared after converting.
+
   const money = useBaseMoney();
-  const filterMagnitude = (tx) => Math.abs(money.show(tx.amount, money.currencyOf(tx)).amount);
 
   const { fullyFiltered, advancedFiltered, currentRange } = useMemo(() => {
     let advancedResult = transactions;
@@ -59,13 +58,10 @@ export default function Dashboard() {
     }
     // Magnitude, not signed value: expenses are stored negative, so a signed
     // comparison against "min 100" silently excluded every expense there is.
-    if (filterState.minAmount !== '' && filterState.minAmount !== null) {
-      const min = Math.abs(parseFloat(filterState.minAmount));
-      if (!isNaN(min)) advancedResult = advancedResult.filter(tx => filterMagnitude(tx) >= min);
-    }
-    if (filterState.maxAmount !== '' && filterState.maxAmount !== null) {
-      const max = Math.abs(parseFloat(filterState.maxAmount));
-      if (!isNaN(max)) advancedResult = advancedResult.filter(tx => filterMagnitude(tx) <= max);
+    // The limits are typed in the filter's own currency and converted into
+    // each transaction's (see passesAmountFilter in src/utils/money.js).
+    if ((filterState.minAmount !== '' && filterState.minAmount !== null) || (filterState.maxAmount !== '' && filterState.maxAmount !== null)) {
+      advancedResult = advancedResult.filter(tx => money.passesAmount(tx, filterState));
     }
 
     let fullyResult = advancedResult;
@@ -156,7 +152,7 @@ export default function Dashboard() {
           <div className="glass-panel total-balance-pill split-balance">
             <div className="balance-label">Total Balance (Split)</div>
             <div className="split-balances-container" style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginTop: '4px' }}>
-              {Object.entries(splitBalances).map(([cur, amt]) => (
+              {orderCurrencies(Object.keys(splitBalances), baseCurrency).map(cur => [cur, splitBalances[cur]]).map(([cur, amt]) => (
                 <div key={cur} className="split-balance-item" style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{cur}</span>
                   <span className="balance-amount" style={{ fontSize: '24px' }}>{getCurrencySymbol(cur)}{formatCurrency(amt)}</span>

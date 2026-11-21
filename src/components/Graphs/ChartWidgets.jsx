@@ -4,13 +4,12 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { format, subMonths, isAfter, parseISO, addDays, startOfDay, differenceInDays } from 'date-fns';
-import { formatCurrency } from '../../utils/format';
-import { useAppearanceSettings } from '../../context/SettingsContext';
-import { useData } from '../../context/DataContext';
-import { convertAmount } from '../../utils/exchange';
+import { useBaseMoney } from '../../hooks/useBaseMoney';
+import { addMoney, mapMoney, orderCurrencies } from '../../utils/money';
+import { CurrencyBarChart, CurrencyKey, MoneyTooltip } from './CurrencyChart';
 import { getEffectiveReportingItems } from '../../utils/txAdjustments';
 import { parseDayLocal, dayStringOf } from '../../utils/date';
-import { balanceChangesByDay } from '../../utils/balances';
+import { balanceChangesByDay, balanceChangesByDayPerCurrency } from '../../utils/balances';
 
 const formatCompactCurrency = (amount, currencyCode) => {
   return new Intl.NumberFormat('en-US', {
@@ -55,21 +54,6 @@ const COLORS = [
   '#ec4899', '#8b5cf6', '#14b8a6', '#f43f5e', '#6366f1'
 ];
 
-const CustomTooltip = ({ active, payload, label, formatter, labelFormatter }) => {
-  if (active && payload && payload.length) {
-    const displayLabel = labelFormatter ? labelFormatter(label) : label;
-    return (
-      <div className="custom-tooltip">
-        <p className="label">{displayLabel}</p>
-        <p className="intro">
-          {formatter ? formatter(payload[0].value) : payload[0].value}
-        </p>
-      </div>
-    );
-  }
-  return null;
-};
-
 import { AreaChart, Area } from 'recharts'; // Make sure AreaChart and Area are available
 
 // 1. Balance Over Time (Area Chart)
@@ -80,22 +64,37 @@ import { AreaChart, Area } from 'recharts'; // Make sure AreaChart and Area are 
 // balanceChangesByDay), while transfers it made into other accounts still
 // arrive there.
 export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange, excludedAccounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
+  const money = useBaseMoney();
+  const { baseCurrency, rates: exchangeRates, native } = money;
 
-  const { data, ticks } = useMemo(() => {
+  const { data, ticks, series } = useMemo(() => {
     // Balances are money in the accounts, not a reporting figure: no netting
     // of shared expenses, transfers counted, cards left out — exactly as the
     // Home page total does it, so the two agree.
     const transactions = rawTxs || [];
-    if (transactions.length === 0) return { data: [], ticks: [] };
+    if (transactions.length === 0) return { data: [], ticks: [], series: [] };
 
     const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const { opening, daily: dailyChanges } = balanceChangesByDay({
-      transactions, accounts, baseCurrency, exchangeRates, dayOf: dayStringOf,
-      excludedAccounts: excludedAccounts ? [...excludedAccounts] : [],
-    });
-    let currentBalance = opening;
+    const excluded = excludedAccounts ? [...excludedAccounts] : [];
+
+    // Unified: one converted line. Native: one line per currency, in that
+    // currency, from the same legs (balanceChangesByDayPerCurrency).
+    let opening, dailyChanges, keys;
+    if (native) {
+      const per = balanceChangesByDayPerCurrency({ transactions, accounts, dayOf: dayStringOf, excludedAccounts: excluded });
+      opening = per.opening;
+      dailyChanges = per.daily;
+      const present = new Set(Object.keys(opening));
+      Object.values(dailyChanges).forEach(d => Object.keys(d).forEach(c => present.add(c)));
+      keys = orderCurrencies([...present], baseCurrency);
+      if (keys.length === 0) keys = [baseCurrency];
+    } else {
+      const one = balanceChangesByDay({ transactions, accounts, baseCurrency, exchangeRates, dayOf: dayStringOf, excludedAccounts: excluded });
+      opening = { balance: one.opening };
+      dailyChanges = Object.fromEntries(Object.entries(one.daily).map(([k, v]) => [k, { balance: v }]));
+      keys = ['balance'];
+    }
+    const current = Object.fromEntries(keys.map(k => [k, opening[k] || 0]));
 
     // From the earliest transaction to today, or to the latest one if it is
     // dated ahead: the Home total counts those, so the line has to reach them.
@@ -108,16 +107,9 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange, exc
     for (let i = 0; i <= totalDays; i++) {
       const currDate = addDays(firstDate, i);
       const dayKey = format(currDate, 'yyyy-MM-dd');
-      
-      if (dailyChanges[dayKey]) {
-        currentBalance += dailyChanges[dayKey];
-      }
-      
-      result.push({
-        name: format(currDate, 'MMM dd'),
-        timestamp: currDate.getTime(),
-        balance: currentBalance
-      });
+      const change = dailyChanges[dayKey];
+      if (change) for (const k of keys) current[k] += change[k] || 0;
+      result.push({ name: format(currDate, 'MMM dd'), timestamp: currDate.getTime(), ...current });
     }
 
     if (dateRange && dateRange.start && dateRange.end) {
@@ -125,7 +117,7 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange, exc
       const endT = startOfDay(dateRange.end).getTime();
       result = result.filter(d => d.timestamp >= startT && d.timestamp <= endT);
     }
-    
+
     // Generate exact ticks that perfectly align with midnight timestamps
     const generatedTicks = [];
     if (result.length > 0) {
@@ -143,84 +135,111 @@ export function BalanceOverTime({ transactions: rawTxs, accounts, dateRange, exc
             break;
           }
         }
-        
+
         const step = displayTotalDays / intervals;
         for (let i = 0; i <= intervals; i++) {
           generatedTicks.push(addDays(displayFirstDate, i * step).getTime());
         }
       }
     }
-    
-    return { data: result, ticks: generatedTicks };
-  }, [rawTxs, accounts, dateRange, baseCurrency, exchangeRates, excludedAccounts]);
+
+    const builtSeries = keys.map((k, i) => ({
+      key: k,
+      currency: k === 'balance' ? baseCurrency : k,
+      axis: i === 0 ? 'left' : 'right',
+      colour: k === 'balance' || k === baseCurrency ? 'var(--accent-color)' : money.colourOf(k)
+    }));
+    return { data: result, ticks: generatedTicks, series: builtSeries };
+  }, [rawTxs, accounts, dateRange, baseCurrency, exchangeRates, excludedAccounts, native, money]);
 
   if (data.length === 0) return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '40px' }}>No data</div>;
 
+  const twoScales = series.some(s => s.axis === 'right');
+  const leftColour = twoScales ? series[0].colour : 'var(--text-secondary)';
+  const rightColour = twoScales ? series.find(s => s.axis === 'right').colour : undefined;
+
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data}>
-        <defs>
-          <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="var(--accent-color)" stopOpacity={0.15}/>
-            <stop offset="95%" stopColor="var(--accent-color)" stopOpacity={0}/>
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-        {/* We use the continuous timestamp for smooth X spacing, but hide the raw numbers */}
-        <XAxis 
-          dataKey="timestamp" 
-          type="number" 
-          domain={['dataMin', 'dataMax']} 
-          ticks={ticks}
-          tickFormatter={(tick, index) => index === 0 ? '' : format(new Date(tick), 'dd/MM/yy')}
-          stroke="var(--text-secondary)" 
-          fontSize={12} 
-          tickLine={false} 
-          axisLine={false} 
-        />
-        <YAxis 
-          stroke="var(--text-secondary)" 
-          fontSize={12} 
-          tickLine={false} 
-          axisLine={false} 
-          tickFormatter={(val) => formatCompactNumber(val)} 
-          width={40} 
-        />
-        <Tooltip 
-          content={
-            <CustomTooltip 
-              formatter={(val) => formatCompactCurrency(val, baseCurrency)} 
-              labelFormatter={(label) => format(new Date(label), 'dd MMM')} 
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data}>
+            <defs>
+              {series.map(s => (
+                <linearGradient key={s.key} id={`colorBalance-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={s.colour} stopOpacity={s.axis === 'left' ? 0.15 : 0.08}/>
+                  <stop offset="95%" stopColor={s.colour} stopOpacity={0}/>
+                </linearGradient>
+              ))}
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            {/* We use the continuous timestamp for smooth X spacing, but hide the raw numbers */}
+            <XAxis
+              dataKey="timestamp"
+              type="number"
+              domain={['dataMin', 'dataMax']}
+              ticks={ticks}
+              tickFormatter={(tick, index) => index === 0 ? '' : format(new Date(tick), 'dd/MM/yy')}
+              stroke="var(--text-secondary)"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
             />
-          } 
-          animationDuration={200} // Smooth interpolation of tooltip value
-          animationEasing="ease-out"
-        />
-        <Area 
-          type="monotone" 
-          dataKey="balance" 
-          stroke="var(--accent-color)" 
-          strokeWidth={3} 
-          fillOpacity={1} 
-          fill="url(#colorBalance)" 
-          activeDot={{ r: 6, fill: 'var(--accent-color)', stroke: '#fff', strokeWidth: 2 }}
-          animationDuration={1500}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
+            <YAxis
+              yAxisId="left"
+              stroke={leftColour}
+              tick={{ fill: leftColour }}
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(val) => formatCompactNumber(val)}
+              width={40}
+            />
+            {twoScales && (
+              <YAxis yAxisId="right" orientation="right" stroke={rightColour} tick={{ fill: rightColour }}
+                fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactNumber(val)} width={40} />
+            )}
+            <Tooltip
+              content={
+                <MoneyTooltip
+                  series={series}
+                  labelOf={(row) => format(new Date(row.timestamp), 'dd MMM')}
+                />
+              }
+              animationDuration={200} // Smooth interpolation of tooltip value
+              animationEasing="ease-out"
+            />
+            {series.map(s => (
+              <Area
+                key={s.key}
+                yAxisId={s.axis}
+                type="monotone"
+                dataKey={s.key}
+                stroke={s.colour}
+                strokeWidth={s.axis === 'left' ? 3 : 2}
+                fillOpacity={1}
+                fill={`url(#colorBalance-${s.key})`}
+                activeDot={{ r: 6, fill: s.colour, stroke: '#fff', strokeWidth: 2 }}
+                animationDuration={1500}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      <CurrencyKey series={series} colourOf={(c) => series.find(s => s.currency === c)?.colour} />
+    </div>
   );
 }
 
-// Helper for monthly bar charts
-const useMonthlyData = (rawTransactions, filterFn, baseCurrency, exchangeRates, accounts) => {
+// Monthly totals as money maps, last 12 months.
+const useMonthlyData = (rawTransactions, filterFn) => {
+  const money = useBaseMoney();
   return useMemo(() => {
     const transactions = getEffectiveReportingItems(rawTransactions);
     const twelveMonthsAgo = subMonths(new Date(), 12);
-    
-    // Initialize last 12 months with 0
+
     const months = {};
     for (let i = 11; i >= 0; i--) {
-      months[format(subMonths(new Date(), i), 'MMM')] = 0;
+      months[format(subMonths(new Date(), i), 'MMM')] = {};
     }
 
     transactions.forEach(tx => {
@@ -228,131 +247,65 @@ const useMonthlyData = (rawTransactions, filterFn, baseCurrency, exchangeRates, 
       if (isAfter(date, twelveMonthsAgo) && filterFn(tx)) {
         const monthKey = format(date, 'MMM');
         if (months[monthKey] !== undefined) {
-          let txCurrency = tx.currency;
-          if (!txCurrency) {
-            const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
-            txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
-          }
-          let amt = Math.abs(tx.amount);
-          if (txCurrency !== baseCurrency && exchangeRates) {
-            amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
-          }
-          months[monthKey] += amt;
+          addMoney(months[monthKey], money.currencyOf(tx), Math.abs(Number(tx.amount) || 0));
         }
       }
     });
 
-    return Object.keys(months).map(key => ({
-      name: key,
-      amount: months[key]
-    }));
-  }, [rawTransactions, filterFn, baseCurrency, exchangeRates, accounts]);
+    return Object.keys(months).map(key => ({ name: key, money: months[key] }));
+  }, [rawTransactions, filterFn, money]);
 };
 
-// 2. Spending Per Month
-export function SpendingPerMonth({ transactions, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  const data = useMonthlyData(transactions, tx => tx.type === 0, baseCurrency, exchangeRates, accounts);
+const isSpending = tx => tx.type === 0;
+const isEarning = tx => tx.type === 1;
+const isInvesting = tx => tx.type === 0 && tx.category && tx.category.toLowerCase().includes('invest');
 
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data}>
-        <defs>
-          <linearGradient id="colorAccentBar" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent-color)" stopOpacity={1}/>
-            <stop offset="100%" stopColor="var(--accent-color)" stopOpacity={0.5}/>
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-        <XAxis dataKey="name" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
-        <YAxis stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactNumber(val)} width={40} />
-        <Tooltip content={<CustomTooltip formatter={(val) => formatCompactCurrency(val, baseCurrency)} />} cursor={false} />
-        <Bar dataKey="amount" fill="url(#colorAccentBar)" fillOpacity={0.15} activeBar={{ fillOpacity: 1 }} barSize={16} radius={[4, 4, 0, 0]} style={{ transition: 'fill-opacity 0.3s ease' }} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
+// 2. Spending Per Month
+export function SpendingPerMonth({ transactions }) {
+  const rows = useMonthlyData(transactions, isSpending);
+  return <CurrencyBarChart rows={rows} idPrefix="spendingBar" />;
 }
 
 // 3. Income Per Month
-export function IncomePerMonth({ transactions, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  const data = useMonthlyData(transactions, tx => tx.type === 1, baseCurrency, exchangeRates, accounts);
-
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data}>
-        <defs>
-          <linearGradient id="colorAccentBar" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent-color)" stopOpacity={1}/>
-            <stop offset="100%" stopColor="var(--accent-color)" stopOpacity={0.5}/>
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-        <XAxis dataKey="name" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
-        <YAxis stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactNumber(val)} width={40} />
-        <Tooltip content={<CustomTooltip formatter={(val) => formatCompactCurrency(val, baseCurrency)} />} cursor={false} />
-        <Bar dataKey="amount" fill="url(#colorAccentBar)" fillOpacity={0.15} activeBar={{ fillOpacity: 1 }} barSize={16} radius={[4, 4, 0, 0]} style={{ transition: 'fill-opacity 0.3s ease' }} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
+export function IncomePerMonth({ transactions }) {
+  const rows = useMonthlyData(transactions, isEarning);
+  return <CurrencyBarChart rows={rows} idPrefix="incomeBar" />;
 }
 
 // 4. Investment Per Month
-export function InvestmentPerMonth({ transactions, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
+export function InvestmentPerMonth({ transactions }) {
   // Assuming "Investment" is a category
-  const data = useMonthlyData(transactions, tx => tx.type === 0 && tx.category && tx.category.toLowerCase().includes('invest'), baseCurrency, exchangeRates, accounts);
-
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data}>
-        <defs>
-          <linearGradient id="colorAccentBar" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent-color)" stopOpacity={1}/>
-            <stop offset="100%" stopColor="var(--accent-color)" stopOpacity={0.5}/>
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-        <XAxis dataKey="name" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
-        <YAxis stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactNumber(val)} width={40} />
-        <Tooltip content={<CustomTooltip formatter={(val) => formatCompactCurrency(val, baseCurrency)} />} cursor={false} />
-        <Bar dataKey="amount" fill="url(#colorAccentBar)" fillOpacity={0.15} activeBar={{ fillOpacity: 1 }} barSize={16} radius={[4, 4, 0, 0]} style={{ transition: 'fill-opacity 0.3s ease' }} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
+  const rows = useMonthlyData(transactions, isInvesting);
+  return <CurrencyBarChart rows={rows} idPrefix="investmentBar" />;
 }
 
-// Helper for pie charts
-const usePieData = (rawTransactions, filterFn, groupKey, baseCurrency, exchangeRates, accounts) => {
+// Helper for pie charts. Each slice is sized by its converted total, so the
+// pie answers "where did the money go" in every mode; `parts` keeps what it
+// was made of per currency (native amounts) and `partsBase` the same parts
+// converted, which is what the native-mode outer ring is drawn from.
+const usePieData = (rawTransactions, filterFn, groupKey) => {
+  const money = useBaseMoney();
   return useMemo(() => {
     const transactions = getEffectiveReportingItems(rawTransactions);
     const grouped = {};
     transactions.forEach(tx => {
       if (filterFn(tx)) {
         const key = tx[groupKey] || 'Uncategorized';
-        
-        let txCurrency = tx.currency;
-        if (!txCurrency) {
-          const acc = accounts && accounts.find(a => a.id === tx.account || a.name === tx.account);
-          txCurrency = acc ? (acc.currency || 'USD') : baseCurrency;
-        }
-        let amt = Math.abs(tx.amount);
-        if (txCurrency !== baseCurrency && exchangeRates) {
-          amt = convertAmount(amt, txCurrency, baseCurrency, exchangeRates);
-        }
-        
-        grouped[key] = (grouped[key] || 0) + amt;
+        if (!grouped[key]) grouped[key] = {};
+        addMoney(grouped[key], money.currencyOf(tx), Math.abs(Number(tx.amount) || 0));
       }
     });
 
     return Object.keys(grouped)
-      .map(key => ({ name: key, value: grouped[key] }))
+      .map(key => {
+        const parts = grouped[key];
+        const partsBase = mapMoney(parts, (a, c) => money.toBase(a, c));
+        const value = Object.values(partsBase).reduce((s, v) => s + v, 0);
+        return { name: key, value, parts, partsBase };
+      })
       .sort((a, b) => b.value - a.value)
       .slice(0, 10); // Top 10 only
-  }, [rawTransactions, filterFn, groupKey, baseCurrency, exchangeRates, accounts]);
+  }, [rawTransactions, filterFn, groupKey, money]);
 };
 
 const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
@@ -436,7 +389,9 @@ const PieOverlay = ({ activeIndex, data, total, chartSize, baseRadius }) => {
   );
 };
 
-function CustomPieChartWidget({ data, baseCurrency, isIncome = false }) {
+function CustomPieChartWidget({ data, isIncome = false }) {
+  const money = useBaseMoney();
+  const { baseCurrency } = money;
   const [lockedIndex, setLockedIndex] = useState(-1);
   const [hoveredIndex, setHoveredIndex] = useState(-1);
   const activeIndex = lockedIndex !== -1 ? lockedIndex : hoveredIndex;
@@ -499,10 +454,30 @@ function CustomPieChartWidget({ data, baseCurrency, isIncome = false }) {
   // second line the moment the currency code and a five-character figure did
   // not fit. It is now sized to its own content, and the font shrinks only
   // once the legend is genuinely too narrow to hold it at full size.
+  // Native mode lists what each slice was made of ("PKR 30.1K + USD 25"),
+  // unified mode the one converted figure.
   const legendLabels = useMemo(
-    () => data.map(entry => formatCompactCurrency(entry.value, baseCurrency)),
-    [data, baseCurrency]
+    () => data.map(entry => money.native
+      ? orderCurrencies(Object.keys(entry.parts), baseCurrency)
+          .filter(c => Math.abs(entry.parts[c]) >= 0.005)
+          .map(c => formatCompactCurrency(entry.parts[c], c)).join(' + ') || formatCompactCurrency(0, baseCurrency)
+      : formatCompactCurrency(entry.value, baseCurrency)),
+    [data, baseCurrency, money.native]
   );
+
+  // Native mode: an outer ring splits every slice by currency, sized by the
+  // converted parts so its segments line up with the slice beneath. Only
+  // drawn when more than one currency appears at all.
+  const ring = useMemo(() => {
+    if (!money.native) return null;
+    const segments = data.flatMap((entry, index) =>
+      orderCurrencies(Object.keys(entry.partsBase), baseCurrency)
+        .filter(c => entry.partsBase[c] > 0)
+        .map(c => ({ key: `${index}-${c}`, index, currency: c, value: entry.partsBase[c] }))
+    );
+    const currencies = orderCurrencies([...new Set(segments.map(s => s.currency))], baseCurrency);
+    return currencies.length > 1 ? { segments, currencies } : null;
+  }, [data, baseCurrency, money.native]);
 
   const [legendWidth, setLegendWidth] = useState(0);
 
@@ -601,6 +576,7 @@ function CustomPieChartWidget({ data, baseCurrency, isIncome = false }) {
               style={{ outline: 'none' }}
               onMouseEnter={handlePieMouseEnter}
               onMouseLeave={handlePieMouseLeave}
+              isAnimationActive={!ring}
             >
               {data.map((entry, index) => {
                 const isHighlighted = activeIndex === index;
@@ -617,6 +593,30 @@ function CustomPieChartWidget({ data, baseCurrency, isIncome = false }) {
                 );
               })}
             </Pie>
+            {ring && (
+              // Clear of the hover overlay, which grows the slice by 10px.
+              <Pie
+                data={ring.segments}
+                cx="50%"
+                cy="50%"
+                innerRadius={baseRadius + 13}
+                outerRadius={baseRadius + 19}
+                paddingAngle={0}
+                dataKey="value"
+                stroke="var(--bg-dark)"
+                strokeWidth={1}
+                isAnimationActive={false}
+                style={{ outline: 'none', pointerEvents: 'none' }}
+              >
+                {ring.segments.map(seg => (
+                  <Cell
+                    key={seg.key}
+                    fill={money.colourOf(seg.currency)}
+                    style={{ outline: 'none', opacity: activeIndex === -1 || activeIndex === seg.index ? 0.9 : 0.35, transition: 'opacity 0.3s ease' }}
+                  />
+                ))}
+              </Pie>
+            )}
           </PieChart>
         </ResponsiveContainer>
 
@@ -628,6 +628,15 @@ function CustomPieChartWidget({ data, baseCurrency, isIncome = false }) {
           chartSize={chartSize}
           baseRadius={baseRadius}
         />
+        {ring && (
+          <div className="currency-key" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+            {ring.currencies.map(c => (
+              <span key={c} className="currency-key-item">
+                <span className="currency-key-dot" style={{ background: money.colourOf(c) }} />{c}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="custom-pie-legend" ref={listRef}>
@@ -670,33 +679,25 @@ function CustomPieChartWidget({ data, baseCurrency, isIncome = false }) {
 }
 
 // 5. Spending By Category
-export function SpendingByCategory({ transactions, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  const data = usePieData(transactions, tx => tx.type === 0, 'category', baseCurrency, exchangeRates, accounts);
-  return <CustomPieChartWidget data={data} baseCurrency={baseCurrency} />;
+export function SpendingByCategory({ transactions }) {
+  const data = usePieData(transactions, isSpending, 'category');
+  return <CustomPieChartWidget data={data} />;
 }
 
 // 6. Spending By Payee
-export function SpendingByPayee({ transactions, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  const data = usePieData(transactions, tx => tx.type === 0, 'payee', baseCurrency, exchangeRates, accounts);
-  return <CustomPieChartWidget data={data} baseCurrency={baseCurrency} />;
+export function SpendingByPayee({ transactions }) {
+  const data = usePieData(transactions, isSpending, 'payee');
+  return <CustomPieChartWidget data={data} />;
 }
 
 // 7. Income By Category
-export function IncomeByCategory({ transactions, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  const data = usePieData(transactions, tx => tx.type === 1, 'category', baseCurrency, exchangeRates, accounts);
-  return <CustomPieChartWidget data={data} baseCurrency={baseCurrency} isIncome={true} />;
+export function IncomeByCategory({ transactions }) {
+  const data = usePieData(transactions, isEarning, 'category');
+  return <CustomPieChartWidget data={data} isIncome={true} />;
 }
 
 // 8. Income By Payee
-export function IncomeByPayee({ transactions, accounts }) {
-  const { baseCurrency } = useAppearanceSettings();
-  const { exchangeRates } = useData();
-  const data = usePieData(transactions, tx => tx.type === 1, 'payee', baseCurrency, exchangeRates, accounts);
-  return <CustomPieChartWidget data={data} baseCurrency={baseCurrency} isIncome={true} />;
+export function IncomeByPayee({ transactions }) {
+  const data = usePieData(transactions, isEarning, 'payee');
+  return <CustomPieChartWidget data={data} isIncome={true} />;
 }

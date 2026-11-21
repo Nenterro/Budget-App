@@ -118,3 +118,36 @@ export function balanceChangesByDay({ transactions = [], accounts = [], baseCurr
   }
   return { opening, daily };
 }
+
+/**
+ * `balanceChangesByDay`, kept apart per currency for native mode: the same
+ * legs, the same card exclusion and the same excluded-accounts rule, but each
+ * amount stays in its account's currency. Returns `opening` and each day's
+ * `daily[day]` as currency -> amount maps.
+ *
+ * A transfer between currencies lands as two legs: money leaves one line and
+ * arrives on the other, which is exactly what a split balance should show.
+ */
+export function balanceChangesByDayPerCurrency({ transactions = [], accounts = [], dayOf, excludedAccounts = [] }) {
+  const byName = new Map((accounts || []).map(a => [a.name, a]));
+  const excluded = new Set(excludedAccounts);
+  const counts = (name) => !excluded.has(name) && !isCreditAccount(byName.get(name) || {});
+  const currencyOf = (name) => byName.get(name)?.currency || 'USD';
+  const add = (map, cur, amount) => { map[cur] = (map[cur] || 0) + amount; };
+
+  const opening = {};
+  for (const acc of accounts || []) {
+    if (counts(acc.name)) add(opening, acc.currency || 'USD', Number(acc.initialBalance) || 0);
+  }
+
+  const daily = {};
+  for (const tx of transactions) {
+    for (const leg of transactionLegs(tx)) {
+      if (!counts(leg.account) || !leg.amount) continue;
+      const key = dayOf(tx.date);
+      if (!daily[key]) daily[key] = {};
+      add(daily[key], currencyOf(leg.account), leg.amount);
+    }
+  }
+  return { opening, daily };
+}

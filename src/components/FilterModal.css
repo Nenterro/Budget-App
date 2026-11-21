@@ -310,3 +310,8 @@
     overscroll-behavior: contain;
   }
 }
+
+/* Which currency the min/max are typed in. */
+.filter-currency-toggle {
+  margin-bottom: 14px;
+}

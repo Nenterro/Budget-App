@@ -9,7 +9,9 @@ const DEFAULT_FILTER_STATE = {
   excludedPayees: new Set(),
   excludedAccounts: new Set(),
   minAmount: '',
-  maxAmount: ''
+  maxAmount: '',
+  // The currency min/max are typed in; '' means the base currency.
+  amountCurrency: ''
 };
 
 const DEFAULT_WIDGETS = [

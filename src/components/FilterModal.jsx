@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useBaseMoney } from '../hooks/useBaseMoney';
+import { getCurrencySymbol } from '../utils/format';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, DollarSign, Tag, User, Wallet, CheckSquare, Square, RefreshCw } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
@@ -198,6 +200,14 @@ export default function FilterModal({
   const [excludedAccounts, setExcludedAccounts] = useState(new Set(initialState.excludedAccounts));
   const [minAmount, setMinAmount] = useState(initialState.minAmount || '');
   const [maxAmount, setMaxAmount] = useState(initialState.maxAmount || '');
+  // The currency min/max are typed in. Each transaction is compared after
+  // converting the limits into its own currency, so the same limit means the
+  // same money in unified and native mode alike.
+  const money = useBaseMoney();
+  const [amountCurrency, setAmountCurrency] = useState(
+    money.currencies.includes(initialState.amountCurrency) ? initialState.amountCurrency : money.baseCurrency
+  );
+  const amountSymbol = getCurrencySymbol(amountCurrency) || currencySymbol;
 
   // Names in use plus names that exist but are not used yet, so nothing is
   // silently unfilterable. Values only present on transactions (imported data,
@@ -227,6 +237,7 @@ export default function FilterModal({
     setExcludedAccounts(new Set());
     setMinAmount('');
     setMaxAmount('');
+    setAmountCurrency(money.baseCurrency);
   };
 
   const handleApply = () => {
@@ -235,7 +246,10 @@ export default function FilterModal({
       excludedPayees,
       excludedAccounts,
       minAmount,
-      maxAmount
+      maxAmount,
+      // Stored as '' for the base currency, so changing the base later moves
+      // an untouched filter along with it.
+      amountCurrency: amountCurrency === money.baseCurrency ? '' : amountCurrency
     });
   };
 
@@ -298,11 +312,22 @@ export default function FilterModal({
                   Filter by amount size. Expenses and income are both matched on
                   their magnitude, so 500 means &ldquo;500 either way&rdquo;.
                 </p>
+                {money.currencies.length > 1 && (
+                  <div className="segmented filter-currency-toggle" role="radiogroup" aria-label="Amount currency">
+                    {money.currencies.map(code => (
+                      <button key={code} type="button" role="radio" aria-checked={amountCurrency === code}
+                        className={`segment ${amountCurrency === code ? 'active' : ''}`}
+                        onClick={() => setAmountCurrency(code)}>
+                        {getCurrencySymbol(code)} {code}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="amount-inputs">
                   <div className="form-group">
                     <label>Min Amount</label>
                     <div className="input-with-icon">
-                      <AmountIcon symbol={currencySymbol} />
+                      <AmountIcon symbol={amountSymbol} />
                       <input
                         type="number"
                         inputMode="decimal"
@@ -316,7 +341,7 @@ export default function FilterModal({
                   <div className="form-group">
                     <label>Max Amount</label>
                     <div className="input-with-icon">
-                      <AmountIcon symbol={currencySymbol} />
+                      <AmountIcon symbol={amountSymbol} />
                       <input
                         type="number"
                         inputMode="decimal"

@@ -16,7 +16,7 @@ import './Budgets.css';
 
 export default function Budgets() {
   const { transactions, accounts, categories, budgets, saveBudget, saveCategory, exchangeRates } = useData();
-  const { baseCurrency } = useAppearanceSettings();
+  const { baseCurrency, displayMode } = useAppearanceSettings();
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [direction, setDirection] = useState(0);
@@ -205,6 +205,13 @@ export default function Budgets() {
       </div>
 
       <div key={monthStr} className="month-content">
+        {/* Envelopes are one pot each, so Budgets stays in the base currency
+            in native mode too. */}
+        {displayMode === 'split' && (
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+            Budgets are kept in {baseCurrency}<span className="converted-tag">converted</span>
+          </div>
+        )}
         <div className="budget-summary">
           <div>
             <div className="summary-label">Total Cash</div>
