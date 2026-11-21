@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import CurrencyModeToggle from '../components/CurrencyModeToggle';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
 import { useAppearanceSettings } from '../context/SettingsContext';
@@ -151,6 +152,7 @@ export default function Budgets() {
             }}>
             <Home size={20} />
           </NavLink>
+          <CurrencyModeToggle />
           <button 
             className="icon-btn"
             onClick={() => setIsGoalsModalOpen(true)}

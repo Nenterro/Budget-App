@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, Suspense } from 'react';
+import CurrencyModeToggle from '../components/CurrencyModeToggle';
 import { useBaseMoney } from '../hooks/useBaseMoney';
 import { lazyWithReload } from '../utils/staleChunk';
 import { AnimatePresence } from 'framer-motion';
@@ -185,6 +186,8 @@ export default function Transactions() {
                 options={PERIODS.map(p => ({ label: p, value: p }))}
               />
             </div>
+
+            <CurrencyModeToggle />
 
             <button
               className={`icon-btn relative ${hasActiveFilters ? 'active-filter' : ''}`}

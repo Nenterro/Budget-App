@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, Suspense } from 'react';
+import CurrencyModeToggle from '../components/CurrencyModeToggle';
 import { orderCurrencies } from '../utils/money';
 import { useBaseMoney } from '../hooks/useBaseMoney';
 import { lazyWithReload } from '../utils/staleChunk';
@@ -126,6 +127,7 @@ export default function Dashboard() {
                 options={PERIODS.map(p => ({ label: p, value: p }))}
               />
             </div>
+            <CurrencyModeToggle />
             <button
               className={`icon-btn relative ${hasActiveFilters ? 'active-filter' : ''}`}
               title="Filter"

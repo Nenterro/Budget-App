@@ -867,3 +867,14 @@ body {
   height: 8px;
   border-radius: 50%;
 }
+
+/* Unified / Native in the page headers (desktop only). Sized to sit level
+   with the 44px icon buttons beside it. */
+.currency-mode-toggle {
+  flex: 0 0 auto;
+  height: 44px;
+  box-sizing: border-box;
+}
+.currency-mode-toggle .segment {
+  padding: 0 14px;
+}

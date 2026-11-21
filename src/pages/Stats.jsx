@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import CurrencyModeToggle from '../components/CurrencyModeToggle';
 import { useBaseMoney } from '../hooks/useBaseMoney';
 import { Plus, Filter, Settings, Home } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
@@ -119,6 +120,8 @@ export default function Stats() {
                 options={PERIODS.map(p => ({ label: p, value: p }))}
               />
             </div>
+
+            <CurrencyModeToggle />
 
             <button
               className={`icon-btn relative ${hasActiveFilters ? 'active-filter' : ''}`}
