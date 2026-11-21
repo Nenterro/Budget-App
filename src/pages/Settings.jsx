@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tag, Wallet, User, Paintbrush, Globe, Database, ChevronRight, Cloud, Upload, Download, LogOut, ArrowLeft, Lock, Smartphone, Wand2 } from 'lucide-react';
+import { Tag, Wallet, User, Paintbrush, Globe, Database, ChevronRight, Cloud, Upload, Download, LogOut, ArrowLeft, Lock, Smartphone, Wand2, Bell } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { importData, exportData } from '../store/db';
 import { syncAll } from '../store/sync';
@@ -79,7 +79,8 @@ export default function Settings() {
       items: [
         { label: "PocketBase Sync", icon: Cloud, path: "/settings/sync" },
         { label: "Security & Encryption", icon: Lock, path: "/settings/security" },
-        { label: "Detection Rules", icon: Wand2, path: "/settings/automation" }
+        { label: "Detection Rules", icon: Wand2, path: "/settings/automation" },
+        { label: "Notifications", icon: Bell, path: "/settings/notifications" }
       ]
     },
     {

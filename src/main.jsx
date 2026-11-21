@@ -9,12 +9,15 @@ import { AuthProvider } from './context/AuthContext'
 import { restoreTheme } from './utils/theme'
 import { isChunkLoadError, reloadForNewVersion } from './utils/staleChunk'
 import { startAppUpdates } from './utils/appUpdate'
+import { clearBadgeWhenOpen } from './utils/push'
 
 // Before the first paint, so the saved accent colour is in place rather than
 // flashing the default while settings load out of IndexedDB.
 restoreTheme()
 
 startAppUpdates()
+
+clearBadgeWhenOpen()
 
 class ErrorBoundary extends React.Component {
   constructor(props) {

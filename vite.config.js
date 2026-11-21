@@ -13,6 +13,9 @@ export default defineConfig({
       // when the app is backgrounded or freshly opened with no form open.
       registerType: 'prompt',
       includeAssets: ['favicon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
+      // The generated worker only caches. Push handling (public/push-sw.js)
+      // is loaded into it, so notifications don't need a hand-written worker.
+      workbox: { importScripts: ['push-sw.js'] },
       manifest: {
         name: 'Budget',
         short_name: 'Budget',
